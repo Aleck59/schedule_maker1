@@ -252,6 +252,36 @@ describe('Расписание СПО (e2e)', () => {
     expect(Array.isArray(notifications.body)).toBe(true);
   });
 
+  it('календарный график: недели на границе учебных лет учитывают только свой год', async () => {
+    const programs = await http.get('/api/programs').set(auth('manager')).expect(200);
+    const graph = await http
+      .get(`/api/programs/${programs.body[0].id}/calendar-graph`)
+      .set(auth('manager'))
+      .expect(200);
+    expect(graph.body.years.length).toBeGreaterThan(0);
+    const settings = await http.get('/api/settings').set(auth('manager')).expect(200);
+    const workingDays: number[] = settings.body.settings.workingDays;
+    for (const year of graph.body.years as Array<{
+      startDate: string;
+      endDate: string;
+      weeks: Array<{ start: string; end: string; workingDays: number }>;
+    }>) {
+      for (const week of year.weeks) {
+        const from = week.start < year.startDate ? year.startDate : week.start;
+        const to = week.end > year.endDate ? year.endDate : week.end;
+        let days = 0;
+        for (
+          let d = new Date(`${from}T00:00:00Z`);
+          d <= new Date(`${to}T00:00:00Z`);
+          d.setUTCDate(d.getUTCDate() + 1)
+        ) {
+          if (workingDays.includes(d.getUTCDay() === 0 ? 7 : d.getUTCDay())) days++;
+        }
+        expect(week.workingDays).toBe(days);
+      }
+    }
+  });
+
   it('контроль часов, отчёты и экспорт', async () => {
     const hc = await http.get(`/api/groups/${groupId}/hour-control`).set(auth('manager')).expect(200);
     expect(hc.body.rows.length).toBeGreaterThan(10);

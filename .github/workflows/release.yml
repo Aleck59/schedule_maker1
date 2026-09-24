@@ -26,6 +26,8 @@ jobs:
   release:
     name: Выпуск версии
     needs: ci
+    # Выпуск только из релизных веток; ручной запуск на другой ветке выполняет лишь проверки
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
