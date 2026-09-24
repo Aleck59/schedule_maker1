@@ -3,7 +3,7 @@
 # Контекст сборки — корень репозитория:
 #   docker build -f apps/frontend/Dockerfile .
 
-FROM node:22-bookworm-slim AS build
+FROM node:25-bookworm-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/backend/package.json apps/backend/
