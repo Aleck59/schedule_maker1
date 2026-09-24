@@ -1,0 +1,99 @@
+# Полный стек: PostgreSQL, Redis, сервис CP-SAT, API и веб-интерфейс.
+# Запуск: cp .env.example .env && docker compose up -d --build
+# Интерфейс: http://localhost:8080 · Swagger: http://localhost:8080/api/docs
+
+name: schedule-maker
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    <<: *restart
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-schedule}
+      POSTGRES_USER: ${POSTGRES_USER:-schedule}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-schedule}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    <<: *restart
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  solver:
+    image: ${IMAGE_REGISTRY:-schedule-maker}/solver:${IMAGE_TAG:-local}
+    build:
+      context: ./apps/solver
+      args:
+        APP_VERSION: ${IMAGE_TAG:-local}
+    <<: *restart
+    environment:
+      LOG_LEVEL: ${SOLVER_LOG_LEVEL:-INFO}
+
+  backend:
+    image: ${IMAGE_REGISTRY:-schedule-maker}/backend:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+      args:
+        APP_VERSION: ${IMAGE_TAG:-local}
+    <<: *restart
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-schedule}:${POSTGRES_PASSWORD:-schedule}@postgres:5432/${POSTGRES_DB:-schedule}?schema=public
+      REDIS_URL: redis://redis:6379
+      SOLVER_URL: http://solver:8000
+      SOLVER_MODE: ${SOLVER_MODE:-auto}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-access-secret}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-7d}
+      CORS_ORIGIN: ${PUBLIC_URL:-http://localhost:8080}
+      RUN_MIGRATIONS: "true"
+      SEED_DEMO: ${SEED_DEMO:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      solver:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      # Первый запуск заполняет демонстрационные данные и генерирует расписание
+      start_period: 600s
+
+  frontend:
+    image: ${IMAGE_REGISTRY:-schedule-maker}/frontend:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+      args:
+        APP_VERSION: ${IMAGE_TAG:-local}
+    <<: *restart
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  redisdata:

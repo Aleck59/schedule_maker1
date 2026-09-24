@@ -1,0 +1,17 @@
+# Контекст сборки образов backend и frontend — корень репозитория
+**/node_modules
+**/dist
+**/coverage
+**/*.tsbuildinfo
+**/.env
+**/.env.*
+!**/.env.example
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+.git
+.github
+docs
+dump.rdb
+apps/solver

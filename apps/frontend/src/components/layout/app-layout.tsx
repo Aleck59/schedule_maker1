@@ -50,6 +50,8 @@ interface NavItem {
   roles: UserRole[];
 }
 
+const APP_VERSION = (import.meta.env.VITE_APP_VERSION as string | undefined) ?? 'dev';
+
 const STAFF: UserRole[] = ['ADMIN', 'DISPATCHER', 'MANAGER'];
 const EDITORS: UserRole[] = ['ADMIN', 'DISPATCHER'];
 
@@ -156,6 +158,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           );
         })}
       </div>
+      <div className="text-sidebar-muted px-5 py-3 text-[11px]">Версия {APP_VERSION}</div>
     </nav>
   );
 }

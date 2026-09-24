@@ -220,6 +220,28 @@ describe('Расписание СПО (e2e)', () => {
       .expect(403);
   });
 
+  it('преподавателю доступны только собственные отчёты и контроль часов', async () => {
+    const me = await http.get('/api/auth/me').set(auth('teacher')).expect(200);
+    const types = await http.get('/api/reports').set(auth('teacher')).expect(200);
+    expect(types.body.map((t: { type: string }) => t.type)).toEqual(['teacher-schedule']);
+    await http.get('/api/reports/plan-execution').set(auth('teacher')).expect(403);
+    const own = await http
+      .get('/api/reports/teacher-schedule?from=2026-02-09&to=2026-02-14')
+      .set(auth('teacher'))
+      .expect(200);
+    expect(own.body.rows.length).toBeGreaterThan(0);
+    const hours = await http.get('/api/hour-control').set(auth('teacher')).expect(200);
+    expect(hours.body.rows.length).toBeGreaterThan(0);
+    for (const row of hours.body.rows as Array<{ teachers: Array<{ id: string | null }> }>) {
+      expect(row.teachers.some((t) => t.id === me.body.teacherId)).toBe(true);
+    }
+    const programs = await http.get('/api/programs').set(auth('manager')).expect(200);
+    await http
+      .get(`/api/programs/${programs.body[0].id}/export/hour-control/excel`)
+      .set(auth('teacher'))
+      .expect(403);
+  });
+
   it('студент видит только свою группу', async () => {
     const me = await http.get('/api/auth/me').set(auth('student')).expect(200);
     await http.get(`/api/groups/${me.body.studentGroupId}/schedule`).set(auth('student')).expect(200);

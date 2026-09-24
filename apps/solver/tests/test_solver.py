@@ -35,11 +35,31 @@ def base_problem(**overrides) -> dict:
         "workingDays": [1, 2, 3, 4, 5, 6],
         "days": days,
         "groups": [
-            {"id": "g1", "code": "ИСП-1", "size": 25, "subgroups": [1, 2], "allowedDates": all_dates, "maxLessonsPerDay": 4},
-            {"id": "g2", "code": "ИСП-2", "size": 20, "subgroups": [], "allowedDates": all_dates, "maxLessonsPerDay": 4},
+            {
+                "id": "g1",
+                "code": "ИСП-1",
+                "size": 25,
+                "subgroups": [1, 2],
+                "allowedDates": all_dates,
+                "maxLessonsPerDay": 4,
+            },
+            {
+                "id": "g2",
+                "code": "ИСП-2",
+                "size": 20,
+                "subgroups": [],
+                "allowedDates": all_dates,
+                "maxLessonsPerDay": 4,
+            },
         ],
         "teachers": [
-            {"id": "t1", "name": "Иванова", "maxDailyLessons": 4, "maxWeeklyLessons": 20, "unavailable": [[6, n] for n in range(1, 7)]},
+            {
+                "id": "t1",
+                "name": "Иванова",
+                "maxDailyLessons": 4,
+                "maxWeeklyLessons": 20,
+                "unavailable": [[6, n] for n in range(1, 7)],
+            },
             {"id": "t2", "name": "Петров", "maxDailyLessons": 4, "maxWeeklyLessons": 20},
             {"id": "t3", "name": "Смирнова", "maxDailyLessons": 4, "maxWeeklyLessons": 20},
         ],
@@ -91,9 +111,15 @@ def check_hard_constraints(problem: Problem, result):
             per_day_discipline[(k, p.date)].add(p.lesson_number)
         teacher = next(t for t in problem.teachers if t.id == d.teacher_id)
         weekday = dt.date.fromisoformat(p.date).isoweekday()
-        assert (weekday, p.lesson_number) not in {tuple(x) for x in teacher.unavailable}, "преподаватель недоступен"
-        allowed = set(d.allowed_dates) if d.allowed_dates is not None else set.intersection(
-            *[set(next(g for g in problem.groups if g.id == gid).allowed_dates) for gid in d.group_ids]
+        assert (weekday, p.lesson_number) not in {tuple(x) for x in teacher.unavailable}, (
+            "преподаватель недоступен"
+        )
+        allowed = (
+            set(d.allowed_dates)
+            if d.allowed_dates is not None
+            else set.intersection(
+                *[set(next(g for g in problem.groups if g.id == gid).allowed_dates) for gid in d.group_ids]
+            )
         )
         assert p.date in allowed, "дата заблокирована"
     assert all(c == 1 for c in teacher_slots.values()), "преподаватель на двух занятиях одновременно"
@@ -121,8 +147,28 @@ def test_places_all_lessons_without_conflicts():
             demand("math_lec", ["g1"], "t1", 6, ["r_lec", "r_gen"], key="math"),
             demand("math_pr", ["g1"], "t1", 6, ["r_gen", "r_lec"], key="math", lessonType="PRACTICAL"),
             demand("prog_lec", ["g1"], "t2", 6, ["r_lec"], key="prog"),
-            demand("prog_lab_1", ["g1"], "t2", 4, ["r_pc1", "r_pc2"], sub=1, key="prog", lessonType="LABORATORY", size=13),
-            demand("prog_lab_2", ["g1"], "t3", 4, ["r_pc1", "r_pc2"], sub=2, key="prog", lessonType="LABORATORY", size=12),
+            demand(
+                "prog_lab_1",
+                ["g1"],
+                "t2",
+                4,
+                ["r_pc1", "r_pc2"],
+                sub=1,
+                key="prog",
+                lessonType="LABORATORY",
+                size=13,
+            ),
+            demand(
+                "prog_lab_2",
+                ["g1"],
+                "t3",
+                4,
+                ["r_pc1", "r_pc2"],
+                sub=2,
+                key="prog",
+                lessonType="LABORATORY",
+                size=12,
+            ),
             demand("math_g2", ["g2"], "t1", 6, ["r_gen", "r_lec"], key="math2", size=20),
         ]
     )
@@ -154,7 +200,16 @@ def test_practice_uses_explicit_allowed_dates():
     # В дни практики обычные занятия группе запрещены
     raw["groups"][1]["allowedDates"] = [d["date"] for d in raw["days"] if d["week"] < 3]
     raw["demands"] = [
-        demand("practice", ["g2"], "t2", 12, ["r_pc1"], lessonType="PRACTICE", size=20, allowedDates=practice_days)
+        demand(
+            "practice",
+            ["g2"],
+            "t2",
+            12,
+            ["r_pc1"],
+            lessonType="PRACTICE",
+            size=20,
+            allowedDates=practice_days,
+        )
         | {"disciplineKeys": []}
     ]
     problem = Problem.model_validate(raw)

@@ -39,3 +39,6 @@ tmp/
 *.local
 playwright-report/
 test-results/
+
+# Redis snapshots
+dump.rdb

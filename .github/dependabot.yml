@@ -1,0 +1,42 @@
+# Еженедельное обновление зависимостей (сообщения коммитов — в формате Conventional Commits)
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      nestjs:
+        patterns: ['@nestjs/*']
+      prisma:
+        patterns: ['prisma', '@prisma/*']
+      react:
+        patterns: ['react', 'react-dom', '@types/react*']
+      radix:
+        patterns: ['@radix-ui/*']
+
+  - package-ecosystem: pip
+    directory: /apps/solver
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+      include: scope
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci
+
+  - package-ecosystem: docker
+    directories: ['/apps/backend', '/apps/frontend', '/apps/solver']
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: build
