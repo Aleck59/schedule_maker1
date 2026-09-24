@@ -123,7 +123,8 @@ jobs:
 
   docker:
     name: Docker (${{ matrix.image }})
-    if: ${{ inputs.docker != false }}
+    # При запуске из Release сборка образов выполняется там (inputs.docker = false)
+    if: ${{ toJSON(inputs.docker) != 'false' }}
     needs: [backend, frontend, solver]
     runs-on: ubuntu-latest
     timeout-minutes: 30
