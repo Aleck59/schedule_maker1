@@ -27,7 +27,7 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.1.6",
     "@nestjs/swagger": "^11.2.0",
-    "@prisma/client": "^6.19.0",
+    "@prisma/client": "^7.10.0",
     "bcryptjs": "^3.0.2",
     "bullmq": "^5.58.0",
     "class-transformer": "^0.5.1",
@@ -36,7 +36,7 @@
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pdfmake": "^0.3.11",
-    "prisma": "^6.19.3",
+    "prisma": "^7.10.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },
