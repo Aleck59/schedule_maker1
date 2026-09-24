@@ -211,7 +211,7 @@ function StaffView({ data }: { data: StaffDashboard }) {
                     <div className="h-32 w-32 shrink-0">
                       <ResponsiveContainer>
                         <PieChart>
-                          <Pie data={pie} dataKey="value" nameKey="name" innerRadius={34} outerRadius={60} paddingAngle={2}>
+                          <Pie data={pie} dataKey="value" nameKey="name" innerRadius={34} outerRadius={60} paddingAngle={pie.length > 1 ? 2 : 0}>
                             {pie.map((p) => (
                               <Cell key={p.status} fill={STATUS_COLORS[p.status]} />
                             ))}

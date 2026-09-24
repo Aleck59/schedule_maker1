@@ -111,6 +111,7 @@ export default function GenerationPage() {
   const solver = useApi<SolverStatus>(['solver-status'], '/solver/status', undefined, { staleTime: 60_000 });
   const [createOpen, setCreateOpen] = useState(false);
   const [applyResult, setApplyResult] = useState<ApplyResult | null>(null);
+  const [allJobs, setAllJobs] = useState(false);
 
   const period: SchedulePeriod | undefined = useMemo(() => {
     const list = (periods.data ?? []).filter((p) => p.status !== 'ARCHIVED');
@@ -253,8 +254,8 @@ export default function GenerationPage() {
                           value={field.value}
                           onChange={(v) => field.onChange(v ?? 'CALENDAR')}
                           options={[
-                            { value: 'CALENDAR', label: 'Календарное расписание по датам (рекомендуется)' },
-                            { value: 'WEEKLY_TEMPLATE', label: 'Постоянная неделя (шаблон с развёрткой)' },
+                            { value: 'CALENDAR', label: 'По датам — календарный (рекомендуется)' },
+                            { value: 'WEEKLY_TEMPLATE', label: 'Постоянная неделя с развёрткой' },
                           ]}
                         />
                       )}
@@ -398,7 +399,7 @@ export default function GenerationPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {(jobs.data ?? []).map((j) => (
+                      {(jobs.data ?? []).slice(0, allJobs ? undefined : 8).map((j) => (
                         <TableRow
                           key={j.id}
                           className={cn('cursor-pointer', j.id === currentJobId && 'bg-primary/5')}
@@ -418,6 +419,11 @@ export default function GenerationPage() {
                       ))}
                     </TableBody>
                   </Table>
+                )}
+                {(jobs.data ?? []).length > 8 && (
+                  <Button variant="ghost" size="sm" className="mt-2 w-full" onClick={() => setAllJobs(!allJobs)}>
+                    {allJobs ? 'Скрыть старые запуски' : `Показать все запуски (${jobs.data!.length})`}
+                  </Button>
                 )}
               </CardContent>
             </Card>

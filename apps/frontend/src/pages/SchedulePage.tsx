@@ -63,7 +63,7 @@ export default function SchedulePage() {
   const teachers = useTeachers(user?.role !== 'STUDENT');
   const classrooms = useClassrooms(user?.role !== 'STUDENT' && user?.role !== 'TEACHER');
 
-  const view = (params.get('view') as View) || 'group';
+  const view = (params.get('view') as View) || (user?.role === 'TEACHER' ? 'teacher' : 'group');
   const periodId = params.get('period');
   const entityId = params.get(view === 'teacher' ? 'teacherId' : view === 'classroom' ? 'classroomId' : 'groupId');
   const [monthRange, setMonthRange] = useState<{ from: string; to: string } | null>(null);
@@ -99,7 +99,10 @@ export default function SchedulePage() {
   );
   useEffect(() => {
     if (!period) return;
-    if (view === 'group' && !entityId && periodGroups[0]) setParam({ groupId: periodGroups[0].id });
+    // Группа из другого учебного плана (после смены периода) заменяется первой группой периода
+    if (view === 'group' && periodGroups[0] && (!entityId || !periodGroups.some((g) => g.id === entityId))) {
+      setParam({ groupId: periodGroups[0].id });
+    }
     if (view === 'teacher' && !entityId) {
       const id = user?.role === 'TEACHER' ? user.teacherId : teachers.data?.[0]?.id;
       if (id) setParam({ teacherId: id });
@@ -275,7 +278,7 @@ export default function SchedulePage() {
             <div className="w-72">
               <SimpleSelect
                 value={period.id}
-                onChange={(v) => setParam({ period: v, week: null, day: null })}
+                onChange={(v) => setParam({ period: v, week: null, day: null, groupId: null })}
                 options={(periods.data ?? []).map((p) => ({ value: p.id, label: p.title }))}
               />
             </div>
