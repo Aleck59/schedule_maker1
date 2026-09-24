@@ -196,13 +196,24 @@ export class CurriculumImportService {
       }
     }
 
-    const result: ImportResult = { cyclesCreated: 0, itemsCreated: 0, itemsUpdated: 0, semesterRows: 0, errors: [] };
+    const result: ImportResult = {
+      cyclesCreated: 0,
+      itemsCreated: 0,
+      itemsUpdated: 0,
+      semesterRows: 0,
+      errors: [],
+    };
     const semesters = await this.prisma.semester.findMany({ where: { educationalProgramId: programId } });
     const cycles = new Map(
-      (await this.prisma.curriculumCycle.findMany({ where: { educationalProgramId: programId } })).map((c) => [c.code, c]),
+      (await this.prisma.curriculumCycle.findMany({ where: { educationalProgramId: programId } })).map(
+        (c) => [c.code, c],
+      ),
     );
     const items = new Map(
-      (await this.prisma.curriculumItem.findMany({ where: { educationalProgramId: programId } })).map((i) => [i.code, i]),
+      (await this.prisma.curriculumItem.findMany({ where: { educationalProgramId: programId } })).map((i) => [
+        i.code,
+        i,
+      ]),
     );
     const touchedItems = new Set<string>();
     let lastCycleCode: string | null = null;

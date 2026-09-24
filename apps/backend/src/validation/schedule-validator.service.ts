@@ -1,17 +1,32 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { CalendarEventType, ClassroomType, ControlForm, LessonType, Prisma, Severity } from '@prisma/client';
-import { addDaysStr, eachDay, formatDateRu, parseDate, toDateStr, todayInTimezone, weekStart } from '../common/utils/dates';
+import {
+  addDaysStr,
+  eachDay,
+  formatDateRu,
+  parseDate,
+  toDateStr,
+  todayInTimezone,
+  weekStart,
+} from '../common/utils/dates';
 import { CALENDAR_EVENT_LABELS, CLASSROOM_TYPE_LABELS, LESSON_TYPE_LABELS } from '../common/utils/labels';
 import { effectiveRoomTypes } from '../common/utils/rooms';
 import { PRACTICE_EVENT_TYPES, practiceEventTypeFor } from '../planning/calendar-context';
-import { ACTIVE_STATUSES, computeStreamHours, LessonForHours, matchLessonsToStreams } from '../planning/hours-calculator';
+import {
+  ACTIVE_STATUSES,
+  computeStreamHours,
+  LessonForHours,
+  matchLessonsToStreams,
+} from '../planning/hours-calculator';
 import { PlanningService } from '../planning/planning.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { BLOCKING_TYPES, ValidationIssue, ValidationSummary } from './validation.types';
 
 const lessonInclude = {
-  studentGroup: { select: { id: true, code: true, studentCount: true, subgroupCount: true, subgroups: true } },
+  studentGroup: {
+    select: { id: true, code: true, studentCount: true, subgroupCount: true, subgroups: true },
+  },
   teacher: { include: { availability: true } },
   classroom: { include: { availability: true } },
   semesterItem: { include: { curriculumItem: true, semester: true } },
@@ -87,14 +102,32 @@ export class ScheduleValidatorService {
       const date = toDateStr(l.date);
       const base = { entityType: 'ScheduleLesson', entityId: l.id };
       if (date < from || date > to) {
-        add({ ...base, severity: Severity.ERROR, validationType: 'LESSON_OUTSIDE_PERIOD', message: `Занятие вне периода расписания: ${describe(l)}` });
+        add({
+          ...base,
+          severity: Severity.ERROR,
+          validationType: 'LESSON_OUTSIDE_PERIOD',
+          message: `Занятие вне периода расписания: ${describe(l)}`,
+        });
       }
-      if (date < toDateStr(l.semesterItem.semester.startDate) || date > toDateStr(l.semesterItem.semester.endDate)) {
-        add({ ...base, severity: Severity.ERROR, validationType: 'LESSON_OUTSIDE_SEMESTER', message: `Занятие вне дат семестра: ${describe(l)}` });
+      if (
+        date < toDateStr(l.semesterItem.semester.startDate) ||
+        date > toDateStr(l.semesterItem.semester.endDate)
+      ) {
+        add({
+          ...base,
+          severity: Severity.ERROR,
+          validationType: 'LESSON_OUTSIDE_SEMESTER',
+          message: `Занятие вне дат семестра: ${describe(l)}`,
+        });
       }
       const day = ctx.groupDay(l.studentGroupId, date);
       if (!day.isWorkingDay) {
-        add({ ...base, severity: Severity.WARNING, validationType: 'LESSON_ON_DAY_OFF', message: `Занятие в выходной день: ${describe(l)}` });
+        add({
+          ...base,
+          severity: Severity.WARNING,
+          validationType: 'LESSON_ON_DAY_OFF',
+          message: `Занятие в выходной день: ${describe(l)}`,
+        });
       }
       const practiceType = practiceEventTypeFor(l.semesterItem.curriculumItem.itemType);
       for (const b of day.blocks) {
@@ -117,9 +150,16 @@ export class ScheduleValidatorService {
         });
       }
       if (!l.teacherId) {
-        add({ ...base, severity: Severity.ERROR, validationType: 'NO_TEACHER', message: `Занятие без преподавателя: ${describe(l)}` });
+        add({
+          ...base,
+          severity: Severity.ERROR,
+          validationType: 'NO_TEACHER',
+          message: `Занятие без преподавателя: ${describe(l)}`,
+        });
       } else if (l.teacher) {
-        const slot = l.teacher.availability.find((a) => a.weekday === l.weekday && a.lessonNumber === l.lessonNumber);
+        const slot = l.teacher.availability.find(
+          (a) => a.weekday === l.weekday && a.lessonNumber === l.lessonNumber,
+        );
         if ((slot && !slot.isAvailable) || !l.teacher.isActive) {
           add({
             ...base,
@@ -138,12 +178,24 @@ export class ScheduleValidatorService {
         }
       }
       if (!l.classroomId || !l.classroom) {
-        add({ ...base, severity: Severity.ERROR, validationType: 'NO_CLASSROOM', message: `Занятие без аудитории: ${describe(l)}` });
+        add({
+          ...base,
+          severity: Severity.ERROR,
+          validationType: 'NO_CLASSROOM',
+          message: `Занятие без аудитории: ${describe(l)}`,
+        });
       } else {
         const room = l.classroom;
-        const slot = room.availability.find((a) => a.weekday === l.weekday && a.lessonNumber === l.lessonNumber);
+        const slot = room.availability.find(
+          (a) => a.weekday === l.weekday && a.lessonNumber === l.lessonNumber,
+        );
         if ((slot && !slot.isAvailable) || !room.isActive) {
-          add({ ...base, severity: Severity.ERROR, validationType: 'CLASSROOM_UNAVAILABLE', message: `Аудитория ${room.code} недоступна: ${describe(l)}` });
+          add({
+            ...base,
+            severity: Severity.ERROR,
+            validationType: 'CLASSROOM_UNAVAILABLE',
+            message: `Аудитория ${room.code} недоступна: ${describe(l)}`,
+          });
         }
         const allowed = effectiveRoomTypes(l.lessonType, l.semesterItem, l.assignment?.classroomTypes);
         if (!allowed.includes(room.classroomType)) {
@@ -184,7 +236,10 @@ export class ScheduleValidatorService {
       if (l.classroomId && l.classroom?.classroomType !== ClassroomType.ONLINE) {
         pushTo(roomSlots, `${l.classroomId}#${slotKey(l.date, l.lessonNumber)}`, occ);
       }
-      pushTo(groupSlots, `${l.studentGroupId}#${slotKey(l.date, l.lessonNumber)}`, { ...occ, subgroup: l.subgroupNumber });
+      pushTo(groupSlots, `${l.studentGroupId}#${slotKey(l.date, l.lessonNumber)}`, {
+        ...occ,
+        subgroup: l.subgroupNumber,
+      });
     }
     for (const o of others) {
       const occ = {
@@ -195,7 +250,10 @@ export class ScheduleValidatorService {
       };
       if (o.teacherId) pushTo(teacherSlots, `${o.teacherId}#${slotKey(o.date, o.lessonNumber)}`, occ);
       if (o.classroomId) pushTo(roomSlots, `${o.classroomId}#${slotKey(o.date, o.lessonNumber)}`, occ);
-      pushTo(groupSlots, `${o.studentGroupId}#${slotKey(o.date, o.lessonNumber)}`, { ...occ, subgroup: o.subgroupNumber });
+      pushTo(groupSlots, `${o.studentGroupId}#${slotKey(o.date, o.lessonNumber)}`, {
+        ...occ,
+        subgroup: o.subgroupNumber,
+      });
     }
     const units = (list: Occ[]) => new Set(list.map((o) => o.streamKey ?? o.id)).size;
     for (const [key, list] of teacherSlots) {
@@ -262,7 +320,12 @@ export class ScheduleValidatorService {
         const g = l.studentGroup;
         if (!l.subgroupNumber) return a + g.studentCount;
         const sg = g.subgroups.find((s) => s.number === l.subgroupNumber);
-        return a + (sg && sg.studentCount > 0 ? sg.studentCount : Math.ceil(g.studentCount / Math.max(1, g.subgroupCount)));
+        return (
+          a +
+          (sg && sg.studentCount > 0
+            ? sg.studentCount
+            : Math.ceil(g.studentCount / Math.max(1, g.subgroupCount)))
+        );
       }, 0);
       if (room.capacity < size) {
         add({
@@ -463,7 +526,12 @@ export class ScheduleValidatorService {
       const h = computeStreamHours(s, list, today);
       const base = { entityType: 'SemesterCurriculumItem', entityId: s.semesterItemId };
       if (!s.teacherId) {
-        add({ ...base, severity: Severity.WARNING, validationType: 'UNASSIGNED_TEACHER', message: `Не назначен преподаватель: ${label}` });
+        add({
+          ...base,
+          severity: Severity.WARNING,
+          validationType: 'UNASSIGNED_TEACHER',
+          message: `Не назначен преподаватель: ${label}`,
+        });
       }
       if (h.excess > 0) {
         add({
@@ -484,7 +552,10 @@ export class ScheduleValidatorService {
       }
 
       // Равномерность по неделям
-      const own = list.filter((l) => ACTIVE_STATUSES.includes(l.status)).map((l) => l.date).sort();
+      const own = list
+        .filter((l) => ACTIVE_STATUSES.includes(l.status))
+        .map((l) => l.date)
+        .sort();
       if (own.length >= 8) {
         const cacheKey = s.groupId;
         let allowedDays = allowedDaysCache.get(cacheKey);
@@ -519,7 +590,9 @@ export class ScheduleValidatorService {
       // Хватит ли недель до конца семестра
       if (today < semesterEnd && h.remaining > 0) {
         const start = today > s.semesterStart ? today : s.semesterStart;
-        const days = eachDay(start, semesterEnd).filter((d) => (ctx.groups.has(s.groupId) ? ctx.isRegularAllowed(s.groupId, d) : true));
+        const days = eachDay(start, semesterEnd).filter((d) =>
+          ctx.groups.has(s.groupId) ? ctx.isRegularAllowed(s.groupId, d) : true,
+        );
         const weeksLeft = new Set(days.map((d) => weekStart(d))).size;
         const lessonsLeft = Math.ceil(h.remaining / settings.academicHoursPerLesson);
         if (weeksLeft === 0 || lessonsLeft / weeksLeft > settings.maxSameDisciplinePerWeek * 1.5) {

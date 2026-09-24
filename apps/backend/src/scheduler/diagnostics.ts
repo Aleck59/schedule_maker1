@@ -36,7 +36,12 @@ interface Funnel {
  * Объяснение причин, по которым занятия не удалось поставить:
  * «воронка» слотов — сколько допустимых слотов отсекает каждое ограничение.
  */
-export function diagnoseDemand(problem: SolverProblem, result: SolverResult, demand: SolverDemand, unplacedCount: number) {
+export function diagnoseDemand(
+  problem: SolverProblem,
+  result: SolverResult,
+  demand: SolverDemand,
+  unplacedCount: number,
+) {
   const reasons: DiagnosticReason[] = [];
   const teacher = problem.teachers.find((t) => t.id === demand.teacherId);
   if (!teacher) {
@@ -53,24 +58,28 @@ export function diagnoseDemand(problem: SolverProblem, result: SolverResult, dem
 
   // Разрешённые даты
   let allowed = null as Set<string> | null;
-  for (const gId of demand.groupIds) {
-    const g = problem.groups.find((x) => x.id === gId);
-    const gs = new Set(g?.allowedDates ?? []);
-    allowed = allowed ? new Set([...allowed].filter((x) => gs.has(x))) : gs;
-  }
   if (demand.allowedDates) {
-    const ds = new Set(demand.allowedDates);
-    allowed = new Set([...(allowed ?? ds)].filter((x) => ds.has(x)));
+    allowed = new Set(demand.allowedDates);
+  } else {
+    for (const gId of demand.groupIds) {
+      const g = problem.groups.find((x) => x.id === gId);
+      const gs = new Set(g?.allowedDates ?? []);
+      allowed = allowed ? new Set([...allowed].filter((x) => gs.has(x))) : gs;
+    }
   }
   const blocked = new Set(teacher.blockedDates);
   const allowedDays = problem.days.filter((d) => allowed?.has(d.date) && !blocked.has(d.date));
   if (allowedDays.length === 0) {
     if (demand.lessonType === 'PRACTICE') {
-      reasons.push({ code: 'NO_PRACTICE_PERIOD', message: 'В календарном графике нет периода практики для группы' });
+      reasons.push({
+        code: 'NO_PRACTICE_PERIOD',
+        message: 'В календарном графике нет периода практики для группы',
+      });
     } else {
       reasons.push({
         code: 'NO_AVAILABLE_DAYS',
-        message: 'В выбранном интервале нет учебных дней: каникулы, практика, сессия или недоступность преподавателя',
+        message:
+          'В выбранном интервале нет учебных дней: каникулы, практика, сессия или недоступность преподавателя',
       });
     }
     return { reasons, funnel: null };
@@ -114,7 +123,15 @@ export function diagnoseDemand(problem: SolverProblem, result: SolverResult, dem
     }
   };
   for (const o of problem.occupied) {
-    mark(o.date, o.lessonNumber, o.groupId ? [o.groupId] : [], o.subgroupNumber, o.teacherId, o.roomId, o.disciplineKey ? [o.disciplineKey] : []);
+    mark(
+      o.date,
+      o.lessonNumber,
+      o.groupId ? [o.groupId] : [],
+      o.subgroupNumber,
+      o.teacherId,
+      o.roomId,
+      o.disciplineKey ? [o.disciplineKey] : [],
+    );
   }
   for (const p of result.placements) {
     const d = demandById.get(p.demandId);
@@ -166,43 +183,57 @@ export function diagnoseDemand(problem: SolverProblem, result: SolverResult, dem
     }
   }
 
-  const lost = (from: number, to: number) => from - to;
   const need = unplacedCount;
-  if (funnel.teacherAvailable < need || lost(funnel.total, funnel.teacherAvailable) > funnel.total * 0.4) {
-    reasons.push({
+  // Шаги «воронки»: каждое ограничение отсекает часть слотов
+  const steps: Array<{ code: UnplacedReason; before: number; after: number; message: string }> = [
+    {
       code: 'TEACHER_UNAVAILABLE',
+      before: funnel.total,
+      after: funnel.teacherAvailable,
       message: `Преподаватель ${teacher.name} доступен только в ${funnel.teacherAvailable} из ${funnel.total} слотов периода`,
-    });
-  }
-  if (lost(funnel.teacherAvailable, funnel.teacherFree) > funnel.teacherAvailable * 0.5) {
-    reasons.push({
+    },
+    {
       code: 'TEACHER_BUSY',
+      before: funnel.teacherAvailable,
+      after: funnel.teacherFree,
       message: `Преподаватель ${teacher.name} занят другими занятиями в ${funnel.teacherAvailable - funnel.teacherFree} доступных слотах`,
-    });
-  }
-  if (lost(funnel.teacherFree, funnel.teacherWithinLimits) > Math.max(need, funnel.teacherFree * 0.3)) {
-    reasons.push({
+    },
+    {
       code: 'TEACHER_LIMIT',
+      before: funnel.teacherFree,
+      after: funnel.teacherWithinLimits,
       message: `Достигнут лимит нагрузки преподавателя (${teacher.maxDailyLessons} пар в день / ${teacher.maxWeeklyLessons} в неделю)`,
-    });
-  }
-  if (lost(funnel.teacherWithinLimits, funnel.groupFree) > funnel.teacherWithinLimits * 0.5 || funnel.groupFree < need) {
-    reasons.push({
+    },
+    {
       code: 'GROUP_BUSY',
+      before: funnel.teacherWithinLimits,
+      after: funnel.groupFree,
       message: `У группы нет свободных пар в ${funnel.teacherWithinLimits - funnel.groupFree} слотах, когда свободен преподаватель`,
-    });
-  }
-  if (lost(funnel.groupFree, funnel.disciplineOk) > Math.max(need, funnel.groupFree * 0.3)) {
-    reasons.push({
+    },
+    {
       code: 'DAILY_LIMITS',
+      before: funnel.groupFree,
+      after: funnel.disciplineOk,
       message: `Ограничение «не более ${problem.settings.maxSameDisciplinePerDay} пар дисциплины в день» отсекает ${funnel.groupFree - funnel.disciplineOk} слотов`,
-    });
-  }
-  if (lost(funnel.disciplineOk, funnel.roomFree) > Math.max(need, funnel.disciplineOk * 0.3) || funnel.roomFree < need) {
-    reasons.push({
+    },
+    {
       code: 'ROOM_SHORTAGE',
+      before: funnel.disciplineOk,
+      after: funnel.roomFree,
       message: `Подходящие аудитории заняты в ${funnel.disciplineOk - funnel.roomFree} из ${funnel.disciplineOk} возможных слотов`,
-    });
+    },
+  ];
+  // Основная причина — шаг, после которого свободных слотов становится меньше, чем нужно пар
+  const primary =
+    steps.find((st) => st.after < need && st.before >= need) ?? steps.find((st) => st.after < need);
+  if (primary) reasons.push({ code: primary.code, message: primary.message });
+  // Дополнительные причины — ограничения, отсекающие значительную часть слотов
+  for (const st of steps) {
+    if (st === primary) continue;
+    const cut = st.before - st.after;
+    if (cut > 0 && cut >= Math.max(need, st.before * 0.4)) {
+      reasons.push({ code: st.code, message: st.message });
+    }
   }
   if (reasons.length === 0) {
     reasons.push({

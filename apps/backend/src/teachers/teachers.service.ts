@@ -78,7 +78,9 @@ export class TeachersService {
     const before = await this.get(id, actor);
     const lessons = await this.prisma.scheduleLesson.count({ where: { teacherId: id } });
     if (lessons > 0) {
-      throw new ConflictException('Нельзя удалить преподавателя, у которого есть занятия. Сделайте его неактивным');
+      throw new ConflictException(
+        'Нельзя удалить преподавателя, у которого есть занятия. Сделайте его неактивным',
+      );
     }
     await this.prisma.teacher.delete({ where: { id } });
     await this.audit.log(actor.id, 'DELETE', 'Teacher', id, before, null);

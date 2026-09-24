@@ -12,7 +12,9 @@ const INCLUDE = {
   group: { select: { id: true, code: true } },
   semesterItem: { include: { curriculumItem: { select: { code: true, name: true } } } },
   teacher: { select: { id: true, fullName: true } },
-  sourceLesson: { select: { id: true, date: true, lessonNumber: true, schedulePeriodId: true, status: true } },
+  sourceLesson: {
+    select: { id: true, date: true, lessonNumber: true, schedulePeriodId: true, status: true },
+  },
   resolvedLesson: { select: { id: true, date: true, lessonNumber: true, status: true } },
 } satisfies Prisma.MakeupTaskInclude;
 
@@ -34,12 +36,18 @@ export class MakeupTasksService {
       teacherId: params.teacherId || undefined,
     };
     if (actor.role === UserRole.TEACHER) where.teacherId = actor.teacherId ?? '-';
-    const tasks = await this.prisma.makeupTask.findMany({ where, include: INCLUDE, orderBy: [{ status: 'asc' }, { createdAt: 'desc' }] });
+    const tasks = await this.prisma.makeupTask.findMany({
+      where,
+      include: INCLUDE,
+      orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+    });
     return tasks.map((t) => ({
       ...t,
       dueDate: t.dueDate ? toDateStr(t.dueDate) : null,
       sourceLesson: t.sourceLesson ? { ...t.sourceLesson, date: toDateStr(t.sourceLesson.date) } : null,
-      resolvedLesson: t.resolvedLesson ? { ...t.resolvedLesson, date: toDateStr(t.resolvedLesson.date) } : null,
+      resolvedLesson: t.resolvedLesson
+        ? { ...t.resolvedLesson, date: toDateStr(t.resolvedLesson.date) }
+        : null,
     }));
   }
 
@@ -56,7 +64,11 @@ export class MakeupTasksService {
     const before = await this.load(id, actor);
     const updated = await this.prisma.makeupTask.update({
       where: { id },
-      data: { status: dto.status, notes: dto.notes, dueDate: dto.dueDate ? parseDate(dto.dueDate) : undefined },
+      data: {
+        status: dto.status,
+        notes: dto.notes,
+        dueDate: dto.dueDate ? parseDate(dto.dueDate) : undefined,
+      },
       include: INCLUDE,
     });
     await this.audit.log(actor.id, 'UPDATE', 'MakeupTask', id, before, updated);

@@ -15,7 +15,13 @@ export class ClassroomsService {
 
   list(
     actor: AuthUser,
-    params: { type?: ClassroomType; building?: string; isActive?: boolean; minCapacity?: number; search?: string },
+    params: {
+      type?: ClassroomType;
+      building?: string;
+      isActive?: boolean;
+      minCapacity?: number;
+      search?: string;
+    },
   ) {
     return this.prisma.classroom.findMany({
       where: {

@@ -274,7 +274,8 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     preferenceTeacher.set(t.id, new Map(t.preferences.map(([w, l, v]) => [`${w}#${l}`, v])));
   }
   const unavailableRoom = new Map<string, Set<string>>();
-  for (const r of problem.rooms) unavailableRoom.set(r.id, new Set(r.unavailable.map(([w, l]) => `${w}#${l}`)));
+  for (const r of problem.rooms)
+    unavailableRoom.set(r.id, new Set(r.unavailable.map(([w, l]) => `${w}#${l}`)));
 
   const daysByWeek = new Map<number, DayRef[]>();
   for (const day of problem.days) {
@@ -289,15 +290,16 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
   for (const d of problem.demands) {
     const teacher = teachersById.get(d.teacherId);
     if (!teacher || d.lessonsRequired <= 0) continue;
+    // Явно заданные даты (практика, консультации) заменяют даты обычных занятий группы
     let allowed = null as Set<string> | null;
-    for (const gId of d.groupIds) {
-      const g = groupsById.get(gId);
-      const gs = new Set(g?.allowedDates ?? []);
-      allowed = allowed ? new Set([...allowed].filter((x) => gs.has(x))) : gs;
-    }
     if (d.allowedDates) {
-      const ds = new Set(d.allowedDates);
-      allowed = new Set([...(allowed ?? ds)].filter((x) => ds.has(x)));
+      allowed = new Set(d.allowedDates);
+    } else {
+      for (const gId of d.groupIds) {
+        const g = groupsById.get(gId);
+        const gs = new Set(g?.allowedDates ?? []);
+        allowed = allowed ? new Set([...allowed].filter((x) => gs.has(x))) : gs;
+      }
     }
     const blocked = new Set(teacher.blockedDates);
     const allowedDays = new Set([...(allowed ?? [])].filter((x) => !blocked.has(x)));
@@ -321,16 +323,18 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
 
   const makeState = () => new ScheduleState(problem, roomsById, subgroupsByGroup);
   /** Накопительная цель демандa к концу недели w (с учётом доступных дней) */
-  const progress = new Map<DemandState, { days: number; weeks: number }>();
+  const paceProgress = new Map<DemandState, { days: number; weeks: number }>();
   const targetThrough = (ds: DemandState, w: number) => {
-    const p = progress.get(ds) ?? { days: 0, weeks: 0 };
+    const p = paceProgress.get(ds) ?? { days: 0, weeks: 0 };
     p.days += ds.daysByWeek.get(w) ?? 0;
     p.weeks += 1;
-    progress.set(ds, p);
+    paceProgress.set(ds, p);
     return cumulativeTargetByDays(ds.d.lessonsRequired, p.days, ds.totalDays, p.weeks, ds.d.weeklyRate);
   };
   const state = makeState();
-  const dayRefByDate = new Map(problem.days.map((d) => [d.date, { key: d.date, weekday: d.weekday, week: d.week }]));
+  const dayRefByDate = new Map(
+    problem.days.map((d) => [d.date, { key: d.date, weekday: d.weekday, week: d.week }]),
+  );
   for (const o of problem.occupied) {
     const day = dayRefByDate.get(o.date);
     if (!day) continue;
@@ -399,13 +403,15 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
           cost += (gaps(set, lesson) - gaps(set)) * weights.groupWindows;
         }
         const count = (set?.size ?? 0) + (set?.has(lesson) ? 0 : 1);
-        if (group && count > group.maxLessonsPerDay) cost += weights.groupDailyOverload * (count - group.maxLessonsPerDay);
+        if (group && count > group.maxLessonsPerDay)
+          cost += weights.groupDailyOverload * (count - group.maxLessonsPerDay);
         cost += (weights.evenDistribution / 5) * (set?.size ?? 0);
       }
     }
     const td = st.teacherDay.get(`${d.teacherId}#${day.key}`);
     if (settings.avoidWindows) cost += (gaps(td, lesson) - gaps(td)) * weights.teacherWindows;
-    if (lesson >= settings.lateLessonNumber) cost += weights.lateLessons * (lesson - settings.lateLessonNumber + 1);
+    if (lesson >= settings.lateLessonNumber)
+      cost += weights.lateLessons * (lesson - settings.lateLessonNumber + 1);
     if (settings.respectTeacherPreferences) {
       const t = ds.teacher;
       if (lesson < t.preferredStartLesson || lesson > t.preferredEndLesson) cost += weights.teacherPreference;
@@ -500,14 +506,24 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
         st.remove(blocker);
         blocker.demand.placed--;
         const canPlace =
-          teacherFree(st, ds, day, lesson) && groupFree(st, ds, day, lesson) && disciplineOk(st, ds, day, lesson);
+          teacherFree(st, ds, day, lesson) &&
+          groupFree(st, ds, day, lesson) &&
+          disciplineOk(st, ds, day, lesson);
         if (canPlace) {
-          const room = ds.d.roomIds.map((r) => roomsById.get(r)!).find((r) => r && roomFree(st, r, day, lesson));
+          const room = ds.d.roomIds
+            .map((r) => roomsById.get(r)!)
+            .find((r) => r && roomFree(st, r, day, lesson));
           if (room) {
             const mine = st.apply({ demand: ds, day, lesson, roomId: room.id, fixed: false });
             const alt = bestCandidate(st, blocker.demand, days, { dayKey: day.key, lesson });
             if (alt) {
-              st.apply({ demand: blocker.demand, day: alt.day, lesson: alt.lesson, roomId: alt.roomId, fixed: false });
+              st.apply({
+                demand: blocker.demand,
+                day: alt.day,
+                lesson: alt.lesson,
+                roomId: alt.roomId,
+                fixed: false,
+              });
               blocker.demand.placed++;
               ds.placed++;
               return true;
@@ -529,7 +545,12 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
   };
 
   /** Постановка занятий одной недели по целям */
-  const solveWeek = (st: ScheduleState, days: DayRef[], targets: Map<DemandState, number>, repairLimit: number) => {
+  const solveWeek = (
+    st: ScheduleState,
+    days: DayRef[],
+    targets: Map<DemandState, number>,
+    repairLimit: number,
+  ) => {
     const active = [...targets.entries()].filter(([, t]) => t > 0).map(([ds]) => ds);
     // Самые ограниченные — первыми
     const freedom = new Map<DemandState, number>();
@@ -538,7 +559,8 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
       for (const day of days) {
         if (!ds.allowedDays.has(day.key)) continue;
         for (let l = 1; l <= lessonsPerDay; l++) {
-          if (slotAllowed(ds, day, l) && !unavailableTeacher.get(ds.teacher.id)?.has(`${day.weekday}#${l}`)) slots++;
+          if (slotAllowed(ds, day, l) && !unavailableTeacher.get(ds.teacher.id)?.has(`${day.weekday}#${l}`))
+            slots++;
         }
       }
       freedom.set(ds, slots * Math.max(1, ds.d.roomIds.length));
@@ -586,15 +608,34 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     for (const o of problem.occupied) {
       const day = dayRefByDate.get(o.date);
       if (!day) continue;
-      const key = JSON.stringify([day.weekday, o.lessonNumber, o.groupId, o.subgroupNumber, o.teacherId, o.roomId, o.disciplineKey]);
+      const key = JSON.stringify([
+        day.weekday,
+        o.lessonNumber,
+        o.groupId,
+        o.subgroupNumber,
+        o.teacherId,
+        o.roomId,
+        o.disciplineKey,
+      ]);
       recurring.set(key, (recurring.get(key) ?? 0) + 1);
     }
     for (const [key, count] of recurring) {
       if (count < Math.max(2, weeks.length / 2)) continue;
       const [weekday, lesson, groupId, subgroup, teacherId, roomId, disciplineKey] = JSON.parse(key);
-      templateState.occupy({ dayKey: `T${weekday}`, week: -1, lesson, groupId, subgroup, teacherId, roomId, disciplineKey });
+      templateState.occupy({
+        dayKey: `T${weekday}`,
+        week: -1,
+        lesson,
+        groupId,
+        subgroup,
+        teacherId,
+        roomId,
+        disciplineKey,
+      });
     }
-    const templateDemands = demands.map((ds) => {
+    // В шаблон недели входят только регулярные занятия; практика и консультации — календарным проходом
+    const regular = demands.filter((ds) => ds.d.allowedDates === null);
+    const templateDemands = regular.map((ds) => {
       const weekdays = new Set<number>();
       for (const key of ds.allowedDays) {
         const ref = dayRefByDate.get(key);
@@ -608,37 +649,49 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     });
     const templateTargets = new Map<DemandState, number>();
     for (const ds of templateDemands) {
-      templateTargets.set(ds, ds.availableWeeks.length === 0 ? 0 : Math.min(ds.d.lessonsRequired, Math.ceil(ds.rate - 1e-9)));
+      // Постоянная неделя: число слотов в шаблоне — округлённый темп (не менее одного)
+      templateTargets.set(
+        ds,
+        ds.availableWeeks.length === 0 ? 0 : Math.min(ds.d.lessonsRequired, Math.max(1, Math.round(ds.rate))),
+      );
     }
     solveWeek(templateState, templateDays, templateTargets, repairLimit);
     const template = new Map<DemandState, Placed[]>();
     for (const p of templateState.placements) {
-      const original = demands[templateDemands.indexOf(p.demand)];
+      const original = regular[templateDemands.indexOf(p.demand)];
       const list = template.get(original) ?? [];
       list.push(p);
       template.set(original, list);
     }
     log.push(`Шаблон недели: поставлено ${templateState.placements.length} пар`);
 
-    // --- 2. Развёртка шаблона по датам
+    // --- 2. Развёртка шаблона по датам: шаблон повторяется каждую неделю, пока не выработаны часы
     for (const w of weeks) {
       const days = daysByWeek.get(w) ?? [];
-      for (const ds of demands) {
+      for (const ds of regular) {
         if (!ds.daysByWeek.has(w)) continue;
-        let need = targetThrough(ds, w) - ds.placed;
-        const slots = (template.get(ds) ?? []).slice().sort((a, b) => a.day.weekday - b.day.weekday || a.lesson - b.lesson);
+        let need = ds.d.lessonsRequired - ds.placed;
+        const slots = (template.get(ds) ?? [])
+          .slice()
+          .sort((a, b) => a.day.weekday - b.day.weekday || a.lesson - b.lesson);
         for (const t of slots) {
           if (need <= 0) break;
           const day = days.find((x) => x.weekday === t.day.weekday);
           if (!day || !slotAllowed(ds, day, t.lesson)) continue;
-          if (!teacherFree(state, ds, day, t.lesson) || !groupFree(state, ds, day, t.lesson) || !disciplineOk(state, ds, day, t.lesson)) {
+          if (
+            !teacherFree(state, ds, day, t.lesson) ||
+            !groupFree(state, ds, day, t.lesson) ||
+            !disciplineOk(state, ds, day, t.lesson)
+          ) {
             continue;
           }
           const preferred = t.roomId ? roomsById.get(t.roomId) : undefined;
           const room =
             preferred && roomFree(state, preferred, day, t.lesson)
               ? preferred
-              : ds.d.roomIds.map((r) => roomsById.get(r)!).find((r) => r && roomFree(state, r, day, t.lesson));
+              : ds.d.roomIds
+                  .map((r) => roomsById.get(r)!)
+                  .find((r) => r && roomFree(state, r, day, t.lesson));
           if (!room) continue;
           state.apply({ demand: ds, day, lesson: t.lesson, roomId: room.id, fixed: false });
           ds.placed++;
@@ -646,8 +699,11 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
         }
       }
     }
-  } else {
-    // --- Календарный режим: неделя за неделей
+  }
+  // --- Календарный проход: весь спрос (календарный режим) или практика/консультации (режим шаблона)
+  const calendarDemands =
+    problem.mode === 'WEEKLY_TEMPLATE' ? demands.filter((ds) => ds.d.allowedDates !== null) : demands;
+  if (calendarDemands.length > 0) {
     weeks.forEach((w, idx) => {
       if (Date.now() > deadline) {
         timeExceeded = true;
@@ -655,7 +711,7 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
       }
       const days = daysByWeek.get(w) ?? [];
       const targets = new Map<DemandState, number>();
-      for (const ds of demands) {
+      for (const ds of calendarDemands) {
         if (!ds.daysByWeek.has(w)) continue;
         const target = targetThrough(ds, w) - ds.placed;
         if (target > 0) targets.set(ds, target);
@@ -665,23 +721,30 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     });
   }
 
-  // --- Компенсация: оставшиеся пары в любые свободные слоты
-  const leftovers = demands.filter((ds) => ds.placed < ds.d.lessonsRequired);
-  if (leftovers.length > 0 && !timeExceeded) {
-    log.push(`Компенсационный проход: ${leftovers.length} дисциплин с недопоставленными парами`);
-    for (const w of weeks) {
-      if (Date.now() > deadline) {
+  // --- Компенсация: сначала равномерно по оставшимся неделям, затем в любые свободные слоты
+  const catchUp = (spread: boolean) => {
+    const leftovers = demands.filter((ds) => ds.placed < ds.d.lessonsRequired);
+    if (leftovers.length === 0) return;
+    if (spread) log.push(`Компенсационный проход: ${leftovers.length} дисциплин с недопоставленными парами`);
+    weeks.forEach((w, i) => {
+      if (timeExceeded || Date.now() > deadline) {
         timeExceeded = true;
-        break;
+        return;
       }
       const days = daysByWeek.get(w) ?? [];
       const targets = new Map<DemandState, number>();
       for (const ds of leftovers) {
         const left = ds.d.lessonsRequired - ds.placed;
-        if (left > 0 && ds.availableWeeks.includes(w)) targets.set(ds, left);
+        if (left <= 0 || !ds.daysByWeek.has(w)) continue;
+        const weeksLeft = weeks.slice(i).filter((x) => ds.daysByWeek.has(x)).length;
+        targets.set(ds, spread ? Math.ceil(left / Math.max(1, weeksLeft)) : left);
       }
       if (targets.size > 0) solveWeek(state, days, targets, Math.floor(repairLimit / 2));
-    }
+    });
+  };
+  if (!timeExceeded) {
+    catchUp(true);
+    catchUp(false);
   }
   if (timeExceeded) log.push('Достигнут лимит времени — возвращён лучший найденный вариант');
 

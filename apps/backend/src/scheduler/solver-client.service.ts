@@ -14,7 +14,13 @@ export class SolverClientService {
   private readonly logger = new Logger(SolverClientService.name);
   private readonly config = loadConfig().solver;
 
-  async status(): Promise<{ mode: string; url: string | null; cpSatAvailable: boolean; version?: string; error?: string }> {
+  async status(): Promise<{
+    mode: string;
+    url: string | null;
+    cpSatAvailable: boolean;
+    version?: string;
+    error?: string;
+  }> {
     if (!this.config.url) {
       return { mode: this.config.mode, url: null, cpSatAvailable: false, error: 'SOLVER_URL не задан' };
     }
@@ -23,7 +29,12 @@ export class SolverClientService {
       const body = (await res.json()) as { status?: string; ortools?: string };
       return { mode: this.config.mode, url: this.config.url, cpSatAvailable: res.ok, version: body.ortools };
     } catch (e) {
-      return { mode: this.config.mode, url: this.config.url, cpSatAvailable: false, error: (e as Error).message };
+      return {
+        mode: this.config.mode,
+        url: this.config.url,
+        cpSatAvailable: false,
+        error: (e as Error).message,
+      };
     }
   }
 
@@ -45,7 +56,7 @@ export class SolverClientService {
         } catch (e) {
           const message = (e as Error).message;
           if (mode === 'cp-sat') {
-            throw new Error(`Сервис OR-Tools CP-SAT недоступен: ${message}`);
+            throw new Error(`Сервис OR-Tools CP-SAT недоступен: ${message}`, { cause: e });
           }
           this.logger.warn(`CP-SAT недоступен (${message}), используется эвристический генератор`);
           const result = solveHeuristic(problem, { onProgress });

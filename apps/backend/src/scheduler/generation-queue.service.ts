@@ -45,7 +45,11 @@ export class GenerationQueueService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.scheduleGenerationJob
       .updateMany({
         where: { status: { in: [GenerationJobStatus.GENERATING, GenerationJobStatus.VALIDATING] } },
-        data: { status: GenerationJobStatus.FAILED, error: 'Генерация прервана перезапуском сервера', finishedAt: new Date() },
+        data: {
+          status: GenerationJobStatus.FAILED,
+          error: 'Генерация прервана перезапуском сервера',
+          finishedAt: new Date(),
+        },
       })
       .catch(() => undefined);
 
@@ -69,10 +73,14 @@ export class GenerationQueueService implements OnModuleInit, OnModuleDestroy {
         },
         { connection, concurrency: Number(process.env.GENERATION_CONCURRENCY ?? 1) },
       );
-      this.worker.on('failed', (job, err) => this.logger.error(`Задание ${job?.id} завершилось ошибкой: ${err.message}`));
+      this.worker.on('failed', (job, err) =>
+        this.logger.error(`Задание ${job?.id} завершилось ошибкой: ${err.message}`),
+      );
       this.logger.log(`Очередь генерации BullMQ подключена к ${connection.host}:${connection.port}`);
       // Задания, оставшиеся в статусе «ожидание», повторно ставятся в очередь
-      const pending = await this.prisma.scheduleGenerationJob.findMany({ where: { status: GenerationJobStatus.QUEUED } });
+      const pending = await this.prisma.scheduleGenerationJob.findMany({
+        where: { status: GenerationJobStatus.QUEUED },
+      });
       for (const p of pending) await this.enqueue(p.id);
     } catch (e) {
       this.logger.warn(`Redis недоступен (${(e as Error).message}) — генерация выполняется в процессе API`);
@@ -87,7 +95,11 @@ export class GenerationQueueService implements OnModuleInit, OnModuleDestroy {
 
   async enqueue(jobId: string): Promise<void> {
     if (this.queue) {
-      await this.queue.add('generate', { jobId }, { jobId, removeOnComplete: 200, removeOnFail: 200, attempts: 1 });
+      await this.queue.add(
+        'generate',
+        { jobId },
+        { jobId, removeOnComplete: 200, removeOnFail: 200, attempts: 1 },
+      );
       return;
     }
     // Последовательное выполнение в процессе

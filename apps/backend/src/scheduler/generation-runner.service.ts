@@ -51,9 +51,10 @@ export class GenerationRunnerService {
         const now = Date.now();
         if (now - lastUpdate < 1000) return;
         lastUpdate = now;
-        void this.update(jobId, { progress: Math.round(15 + fraction * 70), message: `Генерация: ${message}` }).catch(
-          () => undefined,
-        );
+        void this.update(jobId, {
+          progress: Math.round(15 + fraction * 70),
+          message: `Генерация: ${message}`,
+        }).catch(() => undefined);
       });
 
       await this.update(jobId, {
@@ -134,7 +135,9 @@ export class GenerationRunnerService {
       const time = this.settings.lessonTime(settings, p.lessonNumber);
       const partial = partialByPlacement.get(idx);
       const academicHours =
-        partial && partial.length === meta.streams.length && partial.every((x) => x === partial[0]) ? partial[0] : h;
+        partial && partial.length === meta.streams.length && partial.every((x) => x === partial[0])
+          ? partial[0]
+          : h;
       lessons.push({
         demandId: p.demandId,
         date: p.date,
@@ -144,7 +147,9 @@ export class GenerationRunnerService {
         endTime: time.endTime,
         groupIds: demand.groupIds,
         groupCodes: meta.groupCodes,
-        assignmentIds: demand.groupIds.map((g) => meta.streams.find((s) => s.groupId === g)?.assignmentId ?? null),
+        assignmentIds: demand.groupIds.map(
+          (g) => meta.streams.find((s) => s.groupId === g)?.assignmentId ?? null,
+        ),
         streamKey: meta.streams.length > 1 ? (meta.streams[0].streamGroupKey ?? null) : null,
         subgroupNumber: demand.subgroupNumber,
         semesterItemId: demand.semesterItemId,
@@ -186,7 +191,10 @@ export class GenerationRunnerService {
     }
 
     // Статистика по группам
-    const groupStats = new Map<string, { groupId: string; groupCode: string; required: number; placed: number }>();
+    const groupStats = new Map<
+      string,
+      { groupId: string; groupCode: string; required: number; placed: number }
+    >();
     for (const g of built.problem.groups) {
       groupStats.set(g.id, { groupId: g.id, groupCode: g.code, required: 0, placed: 0 });
     }
@@ -214,7 +222,8 @@ export class GenerationRunnerService {
       built.preUnplaced.reduce((a, u) => a + u.lessonsUnplaced, 0);
     const unplacedLessons = unplaced.reduce((a, u) => a + u.lessonsUnplaced, 0);
     const placedHours = lessons.reduce((a, l) => a + l.academicHours * l.groupIds.length, 0);
-    const requiredHours = placedHours + unplaced.reduce((a, u) => a + u.hoursUnplaced * u.groupCodes.length, 0);
+    const requiredHours =
+      placedHours + unplaced.reduce((a, u) => a + u.hoursUnplaced * u.groupCodes.length, 0);
 
     return {
       period: { id: built.period.id, title: built.period.title },

@@ -75,7 +75,11 @@ export class CurriculumController {
 
   @Patch('cycles/:id')
   @Roles(...EDITOR_ROLES)
-  updateCycle(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateCycleDto, @CurrentUser() user: AuthUser) {
+  updateCycle(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateCycleDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.curriculum.updateCycle(id, dto, user);
   }
 
@@ -87,7 +91,11 @@ export class CurriculumController {
 
   @Patch('academic-years/:id')
   @Roles(...EDITOR_ROLES)
-  updateYear(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateAcademicYearDto, @CurrentUser() user: AuthUser) {
+  updateYear(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateAcademicYearDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.programs.updateAcademicYear(id, dto, user);
   }
 
@@ -119,7 +127,11 @@ export class CurriculumController {
 
   @Patch('semesters/:id')
   @Roles(...EDITOR_ROLES)
-  updateSemester(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateSemesterDto, @CurrentUser() user: AuthUser) {
+  updateSemester(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateSemesterDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.programs.updateSemester(id, dto, user);
   }
 

@@ -1,5 +1,12 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { ConductedStatus, LessonStatus, NotificationType, Prisma, SchedulePeriodStatus, UserRole } from '@prisma/client';
+import {
+  ConductedStatus,
+  LessonStatus,
+  NotificationType,
+  Prisma,
+  SchedulePeriodStatus,
+  UserRole,
+} from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types/auth-user';
 import { parseDate, toDateStr } from '../common/utils/dates';
@@ -17,7 +24,10 @@ export class SchedulePeriodsService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(actor: AuthUser, params: { semesterId?: string; status?: SchedulePeriodStatus; programId?: string }) {
+  async list(
+    actor: AuthUser,
+    params: { semesterId?: string; status?: SchedulePeriodStatus; programId?: string },
+  ) {
     const where: Prisma.SchedulePeriodWhereInput = {
       organizationId: actor.organizationId,
       semesterId: params.semesterId || undefined,
@@ -60,7 +70,8 @@ export class SchedulePeriodsService {
       endDate: toDateStr(p.endDate),
       validation: {
         errors: errors.find((e) => e.schedulePeriodId === p.id && e.severity === 'ERROR')?._count._all ?? 0,
-        warnings: errors.find((e) => e.schedulePeriodId === p.id && e.severity === 'WARNING')?._count._all ?? 0,
+        warnings:
+          errors.find((e) => e.schedulePeriodId === p.id && e.severity === 'WARNING')?._count._all ?? 0,
       },
     }));
   }
@@ -70,10 +81,17 @@ export class SchedulePeriodsService {
       where: {
         id,
         organizationId: actor.organizationId,
-        status: actor.role === UserRole.STUDENT || actor.role === UserRole.TEACHER ? SchedulePeriodStatus.PUBLISHED : undefined,
+        status:
+          actor.role === UserRole.STUDENT || actor.role === UserRole.TEACHER
+            ? SchedulePeriodStatus.PUBLISHED
+            : undefined,
       },
       include: {
-        semester: { include: { program: { include: { groups: { where: { isActive: true }, orderBy: { code: 'asc' } } } } } },
+        semester: {
+          include: {
+            program: { include: { groups: { where: { isActive: true }, orderBy: { code: 'asc' } } } },
+          },
+        },
         academicYear: true,
       },
     });
@@ -88,7 +106,15 @@ export class SchedulePeriodsService {
         where: { schedulePeriodId: id },
         orderBy: { createdAt: 'desc' },
         take: 5,
-        select: { id: true, status: true, progress: true, message: true, createdAt: true, appliedAt: true, solver: true },
+        select: {
+          id: true,
+          status: true,
+          progress: true,
+          message: true,
+          createdAt: true,
+          appliedAt: true,
+          solver: true,
+        },
       }),
     ]);
     const validation = await this.prisma.validationResult.groupBy({
@@ -140,7 +166,9 @@ export class SchedulePeriodsService {
     });
     if (!before) throw new NotFoundException('Период расписания не найден');
     if (dto.status === SchedulePeriodStatus.PUBLISHED) {
-      throw new BadRequestException('Для публикации используйте действие «Опубликовать» — оно выполняет проверку расписания');
+      throw new BadRequestException(
+        'Для публикации используйте действие «Опубликовать» — оно выполняет проверку расписания',
+      );
     }
     const start = dto.startDate ?? toDateStr(before.startDate);
     const end = dto.endDate ?? toDateStr(before.endDate);
@@ -163,7 +191,9 @@ export class SchedulePeriodsService {
   }
 
   async remove(id: string, actor: AuthUser) {
-    const period = await this.prisma.schedulePeriod.findFirst({ where: { id, organizationId: actor.organizationId } });
+    const period = await this.prisma.schedulePeriod.findFirst({
+      where: { id, organizationId: actor.organizationId },
+    });
     if (!period) throw new NotFoundException('Период расписания не найден');
     const conducted = await this.prisma.conductedLesson.count({
       where: { scheduleLesson: { schedulePeriodId: id }, status: ConductedStatus.CONDUCTED },
@@ -178,9 +208,12 @@ export class SchedulePeriodsService {
 
   /** Публикация: только если нет ошибок, блокирующих публикацию */
   async publish(id: string, actor: AuthUser) {
-    const period = await this.prisma.schedulePeriod.findFirst({ where: { id, organizationId: actor.organizationId } });
+    const period = await this.prisma.schedulePeriod.findFirst({
+      where: { id, organizationId: actor.organizationId },
+    });
     if (!period) throw new NotFoundException('Период расписания не найден');
-    if (period.status === SchedulePeriodStatus.ARCHIVED) throw new ConflictException('Период находится в архиве');
+    if (period.status === SchedulePeriodStatus.ARCHIVED)
+      throw new ConflictException('Период находится в архиве');
     const summary = await this.validator.validatePeriod(id, actor.organizationId, true);
     if (!summary.canPublish) {
       const errors = summary.items.filter((i) => i.severity === 'ERROR');
@@ -207,11 +240,16 @@ export class SchedulePeriodsService {
       teacherIds: Array.from(new Set(lessons.map((l) => l.teacherId))),
     });
     await this.audit.log(actor.id, 'PUBLISH', 'SchedulePeriod', id, period, updated);
-    return { period: await this.get(id, actor), validation: { errors: summary.errors, warnings: summary.warnings } };
+    return {
+      period: await this.get(id, actor),
+      validation: { errors: summary.errors, warnings: summary.warnings },
+    };
   }
 
   async unpublish(id: string, actor: AuthUser) {
-    const period = await this.prisma.schedulePeriod.findFirst({ where: { id, organizationId: actor.organizationId } });
+    const period = await this.prisma.schedulePeriod.findFirst({
+      where: { id, organizationId: actor.organizationId },
+    });
     if (!period) throw new NotFoundException('Период расписания не найден');
     const updated = await this.prisma.schedulePeriod.update({
       where: { id },
@@ -223,7 +261,9 @@ export class SchedulePeriodsService {
 
   /** Очистка занятий периода (например, перед повторной генерацией) */
   async clear(id: string, dto: ClearPeriodDto, actor: AuthUser) {
-    const period = await this.prisma.schedulePeriod.findFirst({ where: { id, organizationId: actor.organizationId } });
+    const period = await this.prisma.schedulePeriod.findFirst({
+      where: { id, organizationId: actor.organizationId },
+    });
     if (!period) throw new NotFoundException('Период расписания не найден');
     const where: Prisma.ScheduleLessonWhereInput = {
       schedulePeriodId: id,

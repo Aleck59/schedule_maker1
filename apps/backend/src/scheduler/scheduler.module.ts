@@ -15,6 +15,12 @@ import { SolverClientService } from './solver-client.service';
     GenerationQueueService,
     GenerationService,
   ],
-  exports: [GenerationService, GenerationQueueService, ProblemBuilderService, SolverClientService, GenerationRunnerService],
+  exports: [
+    GenerationService,
+    GenerationQueueService,
+    ProblemBuilderService,
+    SolverClientService,
+    GenerationRunnerService,
+  ],
 })
 export class SchedulerModule {}

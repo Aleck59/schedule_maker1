@@ -1,5 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { CancellationReason, ConductedStatus, LessonStatus, LessonType, MakeupTaskStatus, SchedulePeriodStatus } from '@prisma/client';
+import {
+  CancellationReason,
+  ConductedStatus,
+  LessonStatus,
+  LessonType,
+  MakeupTaskStatus,
+  SchedulePeriodStatus,
+} from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
@@ -381,7 +388,9 @@ export class MarkConductedDto {
   @IsEnum(ConductedStatus)
   status?: ConductedStatus;
 
-  @ApiPropertyOptional({ description: 'Фактически проведено ак. часов (меньше плановых — проведено частично)' })
+  @ApiPropertyOptional({
+    description: 'Фактически проведено ак. часов (меньше плановых — проведено частично)',
+  })
   @IsOptional()
   @IsInt()
   @Min(0)

@@ -1,9 +1,21 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma, UserRole } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types/auth-user';
 import { PrismaService } from '../prisma/prisma.service';
-import { AddStudentsDto, ConfigureSubgroupsDto, CreateGroupDto, UpdateGroupDto, UpdateStudentDto } from './dto/groups.dto';
+import {
+  AddStudentsDto,
+  ConfigureSubgroupsDto,
+  CreateGroupDto,
+  UpdateGroupDto,
+  UpdateStudentDto,
+} from './dto/groups.dto';
 
 @Injectable()
 export class GroupsService {
@@ -32,7 +44,14 @@ export class GroupsService {
     return this.prisma.studentGroup.findMany({
       where,
       include: {
-        program: { select: { id: true, title: true, admissionYear: true, specialty: { select: { code: true, name: true } } } },
+        program: {
+          select: {
+            id: true,
+            title: true,
+            admissionYear: true,
+            specialty: { select: { code: true, name: true } },
+          },
+        },
         subgroups: { orderBy: { number: 'asc' } },
         _count: { select: { students: true, assignments: true } },
       },
@@ -103,7 +122,9 @@ export class GroupsService {
     if (dto.educationalProgramId && dto.educationalProgramId !== before.educationalProgramId) {
       const lessons = await this.prisma.scheduleLesson.count({ where: { studentGroupId: id } });
       if (lessons > 0) {
-        throw new ConflictException('Нельзя сменить учебный план группы, по которой уже составлено расписание');
+        throw new ConflictException(
+          'Нельзя сменить учебный план группы, по которой уже составлено расписание',
+        );
       }
     }
     const updated = await this.prisma.studentGroup.update({
@@ -130,7 +151,9 @@ export class GroupsService {
   async remove(id: string, actor: AuthUser) {
     const before = await this.get(id, actor);
     if (before._count.lessons > 0) {
-      throw new ConflictException('Нельзя удалить группу, по которой составлено расписание. Сделайте её неактивной');
+      throw new ConflictException(
+        'Нельзя удалить группу, по которой составлено расписание. Сделайте её неактивной',
+      );
     }
     await this.prisma.studentGroup.delete({ where: { id } });
     await this.audit.log(actor.id, 'DELETE', 'StudentGroup', id, before, null);
@@ -159,10 +182,16 @@ export class GroupsService {
     const removed = group.subgroups.filter((s) => !numbers.includes(s.number));
     for (const s of removed) {
       const used =
-        (await this.prisma.groupCurriculumAssignment.count({ where: { studentGroupId: groupId, subgroupNumber: s.number } })) +
-        (await this.prisma.scheduleLesson.count({ where: { studentGroupId: groupId, subgroupNumber: s.number } }));
+        (await this.prisma.groupCurriculumAssignment.count({
+          where: { studentGroupId: groupId, subgroupNumber: s.number },
+        })) +
+        (await this.prisma.scheduleLesson.count({
+          where: { studentGroupId: groupId, subgroupNumber: s.number },
+        }));
       if (used > 0) {
-        throw new ConflictException(`Подгруппа ${s.number} используется в нагрузке или расписании и не может быть удалена`);
+        throw new ConflictException(
+          `Подгруппа ${s.number} используется в нагрузке или расписании и не может быть удалена`,
+        );
       }
     }
     const allStudentIds = dto.subgroups.flatMap((s) => s.studentIds ?? []);
@@ -170,7 +199,9 @@ export class GroupsService {
       throw new BadRequestException('Студент не может состоять в двух подгруппах одновременно');
     }
     if (allStudentIds.length > 0) {
-      const count = await this.prisma.student.count({ where: { id: { in: allStudentIds }, studentGroupId: groupId } });
+      const count = await this.prisma.student.count({
+        where: { id: { in: allStudentIds }, studentGroupId: groupId },
+      });
       if (count !== allStudentIds.length) {
         throw new BadRequestException('Некоторые студенты не принадлежат группе');
       }
@@ -193,11 +224,20 @@ export class GroupsService {
           },
         });
         if (s.studentIds) {
-          await tx.student.updateMany({ where: { subgroupId: saved.id, id: { notIn: s.studentIds } }, data: { subgroupId: null } });
-          await tx.student.updateMany({ where: { id: { in: s.studentIds } }, data: { subgroupId: saved.id } });
+          await tx.student.updateMany({
+            where: { subgroupId: saved.id, id: { notIn: s.studentIds } },
+            data: { subgroupId: null },
+          });
+          await tx.student.updateMany({
+            where: { id: { in: s.studentIds } },
+            data: { subgroupId: saved.id },
+          });
         }
       }
-      await tx.studentGroup.update({ where: { id: groupId }, data: { subgroupCount: Math.max(maxNumber, numbers.length) } });
+      await tx.studentGroup.update({
+        where: { id: groupId },
+        data: { subgroupCount: Math.max(maxNumber, numbers.length) },
+      });
     });
     await this.audit.log(actor.id, 'UPDATE', 'Subgroups', groupId, group.subgroups, dto.subgroups);
     return this.listSubgroups(groupId, actor);
@@ -256,14 +296,21 @@ export class GroupsService {
     if (dto.subgroupNumber === null) subgroupId = null;
     else if (dto.subgroupNumber !== undefined) {
       const sg = await this.prisma.subgroup.findUnique({
-        where: { studentGroupId_number: { studentGroupId: student.studentGroupId, number: dto.subgroupNumber } },
+        where: {
+          studentGroupId_number: { studentGroupId: student.studentGroupId, number: dto.subgroupNumber },
+        },
       });
       if (!sg) throw new BadRequestException(`У группы нет подгруппы ${dto.subgroupNumber}`);
       subgroupId = sg.id;
     }
     const updated = await this.prisma.student.update({
       where: { id },
-      data: { fullName: dto.fullName?.trim(), recordBookNumber: dto.recordBookNumber, isActive: dto.isActive, subgroupId },
+      data: {
+        fullName: dto.fullName?.trim(),
+        recordBookNumber: dto.recordBookNumber,
+        isActive: dto.isActive,
+        subgroupId,
+      },
     });
     await this.refreshCounts(student.studentGroupId);
     await this.audit.log(actor.id, 'UPDATE', 'Student', id, student, updated);

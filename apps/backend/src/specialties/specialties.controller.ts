@@ -33,7 +33,11 @@ export class SpecialtiesController {
 
   @Patch(':id')
   @Roles(...EDITOR_ROLES)
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateSpecialtyDto, @CurrentUser() user: AuthUser) {
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateSpecialtyDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.service.update(id, dto, user);
   }
 

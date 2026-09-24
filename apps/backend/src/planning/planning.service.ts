@@ -14,7 +14,10 @@ import { SettingsService } from '../settings/settings.service';
 import { CalendarContext, ContextGroup, normalizeEvent } from './calendar-context';
 import { DemandStream, StreamFilter } from './planning.types';
 
-const NON_SCHEDULED_ITEM_TYPES: CurriculumItemType[] = [CurriculumItemType.MODULE, CurriculumItemType.FINAL_ATTESTATION];
+const NON_SCHEDULED_ITEM_TYPES: CurriculumItemType[] = [
+  CurriculumItemType.MODULE,
+  CurriculumItemType.FINAL_ATTESTATION,
+];
 const PRACTICE_ITEM_TYPES: CurriculumItemType[] = [
   CurriculumItemType.EDUCATIONAL_PRACTICE,
   CurriculumItemType.INDUSTRIAL_PRACTICE,
@@ -23,7 +26,12 @@ const PRACTICE_ITEM_TYPES: CurriculumItemType[] = [
 
 type AssignmentWithTeacher = GroupCurriculumAssignment & { teacher: { id: string; fullName: string } | null };
 
-export function streamKeyOf(groupId: string, semesterItemId: string, lessonType: LessonType, subgroup: number | null) {
+export function streamKeyOf(
+  groupId: string,
+  semesterItemId: string,
+  lessonType: LessonType,
+  subgroup: number | null,
+) {
   return `${groupId}|${semesterItemId}|${lessonType}|${subgroup ?? 0}`;
 }
 
@@ -102,11 +110,14 @@ export class PlanningService {
     for (const group of groups) {
       const groupItems = items.filter((i) => i.semester.educationalProgramId === group.educationalProgramId);
       for (const item of groupItems) {
-        const assignments = (item.assignments as AssignmentWithTeacher[]).filter((a) => a.studentGroupId === group.id);
+        const assignments = (item.assignments as AssignmentWithTeacher[]).filter(
+          (a) => a.studentGroupId === group.id,
+        );
         for (const { type, hours } of this.schedulableTypes(item, settings.scheduleConsultations)) {
           const specific = assignments.filter((a) => a.lessonType === type);
           const general = assignments.filter((a) => a.lessonType === null);
-          const used: Array<AssignmentWithTeacher | null> = specific.length > 0 ? specific : general.length > 0 ? general : [null];
+          const used: Array<AssignmentWithTeacher | null> =
+            specific.length > 0 ? specific : general.length > 0 ? general : [null];
           for (const a of used) {
             const subgroup = a?.subgroupNumber ?? null;
             const sg = subgroup ? group.subgroups.find((s) => s.number === subgroup) : undefined;

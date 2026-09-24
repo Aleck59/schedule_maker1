@@ -1,5 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { CalendarEvent, CalendarEventType, ControlForm, LessonStatus, LessonType, Prisma } from '@prisma/client';
+import {
+  CalendarEvent,
+  CalendarEventType,
+  ControlForm,
+  LessonStatus,
+  LessonType,
+  Prisma,
+} from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types/auth-user';
 import { addDaysStr, eachDay, isoWeekday, parseDate, toDateStr, weekStart } from '../common/utils/dates';
@@ -18,7 +25,12 @@ import {
 
 const ACTIVE_STATUSES: LessonStatus[] = [LessonStatus.PLANNED, LessonStatus.CONDUCTED, LessonStatus.REPLACED];
 const EXAM_FORMS: ControlForm[] = [ControlForm.EXAM, ControlForm.QUALIFICATION_EXAM];
-const CREDIT_FORMS: ControlForm[] = [ControlForm.CREDIT, ControlForm.DIFFERENTIATED_CREDIT, ControlForm.OTHER, ControlForm.COURSE_PROJECT];
+const CREDIT_FORMS: ControlForm[] = [
+  ControlForm.CREDIT,
+  ControlForm.DIFFERENTIATED_CREDIT,
+  ControlForm.OTHER,
+  ControlForm.COURSE_PROJECT,
+];
 
 @Injectable()
 export class CalendarService {
@@ -33,7 +45,14 @@ export class CalendarService {
 
   listEvents(
     actor: AuthUser,
-    params: { programId?: string; groupId?: string; teacherId?: string; from?: string; to?: string; eventType?: CalendarEventType },
+    params: {
+      programId?: string;
+      groupId?: string;
+      teacherId?: string;
+      from?: string;
+      to?: string;
+      eventType?: CalendarEventType;
+    },
   ) {
     const where: Prisma.CalendarEventWhereInput = {
       organizationId: actor.organizationId,
@@ -90,7 +109,9 @@ export class CalendarService {
   }
 
   async updateEvent(id: string, dto: UpdateCalendarEventDto, actor: AuthUser) {
-    const before = await this.prisma.calendarEvent.findFirst({ where: { id, organizationId: actor.organizationId } });
+    const before = await this.prisma.calendarEvent.findFirst({
+      where: { id, organizationId: actor.organizationId },
+    });
     if (!before) throw new NotFoundException('Период календарного графика не найден');
     await this.checkRelations(dto, actor);
     const start = dto.startDate ?? toDateStr(before.startDate);
@@ -117,7 +138,9 @@ export class CalendarService {
   }
 
   async removeEvent(id: string, actor: AuthUser) {
-    const before = await this.prisma.calendarEvent.findFirst({ where: { id, organizationId: actor.organizationId } });
+    const before = await this.prisma.calendarEvent.findFirst({
+      where: { id, organizationId: actor.organizationId },
+    });
     if (!before) throw new NotFoundException('Период календарного графика не найден');
     await this.prisma.calendarEvent.delete({ where: { id } });
     await this.audit.log(actor.id, 'DELETE', 'CalendarEvent', id, before, null);
@@ -138,7 +161,9 @@ export class CalendarService {
       if (!g) throw new BadRequestException('Группа не найдена');
     }
     if (dto.teacherId) {
-      const t = await this.prisma.teacher.findFirst({ where: { id: dto.teacherId, organizationId: actor.organizationId } });
+      const t = await this.prisma.teacher.findFirst({
+        where: { id: dto.teacherId, organizationId: actor.organizationId },
+      });
       if (!t) throw new BadRequestException('Преподаватель не найден');
     }
   }
@@ -246,12 +271,21 @@ export class CalendarService {
         endDate: yearEnd,
         semesters: program.semesters
           .filter((s) => s.academicYearId === year.id)
-          .map((s) => ({ id: s.id, number: s.number, startDate: toDateStr(s.startDate), endDate: toDateStr(s.endDate) })),
+          .map((s) => ({
+            id: s.id,
+            number: s.number,
+            startDate: toDateStr(s.startDate),
+            endDate: toDateStr(s.endDate),
+          })),
         weeks,
         summary,
       };
     });
-    return { program: { id: program.id, title: program.title, groups: program.groups }, years, legend: this.legend() };
+    return {
+      program: { id: program.id, title: program.title, groups: program.groups },
+      years,
+      legend: this.legend(),
+    };
   }
 
   legend() {
@@ -283,7 +317,9 @@ export class CalendarService {
       courseNumber: dto.courseNumber ?? null,
       teacherId: null,
     };
-    const semester = program.semesters.find((s) => toDateStr(s.startDate) <= wEnd && toDateStr(s.endDate) >= wStart);
+    const semester = program.semesters.find(
+      (s) => toDateStr(s.startDate) <= wEnd && toDateStr(s.endDate) >= wStart,
+    );
 
     await this.prisma.$transaction(async (tx) => {
       const overlapping = await tx.calendarEvent.findMany({
@@ -300,12 +336,19 @@ export class CalendarService {
         const keepBefore = s < wStart;
         const keepAfter = en > wEnd;
         if (keepBefore) {
-          await tx.calendarEvent.update({ where: { id: e.id }, data: { endDate: parseDate(addDaysStr(wStart, -1)) } });
+          await tx.calendarEvent.update({
+            where: { id: e.id },
+            data: { endDate: parseDate(addDaysStr(wStart, -1)) },
+          });
         }
         if (keepAfter) {
           const data = copyEvent(e, addDaysStr(wEnd, 1), en);
           if (keepBefore) await tx.calendarEvent.create({ data });
-          else await tx.calendarEvent.update({ where: { id: e.id }, data: { startDate: parseDate(addDaysStr(wEnd, 1)) } });
+          else
+            await tx.calendarEvent.update({
+              where: { id: e.id },
+              data: { startDate: parseDate(addDaysStr(wEnd, 1)) },
+            });
         }
         if (!keepBefore && !keepAfter) await tx.calendarEvent.delete({ where: { id: e.id } });
       }
@@ -338,7 +381,10 @@ export class CalendarService {
         }
       }
     });
-    await this.audit.log(actor.id, 'SET_WEEK_TYPE', 'CalendarEvent', programId, null, { ...dto, weekStart: wStart });
+    await this.audit.log(actor.id, 'SET_WEEK_TYPE', 'CalendarEvent', programId, null, {
+      ...dto,
+      weekStart: wStart,
+    });
     return this.calendarGraph(programId, actor, dto.studentGroupId ?? undefined);
   }
 
@@ -405,7 +451,9 @@ export class CalendarService {
       }
       const groupStreams = streams.filter((s) => s.groupId === group.id);
       const regular = groupStreams.filter((s) => s.lessonType !== LessonType.PRACTICE);
-      const whole = regular.filter((s) => s.subgroupNumber === null).reduce((a, s) => a + s.plannedLessons, 0);
+      const whole = regular
+        .filter((s) => s.subgroupNumber === null)
+        .reduce((a, s) => a + s.plannedLessons, 0);
       const bySubgroup = new Map<number, number>();
       for (const s of regular.filter((x) => x.subgroupNumber !== null)) {
         bySubgroup.set(s.subgroupNumber!, (bySubgroup.get(s.subgroupNumber!) ?? 0) + s.plannedLessons);
@@ -421,8 +469,12 @@ export class CalendarService {
       const availableLessons = regularDays * settings.lessonsPerDay;
       const comfortableLessons = regularDays * settings.maxGroupLessonsPerDay;
       const counts = lessons.filter((l) => l.studentGroupId === group.id);
-      const scheduled = counts.filter((c) => ACTIVE_STATUSES.includes(c.status)).reduce((a, c) => a + c._count._all, 0);
-      const conducted = counts.filter((c) => c.status === LessonStatus.CONDUCTED).reduce((a, c) => a + c._count._all, 0);
+      const scheduled = counts
+        .filter((c) => ACTIVE_STATUSES.includes(c.status))
+        .reduce((a, c) => a + c._count._all, 0);
+      const conducted = counts
+        .filter((c) => c.status === LessonStatus.CONDUCTED)
+        .reduce((a, c) => a + c._count._all, 0);
       const theoreticalWeeks = [...weekly.values()].filter((w) => w.allowedDays > 0).length;
       const status =
         requiredParallel > availableLessons
@@ -447,7 +499,9 @@ export class CalendarService {
         requiredLessons: requiredParallel,
         requiredLessonsSequential: requiredSequential,
         practiceRequiredLessons: practiceRequired,
-        averageLessonsPerWeek: theoreticalWeeks ? Math.round((requiredParallel / theoreticalWeeks) * 10) / 10 : 0,
+        averageLessonsPerWeek: theoreticalWeeks
+          ? Math.round((requiredParallel / theoreticalWeeks) * 10) / 10
+          : 0,
         scheduledLessons: scheduled,
         conductedLessons: conducted,
         status,
@@ -464,13 +518,19 @@ export class CalendarService {
 
   // ---------------------------------------------------------------- контрольные мероприятия
 
-  listAssessments(actor: AuthUser, params: { groupId?: string; semesterId?: string; from?: string; to?: string }) {
+  listAssessments(
+    actor: AuthUser,
+    params: { groupId?: string; semesterId?: string; from?: string; to?: string },
+  ) {
     return this.prisma.assessmentEvent.findMany({
       where: {
         group: { program: { organizationId: actor.organizationId } },
         studentGroupId: params.groupId || undefined,
         semesterItem: params.semesterId ? { semesterId: params.semesterId } : undefined,
-        date: { gte: params.from ? parseDate(params.from) : undefined, lte: params.to ? parseDate(params.to) : undefined },
+        date: {
+          gte: params.from ? parseDate(params.from) : undefined,
+          lte: params.to ? parseDate(params.to) : undefined,
+        },
       },
       include: {
         group: { select: { id: true, code: true } },
@@ -488,7 +548,10 @@ export class CalendarService {
     });
     if (!group) throw new BadRequestException('Группа не найдена');
     const item = await this.prisma.semesterCurriculumItem.findFirst({
-      where: { id: dto.semesterCurriculumItemId, semester: { educationalProgramId: group.educationalProgramId } },
+      where: {
+        id: dto.semesterCurriculumItemId,
+        semester: { educationalProgramId: group.educationalProgramId },
+      },
     });
     if (!item) throw new BadRequestException('Дисциплина не относится к учебному плану группы');
     const created = await this.prisma.assessmentEvent.create({
@@ -536,7 +599,12 @@ export class CalendarService {
         isActive: true,
       },
     });
-    const ctx = await this.planning.buildCalendarContext(actor.organizationId, from, addDaysStr(to, 14), groups.map((g) => g.id));
+    const ctx = await this.planning.buildCalendarContext(
+      actor.organizationId,
+      from,
+      addDaysStr(to, 14),
+      groups.map((g) => g.id),
+    );
     const items = await this.prisma.semesterCurriculumItem.findMany({
       where: { semesterId: semester.id, controlForm: { not: ControlForm.NONE } },
       include: {
@@ -554,8 +622,11 @@ export class CalendarService {
       const days = eachDay(from, addDaysStr(to, 14));
       const sessionDays = days.filter((d) => {
         const info = ctx.groupDay(group.id, d);
-        return info.isWorkingDay && info.blocks.some((b) => b.eventType === CalendarEventType.EXAM_SESSION) &&
-          info.blocks.every((b) => b.eventType === CalendarEventType.EXAM_SESSION);
+        return (
+          info.isWorkingDay &&
+          info.blocks.some((b) => b.eventType === CalendarEventType.EXAM_SESSION) &&
+          info.blocks.every((b) => b.eventType === CalendarEventType.EXAM_SESSION)
+        );
       });
       const regularDays = days.filter((d) => d <= to && ctx.isRegularAllowed(group.id, d));
       const lastWeekDays = regularDays.slice(-6);
@@ -565,7 +636,9 @@ export class CalendarService {
       for (const exam of exams) {
         const day = sessionDays.find((d) => !lastExam || diff(d, lastExam) > gap);
         if (!day) {
-          warnings.push(`${group.code}: не хватает дней промежуточной аттестации для «${exam.curriculumItem.name}»`);
+          warnings.push(
+            `${group.code}: не хватает дней промежуточной аттестации для «${exam.curriculumItem.name}»`,
+          );
           continue;
         }
         lastExam = day;
@@ -613,7 +686,10 @@ export class CalendarService {
         educationalProgramId: programId || undefined,
         eventType: { in: PRACTICE_EVENT_TYPES },
       },
-      include: { group: { select: { id: true, code: true } }, program: { select: { id: true, title: true } } },
+      include: {
+        group: { select: { id: true, code: true } },
+        program: { select: { id: true, title: true } },
+      },
       orderBy: { startDate: 'asc' },
     });
   }

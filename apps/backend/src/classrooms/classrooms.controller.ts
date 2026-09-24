@@ -60,7 +60,11 @@ export class ClassroomsController {
 
   @Patch(':id')
   @Roles(...EDITOR_ROLES)
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateClassroomDto, @CurrentUser() user: AuthUser) {
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateClassroomDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.classrooms.update(id, dto, user);
   }
 

@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, ForbiddenException, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { ReplaceAvailabilityDto } from '../common/dto/availability.dto';
@@ -48,7 +59,11 @@ export class TeachersController {
 
   @Patch(':id')
   @Roles(...EDITOR_ROLES)
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateTeacherDto, @CurrentUser() user: AuthUser) {
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateTeacherDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.teachers.update(id, dto, user);
   }
 

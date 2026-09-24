@@ -17,7 +17,14 @@ import {
 } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types/auth-user';
-import { addDaysStr, formatDateRu, isoWeekday, parseDate, toDateStr, todayInTimezone } from '../common/utils/dates';
+import {
+  addDaysStr,
+  formatDateRu,
+  isoWeekday,
+  parseDate,
+  toDateStr,
+  todayInTimezone,
+} from '../common/utils/dates';
 import { CANCELLATION_REASON_LABELS, LESSON_TYPE_LABELS } from '../common/utils/labels';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -48,7 +55,9 @@ export const LESSON_INCLUDE = {
     },
   },
   teacher: { select: { id: true, fullName: true } },
-  classroom: { select: { id: true, code: true, name: true, building: true, classroomType: true, capacity: true } },
+  classroom: {
+    select: { id: true, code: true, name: true, building: true, classroomType: true, capacity: true },
+  },
   conducted: { include: { actualTeacher: { select: { id: true, fullName: true } } } },
   schedulePeriod: { select: { id: true, title: true, status: true } },
   originalLesson: { select: { id: true, date: true, lessonNumber: true, status: true } },
@@ -111,12 +120,18 @@ export class ScheduleLessonsService {
     }
     const statuses = query.status ? (Array.isArray(query.status) ? query.status : [query.status]) : undefined;
     if (statuses?.length) where.status = { in: statuses };
-    else if (query.activeOnly === 'true') where.status = { notIn: [LessonStatus.CANCELLED, LessonStatus.MOVED] };
+    else if (query.activeOnly === 'true')
+      where.status = { notIn: [LessonStatus.CANCELLED, LessonStatus.MOVED] };
     this.applyRoleScope(where, actor);
     const lessons = await this.prisma.scheduleLesson.findMany({
       where,
       include: LESSON_INCLUDE,
-      orderBy: [{ date: 'asc' }, { lessonNumber: 'asc' }, { studentGroup: { code: 'asc' } }, { subgroupNumber: 'asc' }],
+      orderBy: [
+        { date: 'asc' },
+        { lessonNumber: 'asc' },
+        { studentGroup: { code: 'asc' } },
+        { subgroupNumber: 'asc' },
+      ],
       take: 5000,
     });
     return lessons.map(presentLesson);
@@ -132,7 +147,10 @@ export class ScheduleLessonsService {
   }
 
   async get(id: string, actor: AuthUser) {
-    const where: Prisma.ScheduleLessonWhereInput = { id, schedulePeriod: { organizationId: actor.organizationId } };
+    const where: Prisma.ScheduleLessonWhereInput = {
+      id,
+      schedulePeriod: { organizationId: actor.organizationId },
+    };
     this.applyRoleScope(where, actor);
     const lesson = await this.prisma.scheduleLesson.findFirst({ where, include: LESSON_INCLUDE });
     if (!lesson) throw new NotFoundException('Занятие не найдено');
@@ -140,7 +158,10 @@ export class ScheduleLessonsService {
   }
 
   /** Лента изменений расписания (для студентов и преподавателей) */
-  async changes(actor: AuthUser, params: { groupId?: string; teacherId?: string; from?: string; to?: string }) {
+  async changes(
+    actor: AuthUser,
+    params: { groupId?: string; teacherId?: string; from?: string; to?: string },
+  ) {
     const settings = await this.settings.getEffective(actor.organizationId);
     const today = todayInTimezone(settings.timezone);
     const from = params.from ?? addDaysStr(today, -7);
@@ -156,7 +177,14 @@ export class ScheduleLessonsService {
       ],
     };
     if (params.teacherId) {
-      where.AND = [{ OR: [{ teacherId: params.teacherId }, { substitutions: { some: { originalTeacherId: params.teacherId } } }] }];
+      where.AND = [
+        {
+          OR: [
+            { teacherId: params.teacherId },
+            { substitutions: { some: { originalTeacherId: params.teacherId } } },
+          ],
+        },
+      ];
     }
     this.applyRoleScope(where, actor);
     const lessons = await this.prisma.scheduleLesson.findMany({
@@ -182,7 +210,9 @@ export class ScheduleLessonsService {
     if (actor.role === UserRole.TEACHER) {
       const own =
         lesson.teacherId === actor.teacherId ||
-        lesson.substitutions.some((s) => s.originalTeacherId === actor.teacherId || s.substituteTeacherId === actor.teacherId);
+        lesson.substitutions.some(
+          (s) => s.originalTeacherId === actor.teacherId || s.substituteTeacherId === actor.teacherId,
+        );
       if (!own) throw new ForbiddenException('Преподаватель может изменять только свои занятия');
       if (lesson.schedulePeriod.status !== SchedulePeriodStatus.PUBLISHED) {
         throw new ForbiddenException('Расписание ещё не опубликовано');
@@ -198,7 +228,11 @@ export class ScheduleLessonsService {
   }
 
   /** Проверка конфликтов: ошибки блокируют сохранение, если не указан force */
-  private async ensureNoConflicts(candidate: LessonCandidate, actor: AuthUser, force?: boolean): Promise<ValidationIssue[]> {
+  private async ensureNoConflicts(
+    candidate: LessonCandidate,
+    actor: AuthUser,
+    force?: boolean,
+  ): Promise<ValidationIssue[]> {
     const issues = await this.checker.check(candidate);
     const errors = issues.filter((i) => i.severity === Severity.ERROR);
     if (errors.length > 0 && !this.canForce(actor, force)) {
@@ -216,7 +250,12 @@ export class ScheduleLessonsService {
     return this.settings.lessonTime(settings, lessonNumber);
   }
 
-  private describe(l: { date: Date | string; lessonNumber: number; studentGroup: { code: string }; semesterItem: { curriculumItem: { name: string } } }) {
+  private describe(l: {
+    date: Date | string;
+    lessonNumber: number;
+    studentGroup: { code: string };
+    semesterItem: { curriculumItem: { name: string } };
+  }) {
     return `${l.studentGroup.code}: «${l.semesterItem.curriculumItem.name}» ${formatDateRu(l.date)}, ${l.lessonNumber} пара`;
   }
 
@@ -259,8 +298,15 @@ export class ScheduleLessonsService {
       allowHoursExcess: base.allowHoursExcess,
       skipHoursCheck: !!dto.lessonId,
     };
-    if (!candidate.schedulePeriodId || !candidate.studentGroupId || !candidate.semesterCurriculumItemId || !candidate.lessonType) {
-      throw new BadRequestException('Недостаточно данных для проверки: укажите период, группу, дисциплину и вид занятия');
+    if (
+      !candidate.schedulePeriodId ||
+      !candidate.studentGroupId ||
+      !candidate.semesterCurriculumItemId ||
+      !candidate.lessonType
+    ) {
+      throw new BadRequestException(
+        'Недостаточно данных для проверки: укажите период, группу, дисциплину и вид занятия',
+      );
     }
     const issues = await this.checker.check(candidate);
     return {
@@ -371,9 +417,14 @@ export class ScheduleLessonsService {
   async update(id: string, dto: UpdateLessonDto, actor: AuthUser) {
     const before = await this.loadForChange(id, actor);
     if (actor.role === UserRole.TEACHER) {
-      throw new ForbiddenException('Преподаватель может изменять занятие только через перенос, отмену или замену');
+      throw new ForbiddenException(
+        'Преподаватель может изменять занятие только через перенос, отмену или замену',
+      );
     }
-    if ([LessonStatus.CANCELLED, LessonStatus.MOVED].includes(before.status as 'CANCELLED' | 'MOVED') && (dto.date || dto.lessonNumber)) {
+    if (
+      [LessonStatus.CANCELLED, LessonStatus.MOVED].includes(before.status as 'CANCELLED' | 'MOVED') &&
+      (dto.date || dto.lessonNumber)
+    ) {
       throw new ConflictException('Отменённое или перенесённое занятие нельзя переставить');
     }
     const date = dto.date ?? toDateStr(before.date);
@@ -394,7 +445,8 @@ export class ScheduleLessonsService {
         academicHours: dto.academicHours ?? before.academicHours,
         streamKey: before.streamKey,
         allowHoursExcess: dto.allowHoursExcess ?? before.allowHoursExcess,
-        skipHoursCheck: dto.academicHours === undefined && dto.lessonType === undefined && dto.subgroupNumber === undefined,
+        skipHoursCheck:
+          dto.academicHours === undefined && dto.lessonType === undefined && dto.subgroupNumber === undefined,
       },
       actor,
       dto.force,
@@ -421,9 +473,19 @@ export class ScheduleLessonsService {
       },
       include: LESSON_INCLUDE,
     });
-    await this.audit.log(actor.id, 'UPDATE', 'ScheduleLesson', id, presentLesson(before), presentLesson(updated));
+    await this.audit.log(
+      actor.id,
+      'UPDATE',
+      'ScheduleLesson',
+      id,
+      presentLesson(before),
+      presentLesson(updated),
+    );
     const visibleChange =
-      dto.date !== undefined || dto.lessonNumber !== undefined || dto.teacherId !== undefined || dto.classroomId !== undefined;
+      dto.date !== undefined ||
+      dto.lessonNumber !== undefined ||
+      dto.teacherId !== undefined ||
+      dto.classroomId !== undefined;
     if (before.schedulePeriod.status === SchedulePeriodStatus.PUBLISHED && visibleChange) {
       await this.notifications.notify({
         type: NotificationType.LESSON_UPDATED,
@@ -439,16 +501,22 @@ export class ScheduleLessonsService {
 
   async remove(id: string, actor: AuthUser) {
     const lesson = await this.loadForChange(id, actor);
-    if (actor.role === UserRole.TEACHER) throw new ForbiddenException('Преподаватель не может удалять занятия');
+    if (actor.role === UserRole.TEACHER)
+      throw new ForbiddenException('Преподаватель не может удалять занятия');
     if (lesson.conducted && lesson.conducted.status === ConductedStatus.CONDUCTED) {
-      throw new ConflictException('Нельзя удалить проведённое занятие — сначала снимите отметку о проведении');
+      throw new ConflictException(
+        'Нельзя удалить проведённое занятие — сначала снимите отметку о проведении',
+      );
     }
     await this.prisma.$transaction(async (tx) => {
       // Отмена переноса: исходное занятие возвращается в статус «запланировано»
       if (lesson.originalLessonId) {
         const original = await tx.scheduleLesson.findUnique({ where: { id: lesson.originalLessonId } });
         if (original?.status === LessonStatus.MOVED) {
-          await tx.scheduleLesson.update({ where: { id: original.id }, data: { status: LessonStatus.PLANNED } });
+          await tx.scheduleLesson.update({
+            where: { id: original.id },
+            data: { status: LessonStatus.PLANNED },
+          });
           await tx.conductedLesson.deleteMany({
             where: { scheduleLessonId: original.id, status: ConductedStatus.POSTPONED },
           });
@@ -461,7 +529,10 @@ export class ScheduleLessonsService {
       await tx.scheduleLesson.delete({ where: { id } });
     });
     await this.audit.log(actor.id, 'DELETE', 'ScheduleLesson', id, presentLesson(lesson), null);
-    if (lesson.schedulePeriod.status === SchedulePeriodStatus.PUBLISHED && lesson.status === LessonStatus.PLANNED) {
+    if (
+      lesson.schedulePeriod.status === SchedulePeriodStatus.PUBLISHED &&
+      lesson.status === LessonStatus.PLANNED
+    ) {
       await this.notifications.notify({
         type: NotificationType.LESSON_CANCELLED,
         title: 'Занятие удалено из расписания',
@@ -525,7 +596,9 @@ export class ScheduleLessonsService {
           endTime: time.endTime,
           classroomId,
           isManual: true,
-          notes: dto.reason ? [lesson.notes, `Перенос: ${dto.reason}`].filter(Boolean).join('\n') : lesson.notes,
+          notes: dto.reason
+            ? [lesson.notes, `Перенос: ${dto.reason}`].filter(Boolean).join('\n')
+            : lesson.notes,
         },
         include: LESSON_INCLUDE,
       });
@@ -550,7 +623,9 @@ export class ScheduleLessonsService {
             streamKey: lesson.streamKey,
             allowHoursExcess: lesson.allowHoursExcess,
             topic: lesson.topic,
-            notes: dto.reason ? `Перенос с ${formatDateRu(lesson.date)}: ${dto.reason}` : `Перенос с ${formatDateRu(lesson.date)}`,
+            notes: dto.reason
+              ? `Перенос с ${formatDateRu(lesson.date)}: ${dto.reason}`
+              : `Перенос с ${formatDateRu(lesson.date)}`,
             originalLessonId: lesson.id,
             isManual: true,
             status: lesson.status === LessonStatus.REPLACED ? LessonStatus.REPLACED : LessonStatus.PLANNED,
@@ -569,13 +644,24 @@ export class ScheduleLessonsService {
             notes: dto.reason,
             markedByUserId: actor.id,
           },
-          update: { status: ConductedStatus.POSTPONED, actualHours: 0, replacementLessonId: created.id, notes: dto.reason },
+          update: {
+            status: ConductedStatus.POSTPONED,
+            actualHours: 0,
+            replacementLessonId: created.id,
+            notes: dto.reason,
+          },
         });
-        await tx.makeupTask.updateMany({ where: { resolvedLessonId: id }, data: { resolvedLessonId: created.id } });
+        await tx.makeupTask.updateMany({
+          where: { resolvedLessonId: id },
+          data: { resolvedLessonId: created.id },
+        });
         return created;
       });
     }
-    await this.audit.log(actor.id, 'MOVE', 'ScheduleLesson', id, presentLesson(lesson), { ...presentLesson(result), mode });
+    await this.audit.log(actor.id, 'MOVE', 'ScheduleLesson', id, presentLesson(lesson), {
+      ...presentLesson(result),
+      mode,
+    });
     if (lesson.schedulePeriod.status === SchedulePeriodStatus.PUBLISHED) {
       await this.notifications.notify({
         type: NotificationType.LESSON_MOVED,
@@ -594,7 +680,8 @@ export class ScheduleLessonsService {
   async cancel(id: string, dto: CancelLessonDto, actor: AuthUser) {
     const lesson = await this.loadForChange(id, actor);
     if (lesson.status === LessonStatus.CANCELLED) throw new ConflictException('Занятие уже отменено');
-    if (lesson.status === LessonStatus.MOVED) throw new ConflictException('Занятие перенесено — отмените новое занятие');
+    if (lesson.status === LessonStatus.MOVED)
+      throw new ConflictException('Занятие перенесено — отмените новое занятие');
     if (lesson.conducted?.status === ConductedStatus.CONDUCTED) {
       throw new ConflictException('Занятие уже отмечено как проведённое');
     }
@@ -616,7 +703,12 @@ export class ScheduleLessonsService {
           notes: dto.notes,
           markedByUserId: actor.id,
         },
-        update: { status: ConductedStatus.CANCELLED, actualHours: 0, cancellationReason: dto.reason, notes: dto.notes },
+        update: {
+          status: ConductedStatus.CANCELLED,
+          actualHours: 0,
+          cancellationReason: dto.reason,
+          notes: dto.notes,
+        },
       });
       // Если отменяется сама отработка — её задача снова открыта, новая не нужна
       const reopened = await tx.makeupTask.updateMany({
@@ -628,27 +720,31 @@ export class ScheduleLessonsService {
         task =
           (await tx.makeupTask.findFirst({ where: { sourceLessonId: id } })) ??
           (await tx.makeupTask.create({
-          data: {
-            sourceLessonId: id,
-            studentGroupId: lesson.studentGroupId,
-            subgroupNumber: lesson.subgroupNumber,
-            semesterCurriculumItemId: lesson.semesterCurriculumItemId,
-            teacherId: lesson.teacherId,
-            lessonType: lesson.lessonType,
-            academicHours: lesson.academicHours,
-            dueDate: parseDate(addDaysStr(toDateStr(lesson.date), 21)),
-            notes: `Отмена: ${CANCELLATION_REASON_LABELS[dto.reason]}${dto.notes ? `. ${dto.notes}` : ''}`,
-          },
-        }));
+            data: {
+              sourceLessonId: id,
+              studentGroupId: lesson.studentGroupId,
+              subgroupNumber: lesson.subgroupNumber,
+              semesterCurriculumItemId: lesson.semesterCurriculumItemId,
+              teacherId: lesson.teacherId,
+              lessonType: lesson.lessonType,
+              academicHours: lesson.academicHours,
+              dueDate: parseDate(addDaysStr(toDateStr(lesson.date), 21)),
+              notes: `Отмена: ${CANCELLATION_REASON_LABELS[dto.reason]}${dto.notes ? `. ${dto.notes}` : ''}`,
+            },
+          }));
       }
       return { updated, task };
     });
-    await this.audit.log(actor.id, 'CANCEL', 'ScheduleLesson', id, presentLesson(lesson), { reason: dto.reason, notes: dto.notes });
+    await this.audit.log(actor.id, 'CANCEL', 'ScheduleLesson', id, presentLesson(lesson), {
+      reason: dto.reason,
+      notes: dto.notes,
+    });
     await this.notifications.notify({
       type: NotificationType.LESSON_CANCELLED,
       title: 'Отмена занятия',
       message: `${this.describe(lesson)} отменено. Причина: ${CANCELLATION_REASON_LABELS[dto.reason]}${dto.notes ? ` (${dto.notes})` : ''}`,
-      groupIds: lesson.schedulePeriod.status === SchedulePeriodStatus.PUBLISHED ? [lesson.studentGroupId] : [],
+      groupIds:
+        lesson.schedulePeriod.status === SchedulePeriodStatus.PUBLISHED ? [lesson.studentGroupId] : [],
       teacherIds: [lesson.teacherId],
       lessonId: id,
     });
@@ -721,12 +817,20 @@ export class ScheduleLessonsService {
         include: LESSON_INCLUDE,
       });
     });
-    await this.audit.log(actor.id, 'SUBSTITUTE', 'ScheduleLesson', id, presentLesson(lesson), presentLesson(updated));
+    await this.audit.log(
+      actor.id,
+      'SUBSTITUTE',
+      'ScheduleLesson',
+      id,
+      presentLesson(lesson),
+      presentLesson(updated),
+    );
     await this.notifications.notify({
       type: NotificationType.TEACHER_SUBSTITUTED,
       title: 'Замена преподавателя',
       message: `${this.describe(lesson)}: занятие проведёт ${substitute.fullName} вместо ${lesson.teacher?.fullName ?? '—'}${dto.reason ? `. Причина: ${dto.reason}` : ''}`,
-      groupIds: lesson.schedulePeriod.status === SchedulePeriodStatus.PUBLISHED ? [lesson.studentGroupId] : [],
+      groupIds:
+        lesson.schedulePeriod.status === SchedulePeriodStatus.PUBLISHED ? [lesson.studentGroupId] : [],
       teacherIds: [lesson.teacherId, dto.substituteTeacherId],
       lessonId: id,
     });
@@ -744,12 +848,22 @@ export class ScheduleLessonsService {
     if (status === ConductedStatus.POSTPONED) {
       if (!dto.newDate || !dto.newLessonNumber) {
         // Без новой даты — отмена с задачей отработки
-        return this.cancel(id, { reason: dto.cancellationReason ?? 'OTHER', notes: dto.notes ?? 'Перенос без даты' }, actor);
+        return this.cancel(
+          id,
+          { reason: dto.cancellationReason ?? 'OTHER', notes: dto.notes ?? 'Перенос без даты' },
+          actor,
+        );
       }
-      return this.move(id, { date: dto.newDate, lessonNumber: dto.newLessonNumber, reason: dto.notes, mode: 'history' }, actor);
+      return this.move(
+        id,
+        { date: dto.newDate, lessonNumber: dto.newLessonNumber, reason: dto.notes, mode: 'history' },
+        actor,
+      );
     }
     if (lesson.status === LessonStatus.MOVED) {
-      throw new ConflictException('Занятие перенесено — отметьте проведение нового занятия (двойное списание часов недопустимо)');
+      throw new ConflictException(
+        'Занятие перенесено — отметьте проведение нового занятия (двойное списание часов недопустимо)',
+      );
     }
     if (lesson.status === LessonStatus.CANCELLED) {
       throw new ConflictException('Занятие отменено — для компенсации поставьте отработку');
@@ -774,7 +888,12 @@ export class ScheduleLessonsService {
             notes: dto.notes,
             markedByUserId: actor.id,
           },
-          update: { status: ConductedStatus.REPLACED, actualHours: 0, replacementLessonId: dto.replacementLessonId, notes: dto.notes },
+          update: {
+            status: ConductedStatus.REPLACED,
+            actualHours: 0,
+            replacementLessonId: dto.replacementLessonId,
+            notes: dto.notes,
+          },
         });
         await tx.makeupTask.create({
           data: {
@@ -797,13 +916,19 @@ export class ScheduleLessonsService {
     // CONDUCTED — проведено (полностью или частично)
     const actualHours = dto.actualHours ?? lesson.academicHours;
     if (actualHours > lesson.academicHours) {
-      throw new BadRequestException(`Фактические часы (${actualHours}) не могут превышать продолжительность занятия (${lesson.academicHours})`);
+      throw new BadRequestException(
+        `Фактические часы (${actualHours}) не могут превышать продолжительность занятия (${lesson.academicHours})`,
+      );
     }
     if (actualHours <= 0) {
       throw new BadRequestException('Для непроведённого занятия используйте статус «Отменено»');
     }
     const actualTeacherId = dto.actualTeacherId ?? lesson.teacherId;
-    if (actor.role === UserRole.TEACHER && actualTeacherId !== actor.teacherId && lesson.teacherId !== actor.teacherId) {
+    if (
+      actor.role === UserRole.TEACHER &&
+      actualTeacherId !== actor.teacherId &&
+      lesson.teacherId !== actor.teacherId
+    ) {
       throw new ForbiddenException('Преподаватель может отметить только собственное занятие');
     }
     const replaced = !!actualTeacherId && !!lesson.teacherId && actualTeacherId !== lesson.teacherId;
@@ -827,7 +952,10 @@ export class ScheduleLessonsService {
       await tx.scheduleLesson.update({
         where: { id },
         data: {
-          status: replaced || lesson.status === LessonStatus.REPLACED ? LessonStatus.REPLACED : LessonStatus.CONDUCTED,
+          status:
+            replaced || lesson.status === LessonStatus.REPLACED
+              ? LessonStatus.REPLACED
+              : LessonStatus.CONDUCTED,
           topic: dto.topic ?? lesson.topic,
         },
       });
@@ -877,7 +1005,10 @@ export class ScheduleLessonsService {
         where: { id },
         data: { status: lesson.substitutions.length > 0 ? LessonStatus.REPLACED : LessonStatus.PLANNED },
       });
-      if (lesson.conducted?.status === ConductedStatus.CANCELLED || lesson.conducted?.status === ConductedStatus.REPLACED) {
+      if (
+        lesson.conducted?.status === ConductedStatus.CANCELLED ||
+        lesson.conducted?.status === ConductedStatus.REPLACED
+      ) {
         await tx.makeupTask.deleteMany({ where: { sourceLessonId: id, status: MakeupTaskStatus.OPEN } });
       }
       await tx.makeupTask.updateMany({
@@ -893,7 +1024,8 @@ export class ScheduleLessonsService {
 
   async copy(id: string, dto: CopyLessonDto, actor: AuthUser) {
     const lesson = await this.loadForChange(id, actor);
-    if (actor.role === UserRole.TEACHER) throw new ForbiddenException('Преподаватель не может создавать занятия');
+    if (actor.role === UserRole.TEACHER)
+      throw new ForbiddenException('Преподаватель не может создавать занятия');
     return this.create(
       {
         schedulePeriodId: lesson.schedulePeriodId,
@@ -915,7 +1047,8 @@ export class ScheduleLessonsService {
   }
 
   async bulk(dto: BulkLessonsDto, actor: AuthUser) {
-    if (!EDITOR.includes(actor.role)) throw new ForbiddenException('Массовое редактирование доступно диспетчеру');
+    if (!EDITOR.includes(actor.role))
+      throw new ForbiddenException('Массовое редактирование доступно диспетчеру');
     const results: Array<{ id: string; ok: boolean; message?: string }> = [];
     for (const id of dto.ids) {
       try {
@@ -926,7 +1059,10 @@ export class ScheduleLessonsService {
           case 'lock':
           case 'unlock':
             await this.loadForChange(id, actor);
-            await this.prisma.scheduleLesson.update({ where: { id }, data: { isLocked: dto.action === 'lock' } });
+            await this.prisma.scheduleLesson.update({
+              where: { id },
+              data: { isLocked: dto.action === 'lock' },
+            });
             break;
           case 'cancel':
             await this.cancel(id, { reason: dto.reason ?? 'OTHER', createMakeupTask: true }, actor);
@@ -997,7 +1133,10 @@ export class ScheduleLessonsService {
     let next = lesson.derivedLessons.map((d) => d.id);
     guard = 0;
     while (next.length && guard++ < 20) {
-      const found = await this.prisma.scheduleLesson.findMany({ where: { id: { in: next } }, include: LESSON_INCLUDE });
+      const found = await this.prisma.scheduleLesson.findMany({
+        where: { id: { in: next } },
+        include: LESSON_INCLUDE,
+      });
       chain.push(...found);
       next = found.flatMap((f) => f.derivedLessons.map((d) => d.id));
     }
@@ -1012,7 +1151,9 @@ export class ScheduleLessonsService {
         },
         orderBy: { createdAt: 'asc' },
       }),
-      this.prisma.makeupTask.findMany({ where: { OR: [{ sourceLessonId: { in: ids } }, { resolvedLessonId: { in: ids } }] } }),
+      this.prisma.makeupTask.findMany({
+        where: { OR: [{ sourceLessonId: { in: ids } }, { resolvedLessonId: { in: ids } }] },
+      }),
       this.prisma.auditLog.findMany({
         where: { entityType: 'ScheduleLesson', entityId: { in: ids } },
         include: { user: { select: { fullName: true } } },
@@ -1024,7 +1165,13 @@ export class ScheduleLessonsService {
       chain: chain.map(presentLesson),
       substitutions,
       makeupTasks,
-      audit: audit.map((a) => ({ id: a.id, action: a.action, user: a.user?.fullName ?? null, createdAt: a.createdAt, entityId: a.entityId })),
+      audit: audit.map((a) => ({
+        id: a.id,
+        action: a.action,
+        user: a.user?.fullName ?? null,
+        createdAt: a.createdAt,
+        entityId: a.entityId,
+      })),
     };
   }
 }

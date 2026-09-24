@@ -56,7 +56,10 @@ export class ProgramsController {
   async template(@Res() res: Response) {
     const buffer = await this.importer.template();
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent('Шаблон_учебного_плана.xlsx')}`);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent('Шаблон_учебного_плана.xlsx')}`,
+    );
     res.send(buffer);
   }
 
@@ -76,7 +79,11 @@ export class ProgramsController {
 
   @Patch(':id')
   @Roles(...EDITOR_ROLES)
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateProgramDto, @CurrentUser() user: AuthUser) {
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateProgramDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.programs.update(id, dto, user);
   }
 
@@ -132,7 +139,11 @@ export class ProgramsController {
 
   @Post(':id/cycles')
   @Roles(...EDITOR_ROLES)
-  createCycle(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CreateCycleDto, @CurrentUser() user: AuthUser) {
+  createCycle(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateCycleDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.curriculum.createCycle(id, dto, user);
   }
 
@@ -144,7 +155,11 @@ export class ProgramsController {
 
   @Post(':id/academic-years')
   @Roles(...EDITOR_ROLES)
-  createYear(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CreateAcademicYearDto, @CurrentUser() user: AuthUser) {
+  createYear(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateAcademicYearDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.programs.createAcademicYear(id, dto, user);
   }
 
@@ -156,7 +171,11 @@ export class ProgramsController {
 
   @Post(':id/semesters')
   @Roles(...EDITOR_ROLES)
-  createSemester(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CreateSemesterDto, @CurrentUser() user: AuthUser) {
+  createSemester(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateSemesterDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.programs.createSemester(id, dto, user);
   }
 }

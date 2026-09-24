@@ -45,7 +45,11 @@ export interface StreamHours {
   excessApproved: boolean;
 }
 
-export const ACTIVE_STATUSES: LessonStatus[] = [LessonStatus.PLANNED, LessonStatus.CONDUCTED, LessonStatus.REPLACED];
+export const ACTIVE_STATUSES: LessonStatus[] = [
+  LessonStatus.PLANNED,
+  LessonStatus.CONDUCTED,
+  LessonStatus.REPLACED,
+];
 
 export function emptyStreamHours(planned = 0): StreamHours {
   return {
@@ -113,7 +117,11 @@ export function matchLessonsToStreams(streams: DemandStream[], lessons: LessonFo
   return { matched, unmatched };
 }
 
-export function computeStreamHours(stream: DemandStream, lessons: LessonForHours[], today: string): StreamHours {
+export function computeStreamHours(
+  stream: DemandStream,
+  lessons: LessonForHours[],
+  today: string,
+): StreamHours {
   const h = emptyStreamHours(stream.plannedHours);
   h.excessApproved = stream.allowHoursExcess;
   for (const l of lessons) {
@@ -192,7 +200,8 @@ export function hourStatus(
   let status: HourStatus = 'NORMAL';
   if (h.excess > 0) status = 'EXCESS';
   else if (h.scheduleDeficit > 0 || h.forecastDeficit > 0) status = 'DEFICIT';
-  else if (h.unmarkedPast >= 4 || (h.planned >= 8 && h.conducted + h.unmarkedPast < expectedByNow * 0.8)) status = 'RISK';
+  else if (h.unmarkedPast >= 4 || (h.planned >= 8 && h.conducted + h.unmarkedPast < expectedByNow * 0.8))
+    status = 'RISK';
   return { status, expectedByNow, completionPercent };
 }
 

@@ -17,13 +17,17 @@ export class GenerateScheduleDto {
   @ApiPropertyOptional({
     enum: ['CALENDAR', 'WEEKLY_TEMPLATE'],
     default: 'CALENDAR',
-    description: 'CALENDAR — календарное расписание по датам; WEEKLY_TEMPLATE — постоянная неделя с развёрткой',
+    description:
+      'CALENDAR — календарное расписание по датам; WEEKLY_TEMPLATE — постоянная неделя с развёрткой',
   })
   @IsOptional()
   @IsIn(['CALENDAR', 'WEEKLY_TEMPLATE'], { message: 'Недопустимый режим генерации' })
   mode?: 'CALENDAR' | 'WEEKLY_TEMPLATE';
 
-  @ApiPropertyOptional({ type: [String], description: 'Группы (по умолчанию — все активные группы учебного плана)' })
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Группы (по умолчанию — все активные группы учебного плана)',
+  })
   @IsOptional()
   @IsArray()
   @IsUUID('4', { each: true })

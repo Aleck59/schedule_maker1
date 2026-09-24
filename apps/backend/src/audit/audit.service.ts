@@ -39,7 +39,13 @@ export class AuditService {
     }
   }
 
-  async list(params: { entityType?: string; entityId?: string; userId?: string; take?: number; skip?: number }) {
+  async list(params: {
+    entityType?: string;
+    entityId?: string;
+    userId?: string;
+    take?: number;
+    skip?: number;
+  }) {
     const where: Prisma.AuditLogWhereInput = {
       entityType: params.entityType || undefined,
       entityId: params.entityId || undefined,

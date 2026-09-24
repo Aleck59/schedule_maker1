@@ -24,7 +24,9 @@ export class NotificationsService {
         where: {
           isActive: true,
           OR: [
-            params.groupIds?.length ? { role: UserRole.STUDENT, studentGroupId: { in: params.groupIds } } : undefined,
+            params.groupIds?.length
+              ? { role: UserRole.STUDENT, studentGroupId: { in: params.groupIds } }
+              : undefined,
             teacherIds.length ? { role: UserRole.TEACHER, teacherId: { in: teacherIds } } : undefined,
           ].filter((x): x is NonNullable<typeof x> => !!x),
         },
@@ -65,7 +67,10 @@ export class NotificationsService {
   }
 
   async markAllRead(userId: string) {
-    const r = await this.prisma.notification.updateMany({ where: { userId, isRead: false }, data: { isRead: true } });
+    const r = await this.prisma.notification.updateMany({
+      where: { userId, isRead: false },
+      data: { isRead: true },
+    });
     return { updated: r.count };
   }
 }

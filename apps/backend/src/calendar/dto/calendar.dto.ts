@@ -1,6 +1,18 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { CalendarEventType, ControlForm } from '@prisma/client';
-import { IsBoolean, IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, Max, Min, ValidateIf } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  Max,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 import { DATE_MESSAGE, DATE_REGEX } from '../../common/dto/date-range.dto';
 
 export class CreateCalendarEventDto {
@@ -53,7 +65,9 @@ export class CreateCalendarEventDto {
   @Matches(DATE_REGEX, { message: DATE_MESSAGE })
   endDate: string;
 
-  @ApiPropertyOptional({ description: 'Блокирует постановку обычных занятий (по умолчанию — да, кроме теоретического обучения)' })
+  @ApiPropertyOptional({
+    description: 'Блокирует постановку обычных занятий (по умолчанию — да, кроме теоретического обучения)',
+  })
   @IsOptional()
   @IsBoolean()
   blocksSchedule?: boolean;

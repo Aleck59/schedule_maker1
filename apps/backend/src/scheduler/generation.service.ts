@@ -19,7 +19,10 @@ import { GenerationQueueService } from './generation-queue.service';
 import { GenerationParams, GenerationResultJson, PreviewLesson } from './generation.types';
 import { ACTIVE_LESSON_STATUSES } from './problem-builder.service';
 
-const FINISHED: GenerationJobStatus[] = [GenerationJobStatus.COMPLETED, GenerationJobStatus.COMPLETED_WITH_CONFLICTS];
+const FINISHED: GenerationJobStatus[] = [
+  GenerationJobStatus.COMPLETED,
+  GenerationJobStatus.COMPLETED_WITH_CONFLICTS,
+];
 
 @Injectable()
 export class GenerationService {
@@ -54,7 +57,9 @@ export class GenerationService {
     const running = await this.prisma.scheduleGenerationJob.findFirst({
       where: {
         schedulePeriodId: periodId,
-        status: { in: [GenerationJobStatus.QUEUED, GenerationJobStatus.GENERATING, GenerationJobStatus.VALIDATING] },
+        status: {
+          in: [GenerationJobStatus.QUEUED, GenerationJobStatus.GENERATING, GenerationJobStatus.VALIDATING],
+        },
       },
     });
     if (running) {
@@ -105,7 +110,11 @@ export class GenerationService {
     }
     const updated = await this.prisma.scheduleGenerationJob.update({
       where: { id: jobId },
-      data: { status: GenerationJobStatus.CANCELLED, message: 'Отменено пользователем', finishedAt: new Date() },
+      data: {
+        status: GenerationJobStatus.CANCELLED,
+        message: 'Отменено пользователем',
+        finishedAt: new Date(),
+      },
     });
     return this.present(updated, false);
   }
@@ -124,7 +133,9 @@ export class GenerationService {
       throw new ConflictException('Результат этой генерации уже применён');
     }
     if (!FINISHED.includes(job.status)) {
-      throw new ConflictException(`Применить можно только завершённую генерацию (текущий статус: ${JOB_STATUS_LABELS[job.status]})`);
+      throw new ConflictException(
+        `Применить можно только завершённую генерацию (текущий статус: ${JOB_STATUS_LABELS[job.status]})`,
+      );
     }
     if (job.schedulePeriod.status === SchedulePeriodStatus.ARCHIVED) {
       throw new ConflictException('Период находится в архиве');
@@ -133,7 +144,9 @@ export class GenerationService {
       where: { schedulePeriodId: job.schedulePeriodId, appliedAt: { gt: job.createdAt } },
     });
     if (newer) {
-      throw new ConflictException('После этой генерации был применён другой результат — запустите генерацию заново');
+      throw new ConflictException(
+        'После этой генерации был применён другой результат — запустите генерацию заново',
+      );
     }
     const result = job.resultJson as unknown as GenerationResultJson;
     const skipped: Array<{ lesson: PreviewLesson; reason: string }> = [];
@@ -169,7 +182,8 @@ export class GenerationService {
         const teacherBusy = new Set<string>();
         const roomBusy = new Set<string>();
         const groupBusy = new Map<string, Set<number>>();
-        const slot = (d: Date | string, n: number) => `${typeof d === 'string' ? d : d.toISOString().slice(0, 10)}#${n}`;
+        const slot = (d: Date | string, n: number) =>
+          `${typeof d === 'string' ? d : d.toISOString().slice(0, 10)}#${n}`;
         for (const e of existing) {
           const s = slot(e.date, e.lessonNumber);
           if (e.teacherId) teacherBusy.add(`${e.teacherId}#${s}`);
@@ -186,7 +200,8 @@ export class GenerationService {
           if (l.roomId && roomBusy.has(`${l.roomId}#${s}`)) reason = 'аудитория уже занята';
           for (const g of l.groupIds) {
             const gs = groupBusy.get(`${g}#${s}`);
-            if (gs && (l.subgroupNumber === null || gs.has(0) || gs.has(l.subgroupNumber))) reason = 'у группы уже есть занятие';
+            if (gs && (l.subgroupNumber === null || gs.has(0) || gs.has(l.subgroupNumber)))
+              reason = 'у группы уже есть занятие';
           }
           if (reason) {
             skipped.push({ lesson: l, reason });

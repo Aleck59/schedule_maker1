@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { MakeupTaskStatus, UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -88,7 +99,11 @@ export class ScheduleLessonsController {
   @Patch('schedule-lessons/:id')
   @Roles(...EDITOR_ROLES)
   @ApiOperation({ summary: 'Изменение занятия: аудитория, преподаватель, время, тема' })
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateLessonDto, @CurrentUser() user: AuthUser) {
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateLessonDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.lessons.update(id, dto, user);
   }
 
@@ -110,7 +125,11 @@ export class ScheduleLessonsController {
   @HttpCode(200)
   @Roles(...LESSON_ACTORS)
   @ApiOperation({ summary: 'Отмена занятия: часы не списываются, создаётся задача «требуется отработка»' })
-  cancel(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CancelLessonDto, @CurrentUser() user: AuthUser) {
+  cancel(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CancelLessonDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.lessons.cancel(id, dto, user);
   }
 
@@ -118,7 +137,11 @@ export class ScheduleLessonsController {
   @HttpCode(200)
   @Roles(...LESSON_ACTORS)
   @ApiOperation({ summary: 'Замена преподавателя' })
-  substitute(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SubstituteDto, @CurrentUser() user: AuthUser) {
+  substitute(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SubstituteDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.lessons.substitute(id, dto, user);
   }
 
@@ -189,7 +212,11 @@ export class ScheduleLessonsController {
 
   @Patch('makeup-tasks/:id')
   @Roles(...EDITOR_ROLES)
-  makeupUpdate(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateMakeupTaskDto, @CurrentUser() user: AuthUser) {
+  makeupUpdate(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateMakeupTaskDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.makeup.update(id, dto, user);
   }
 
@@ -208,7 +235,11 @@ export class ScheduleLessonsController {
   @Post('makeup-tasks/:id/schedule')
   @Roles(...EDITOR_ROLES)
   @ApiOperation({ summary: 'Поставить отработку в расписание' })
-  makeupSchedule(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ScheduleMakeupDto, @CurrentUser() user: AuthUser) {
+  makeupSchedule(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ScheduleMakeupDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.makeup.schedule(id, dto, user);
   }
 }

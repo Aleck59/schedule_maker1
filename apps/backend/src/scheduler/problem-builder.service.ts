@@ -1,6 +1,15 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { ClassroomType, LessonStatus, LessonType } from '@prisma/client';
-import { addDaysStr, diffDays, eachDay, isoWeekday, maxDate, minDate, toDateStr, weekStart } from '../common/utils/dates';
+import {
+  addDaysStr,
+  diffDays,
+  eachDay,
+  isoWeekday,
+  maxDate,
+  minDate,
+  toDateStr,
+  weekStart,
+} from '../common/utils/dates';
 import { LESSON_TYPE_SHORT } from '../common/utils/labels';
 import { streamKeyOf } from '../planning/planning.service';
 import { PlanningService } from '../planning/planning.service';
@@ -20,7 +29,11 @@ import {
   UnplacedReason,
 } from './solver.types';
 
-export const ACTIVE_LESSON_STATUSES: LessonStatus[] = [LessonStatus.PLANNED, LessonStatus.CONDUCTED, LessonStatus.REPLACED];
+export const ACTIVE_LESSON_STATUSES: LessonStatus[] = [
+  LessonStatus.PLANNED,
+  LessonStatus.CONDUCTED,
+  LessonStatus.REPLACED,
+];
 
 export interface BuiltProblem {
   problem: SolverProblem;
@@ -63,8 +76,14 @@ export class ProblemBuilderService {
 
     const semesterStart = toDateStr(period.semester.startDate);
     const semesterEnd = toDateStr(period.semester.endDate);
-    const from = maxDate(maxDate(params.dateFrom ?? toDateStr(period.startDate), toDateStr(period.startDate)), semesterStart);
-    const to = minDate(minDate(params.dateTo ?? toDateStr(period.endDate), toDateStr(period.endDate)), semesterEnd);
+    const from = maxDate(
+      maxDate(params.dateFrom ?? toDateStr(period.startDate), toDateStr(period.startDate)),
+      semesterStart,
+    );
+    const to = minDate(
+      minDate(params.dateTo ?? toDateStr(period.endDate), toDateStr(period.endDate)),
+      semesterEnd,
+    );
     if (from > to) {
       throw new BadRequestException('Интервал генерации не пересекается с датами периода и семестра');
     }
@@ -86,7 +105,12 @@ export class ProblemBuilderService {
       semesterIds: [period.semesterId],
       groupIds,
     });
-    const ctx = await this.planning.buildCalendarContext(organizationId, semesterStart, maxDate(to, semesterEnd), groupIds);
+    const ctx = await this.planning.buildCalendarContext(
+      organizationId,
+      semesterStart,
+      maxDate(to, semesterEnd),
+      groupIds,
+    );
     const lessonsPerDay = params.lessonsPerDay ?? settings.lessonsPerDay;
 
     // --- Дни горизонта
@@ -204,7 +228,13 @@ export class ProblemBuilderService {
       );
     }
 
-    const pushUnplaced = (s: DemandStream, lessons: number, hours: number, code: UnplacedReason, message: string) => {
+    const pushUnplaced = (
+      s: DemandStream,
+      lessons: number,
+      hours: number,
+      code: UnplacedReason,
+      message: string,
+    ) => {
       preUnplaced.push({
         demandId: s.key,
         streamKeys: [s.key],
@@ -227,7 +257,8 @@ export class ProblemBuilderService {
     // Доля недельного темпа для назначений, покрывающих несколько видов занятий
     const assignmentTotals = new Map<string, number>();
     for (const s of streams) {
-      if (s.assignmentId) assignmentTotals.set(s.assignmentId, (assignmentTotals.get(s.assignmentId) ?? 0) + s.plannedLessons);
+      if (s.assignmentId)
+        assignmentTotals.set(s.assignmentId, (assignmentTotals.get(s.assignmentId) ?? 0) + s.plannedLessons);
     }
 
     interface Pending {
@@ -250,12 +281,20 @@ export class ProblemBuilderService {
       }
       const teacher = teacherById.get(s.teacherId);
       if (!teacher || !teacher.isActive) {
-        pushUnplaced(s, lessonsRequired, remainingHours, 'TEACHER_INACTIVE', `Преподаватель ${s.teacherName ?? ''} неактивен`);
+        pushUnplaced(
+          s,
+          lessonsRequired,
+          remainingHours,
+          'TEACHER_INACTIVE',
+          `Преподаватель ${s.teacherName ?? ''} неактивен`,
+        );
         continue;
       }
       let allowedDates: string[] | null = null;
       if (s.lessonType === LessonType.PRACTICE) {
-        allowedDates = days.filter((d) => ctx.isPracticeAllowed(s.groupId, d.date, s.itemType)).map((d) => d.date);
+        allowedDates = days
+          .filter((d) => ctx.isPracticeAllowed(s.groupId, d.date, s.itemType))
+          .map((d) => d.date);
         if (allowedDates.length === 0) {
           pushUnplaced(
             s,
@@ -270,7 +309,9 @@ export class ProblemBuilderService {
         allowedDates = consultationDates.get(s.groupId) ?? [];
         if (allowedDates.length === 0) allowedDates = null;
       }
-      const assignmentTotal = s.assignmentId ? assignmentTotals.get(s.assignmentId) ?? s.plannedLessons : s.plannedLessons;
+      const assignmentTotal = s.assignmentId
+        ? (assignmentTotals.get(s.assignmentId) ?? s.plannedLessons)
+        : s.plannedLessons;
       const weeklyRate =
         s.weeklyTarget && assignmentTotal > 0 ? (s.weeklyTarget * s.plannedLessons) / assignmentTotal : null;
       pending.push({ stream: s, lessonsRequired, partialHours, remainingHours, allowedDates, weeklyRate });
@@ -278,7 +319,8 @@ export class ProblemBuilderService {
 
     const roomIdsFor = (types: ClassroomType[], size: number, preferred: string | null): string[] => {
       const suitable = roomsDb.filter(
-        (r) => types.includes(r.classroomType) && (r.classroomType === ClassroomType.ONLINE || r.capacity >= size),
+        (r) =>
+          types.includes(r.classroomType) && (r.classroomType === ClassroomType.ONLINE || r.capacity >= size),
       );
       suitable.sort((a, b) => {
         if (a.id === preferred) return -1;
@@ -312,7 +354,9 @@ export class ProblemBuilderService {
       let allowedDates: string[] | null = null;
       for (const p of group) {
         if (p.allowedDates) {
-          allowedDates = allowedDates ? allowedDates.filter((d) => p.allowedDates!.includes(d)) : [...p.allowedDates];
+          allowedDates = allowedDates
+            ? allowedDates.filter((d) => p.allowedDates!.includes(d))
+            : [...p.allowedDates];
         }
       }
       demandMeta[id] = {
@@ -347,7 +391,9 @@ export class ProblemBuilderService {
         semesterItemId: s.semesterItemId,
         // Практика проводится концентрированно — лимит пар дисциплины в день к ней не применяется
         disciplineKeys:
-          s.lessonType === LessonType.PRACTICE ? [] : group.map((p) => `${p.stream.groupId}|${p.stream.semesterItemId}`),
+          s.lessonType === LessonType.PRACTICE
+            ? []
+            : group.map((p) => `${p.stream.groupId}|${p.stream.semesterItemId}`),
         title,
         lessonType: s.lessonType,
         teacherId: s.teacherId!,
@@ -390,7 +436,9 @@ export class ProblemBuilderService {
           if (d) demands.push(d);
         }
       }
-      warnings.push(`Поток «${group[0].stream.streamKey}»: ${group.map((p) => p.stream.groupCode).join(', ')} — ${common} совместных пар`);
+      warnings.push(
+        `Поток «${group[0].stream.streamKey}»: ${group.map((p) => p.stream.groupCode).join(', ')} — ${common} совместных пар`,
+      );
     }
     for (const p of singles) {
       const d = toDemand(p.stream.key, [p], p.lessonsRequired);
@@ -406,7 +454,9 @@ export class ProblemBuilderService {
         maxWeeklyLessons: t.maxWeeklyLessons,
         preferredStartLesson: t.preferredStartLesson,
         preferredEndLesson: t.preferredEndLesson,
-        unavailable: t.availability.filter((a) => !a.isAvailable).map((a) => [a.weekday, a.lessonNumber] as [number, number]),
+        unavailable: t.availability
+          .filter((a) => !a.isAvailable)
+          .map((a) => [a.weekday, a.lessonNumber] as [number, number]),
         preferences: t.availability
           .filter((a) => a.isAvailable && a.preferenceWeight !== 0)
           .map((a) => [a.weekday, a.lessonNumber, a.preferenceWeight] as [number, number, number]),
@@ -484,7 +534,13 @@ export class ProblemBuilderService {
     return new Map(
       problem.rooms.map((r) => [
         r.id,
-        { id: r.id, code: r.code, building: r.building, capacity: r.capacity, classroomType: r.type as ClassroomType },
+        {
+          id: r.id,
+          code: r.code,
+          building: r.building,
+          capacity: r.capacity,
+          classroomType: r.type as ClassroomType,
+        },
       ]),
     );
   }

@@ -5,15 +5,19 @@ import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { CalendarModule } from './calendar/calendar.module';
 import { ClassroomsModule } from './classrooms/classrooms.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { ExportModule } from './export/export.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { GroupsModule } from './groups/groups.module';
 import { HealthController } from './health/health.controller';
+import { HourControlModule } from './hour-control/hour-control.module';
 import { PlanningModule } from './planning/planning.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProgramsModule } from './programs/programs.module';
+import { ReportsModule } from './reports/reports.module';
 import { ScheduleModule } from './schedule/schedule.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { SettingsModule } from './settings/settings.module';
@@ -41,6 +45,10 @@ import { ValidationModule } from './validation/validation.module';
     CalendarModule,
     ScheduleModule,
     SchedulerModule,
+    HourControlModule,
+    ReportsModule,
+    ExportModule,
+    DashboardModule,
   ],
   controllers: [HealthController],
   providers: [

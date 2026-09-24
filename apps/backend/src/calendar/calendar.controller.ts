@@ -54,7 +54,11 @@ export class CalendarController {
 
   @Patch('calendar-events/:id')
   @Roles(...EDITOR_ROLES)
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateCalendarEventDto, @CurrentUser() user: AuthUser) {
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateCalendarEventDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.calendar.updateEvent(id, dto, user);
   }
 
@@ -68,14 +72,22 @@ export class CalendarController {
   @Roles(...STAFF_ROLES)
   @ApiOperation({ summary: 'Календарный учебный график: недели учебных годов с типами' })
   @ApiQuery({ name: 'groupId', required: false })
-  graph(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser, @Query('groupId') groupId?: string) {
+  graph(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+    @Query('groupId') groupId?: string,
+  ) {
     return this.calendar.calendarGraph(id, user, groupId || undefined);
   }
 
   @Put('programs/:id/calendar-graph/week')
   @Roles(...EDITOR_ROLES)
   @ApiOperation({ summary: 'Отметить тип недели в календарном графике' })
-  setWeek(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SetWeekTypeDto, @CurrentUser() user: AuthUser) {
+  setWeek(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetWeekTypeDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.calendar.setWeekType(id, dto, user);
   }
 
@@ -83,7 +95,11 @@ export class CalendarController {
   @Roles(...STAFF_ROLES)
   @ApiOperation({ summary: 'Прогноз: хватает ли учебных недель для выполнения часов' })
   @ApiQuery({ name: 'groupId', required: false })
-  capacity(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser, @Query('groupId') groupId?: string) {
+  capacity(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+    @Query('groupId') groupId?: string,
+  ) {
     return this.calendar.capacityForecast(id, user, groupId || undefined);
   }
 

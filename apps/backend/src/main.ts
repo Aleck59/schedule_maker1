@@ -1,3 +1,4 @@
+import './config/env';
 import 'reflect-metadata';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -7,8 +8,10 @@ import { AppModule } from './app.module';
 import { createValidationPipe } from './common/validation';
 import { loadConfig } from './config/configuration';
 
-export async function createApp(): Promise<NestExpressApplication> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: false });
+export async function createApp(options: { quiet?: boolean } = {}): Promise<NestExpressApplication> {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    logger: options.quiet ? ['error', 'warn'] : ['log', 'error', 'warn'],
+  });
   const config = loadConfig();
   app.setGlobalPrefix('api');
   app.enableCors({ origin: config.corsOrigin, credentials: true });

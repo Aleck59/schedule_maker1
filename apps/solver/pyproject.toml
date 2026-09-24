@@ -1,0 +1,16 @@
+[project]
+name = "schedule-solver"
+version = "0.0.0"
+description = "Сервис оптимизации расписания колледжа СПО (OR-Tools CP-SAT)"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

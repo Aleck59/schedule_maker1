@@ -71,12 +71,16 @@ export class EntityScheduleController {
     @Query('from') from?: string,
     @Query('to') to?: string,
   ) {
-    const room = await this.prisma.classroom.findFirst({ where: { id, organizationId: user.organizationId } });
+    const room = await this.prisma.classroom.findFirst({
+      where: { id, organizationId: user.organizationId },
+    });
     if (!room) throw new NotFoundException('Аудитория не найдена');
     const settings = await this.settings.getEffective(user.organizationId);
     const r = await this.range(user, from, to);
     const lessons = await this.lessons.list({ classroomId: id, ...r }, user);
-    const active = lessons.filter((l) => l.status !== LessonStatus.CANCELLED && l.status !== LessonStatus.MOVED);
+    const active = lessons.filter(
+      (l) => l.status !== LessonStatus.CANCELLED && l.status !== LessonStatus.MOVED,
+    );
     const days = eachDay(r.from, r.to).filter((d) => settings.workingDays.includes(isoWeekday(d)));
     const slotsTotal = days.length * settings.lessonsPerDay;
     const used = new Set(active.map((l) => `${l.date}#${l.lessonNumber}`)).size;

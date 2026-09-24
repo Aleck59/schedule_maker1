@@ -65,7 +65,9 @@ export class CreateProgramDto {
   generateStructure?: boolean;
 }
 
-export class UpdateProgramDto extends PartialType(OmitType(CreateProgramDto, ['generateStructure'] as const)) {}
+export class UpdateProgramDto extends PartialType(
+  OmitType(CreateProgramDto, ['generateStructure'] as const),
+) {}
 
 export class CreateAcademicYearDto {
   @ApiProperty({ example: '2025–2026' })
@@ -275,7 +277,9 @@ export class SemesterHoursDto {
   notes?: string;
 }
 
-export class UpdateSemesterItemDto extends PartialType(OmitType(SemesterHoursDto, ['semesterId', 'semesterNumber'] as const)) {}
+export class UpdateSemesterItemDto extends PartialType(
+  OmitType(SemesterHoursDto, ['semesterId', 'semesterNumber'] as const),
+) {}
 
 export class CreateCurriculumItemDto {
   @ApiProperty()

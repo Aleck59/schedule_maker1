@@ -62,7 +62,12 @@ export class CurriculumService {
   async createCycle(programId: string, dto: CreateCycleDto, actor: AuthUser) {
     await this.programs.ensureProgram(programId, actor);
     const created = await this.prisma.curriculumCycle.create({
-      data: { educationalProgramId: programId, code: dto.code.trim(), name: dto.name.trim(), sortOrder: dto.sortOrder ?? 0 },
+      data: {
+        educationalProgramId: programId,
+        code: dto.code.trim(),
+        name: dto.name.trim(),
+        sortOrder: dto.sortOrder ?? 0,
+      },
     });
     await this.audit.log(actor.id, 'CREATE', 'CurriculumCycle', created.id, null, created);
     return created;
@@ -120,7 +125,9 @@ export class CurriculumService {
 
     const nodes = new Map<string, CurriculumNode>();
     for (const item of items) {
-      const semItems = semesterId ? item.semesterItems.filter((s) => s.semesterId === semesterId) : item.semesterItems;
+      const semItems = semesterId
+        ? item.semesterItems.filter((s) => s.semesterId === semesterId)
+        : item.semesterItems;
       nodes.set(item.id, {
         id: item.id,
         code: item.code,
@@ -212,7 +219,14 @@ export class CurriculumService {
         },
       });
       for (const sem of dto.semesters ?? []) {
-        await this.upsertSemesterHours(tx, programId, created.id, dto.itemType, sem, settings.academicHoursPerLesson);
+        await this.upsertSemesterHours(
+          tx,
+          programId,
+          created.id,
+          dto.itemType,
+          sem,
+          settings.academicHoursPerLesson,
+        );
       }
       return created;
     });
@@ -321,7 +335,14 @@ export class CurriculumService {
     const item = await this.getItem(itemId, actor);
     const settings = await this.settings.getEffective(actor.organizationId);
     const saved = await this.prisma.$transaction((tx) =>
-      this.upsertSemesterHours(tx, item.educationalProgramId, item.id, item.itemType, dto, settings.academicHoursPerLesson),
+      this.upsertSemesterHours(
+        tx,
+        item.educationalProgramId,
+        item.id,
+        item.itemType,
+        dto,
+        settings.academicHoursPerLesson,
+      ),
     );
     await this.audit.log(actor.id, 'UPSERT', 'SemesterCurriculumItem', saved.id, null, saved);
     return saved;
@@ -398,7 +419,9 @@ export class CurriculumService {
       semesterId = sem.id;
     }
     if (!semesterId) throw new BadRequestException('Укажите семестр');
-    const semester = await tx.semester.findFirst({ where: { id: semesterId, educationalProgramId: programId } });
+    const semester = await tx.semester.findFirst({
+      where: { id: semesterId, educationalProgramId: programId },
+    });
     if (!semester) throw new BadRequestException('Семестр не принадлежит данному учебному плану');
 
     const current =
@@ -408,7 +431,8 @@ export class CurriculumService {
       }));
 
     const pick = (key: keyof SemesterHoursDto, fallback: number) =>
-      (dto[key] as number | undefined) ?? (current ? (current[key as keyof SemesterCurriculumItem] as number) : fallback);
+      (dto[key] as number | undefined) ??
+      (current ? (current[key as keyof SemesterCurriculumItem] as number) : fallback);
 
     const hours = {
       lectureHours: pick('lectureHours', 0),
@@ -425,7 +449,9 @@ export class CurriculumService {
     }
     const practiceAtCollege = dto.practiceAtCollege ?? current?.practiceAtCollege ?? false;
     const computedTotal = Object.values(hours).reduce((a, b) => a + b, 0);
-    const totalHours = dto.totalHours ?? (dto.totalHours === undefined && current && !hasHourChanges(dto) ? current.totalHours : computedTotal);
+    const totalHours =
+      dto.totalHours ??
+      (dto.totalHours === undefined && current && !hasHourChanges(dto) ? current.totalHours : computedTotal);
     if (totalHours < computedTotal) {
       throw new BadRequestException(
         `Общее количество часов (${totalHours}) меньше суммы часов по видам занятий (${computedTotal})`,
@@ -458,7 +484,9 @@ export class CurriculumService {
     parentItemId: string | null,
     itemType: CurriculumItemType,
   ) {
-    const cycle = await this.prisma.curriculumCycle.findFirst({ where: { id: cycleId, educationalProgramId: programId } });
+    const cycle = await this.prisma.curriculumCycle.findFirst({
+      where: { id: cycleId, educationalProgramId: programId },
+    });
     if (!cycle) throw new BadRequestException('Цикл не принадлежит данному учебному плану');
     if (parentItemId) {
       const parent = await this.prisma.curriculumItem.findFirst({

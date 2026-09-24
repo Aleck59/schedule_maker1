@@ -3,7 +3,13 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ALL_ROLES, EDITOR_ROLES, Roles, STAFF_ROLES } from '../common/decorators/roles.decorator';
 import { AuthUser } from '../common/types/auth-user';
-import { AddStudentsDto, ConfigureSubgroupsDto, CreateGroupDto, UpdateGroupDto, UpdateStudentDto } from './dto/groups.dto';
+import {
+  AddStudentsDto,
+  ConfigureSubgroupsDto,
+  CreateGroupDto,
+  UpdateGroupDto,
+  UpdateStudentDto,
+} from './dto/groups.dto';
 import { GroupsService } from './groups.service';
 
 @ApiTags('Учебные группы')
@@ -81,13 +87,21 @@ export class GroupsController {
   @Post('groups/:id/students')
   @Roles(...EDITOR_ROLES)
   @ApiOperation({ summary: 'Добавление студентов (списком)' })
-  addStudents(@Param('id', ParseUUIDPipe) id: string, @Body() dto: AddStudentsDto, @CurrentUser() user: AuthUser) {
+  addStudents(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AddStudentsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.groups.addStudents(id, dto, user);
   }
 
   @Patch('students/:id')
   @Roles(...EDITOR_ROLES)
-  updateStudent(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateStudentDto, @CurrentUser() user: AuthUser) {
+  updateStudent(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateStudentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.groups.updateStudent(id, dto, user);
   }
 

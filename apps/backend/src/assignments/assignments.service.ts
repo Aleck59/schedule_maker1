@@ -27,7 +27,13 @@ export class AssignmentsService {
 
   list(
     actor: AuthUser,
-    params: { groupId?: string; teacherId?: string; semesterId?: string; programId?: string; semesterItemId?: string },
+    params: {
+      groupId?: string;
+      teacherId?: string;
+      semesterId?: string;
+      programId?: string;
+      semesterItemId?: string;
+    },
   ) {
     return this.prisma.groupCurriculumAssignment.findMany({
       where: {
@@ -89,7 +95,8 @@ export class AssignmentsService {
       lessonType: dto.lessonType === undefined ? before.lessonType : dto.lessonType,
       teacherId: dto.teacherId === undefined ? before.teacherId : dto.teacherId,
       plannedHours: dto.plannedHours === undefined ? before.plannedHours : dto.plannedHours,
-      preferredClassroomId: dto.preferredClassroomId === undefined ? before.preferredClassroomId : dto.preferredClassroomId,
+      preferredClassroomId:
+        dto.preferredClassroomId === undefined ? before.preferredClassroomId : dto.preferredClassroomId,
     };
     await this.validate(before.studentGroupId, before.semesterCurriculumItemId, merged, actor, id);
     const updated = await this.prisma.groupCurriculumAssignment.update({
@@ -139,7 +146,10 @@ export class AssignmentsService {
     let created = 0;
     for (const item of items) {
       const schedulable =
-        item.lectureHours + item.practicalHours + item.laboratoryHours + item.consultationHours +
+        item.lectureHours +
+        item.practicalHours +
+        item.laboratoryHours +
+        item.consultationHours +
         (item.practiceAtCollege ? item.practiceHours : 0);
       if (schedulable === 0 || item.assignments.length > 0) continue;
       await this.prisma.groupCurriculumAssignment.create({
@@ -177,7 +187,9 @@ export class AssignmentsService {
       throw new BadRequestException('Дисциплина не относится к учебному плану группы');
     }
     if (item.curriculumItem.itemType === 'MODULE' || item.curriculumItem.itemType === 'FINAL_ATTESTATION') {
-      throw new BadRequestException('Профессиональный модуль и ГИА не ставятся в расписание — назначайте МДК и практики');
+      throw new BadRequestException(
+        'Профессиональный модуль и ГИА не ставятся в расписание — назначайте МДК и практики',
+      );
     }
     if (dto.subgroupNumber && dto.subgroupNumber > group.subgroupCount) {
       throw new BadRequestException(`У группы ${group.code} только ${group.subgroupCount} подгрупп(ы)`);
@@ -203,9 +215,15 @@ export class AssignmentsService {
     }
     // Проверка непротиворечивости: для одного вида занятий — либо вся группа, либо подгруппы
     const siblings = await this.prisma.groupCurriculumAssignment.findMany({
-      where: { studentGroupId: groupId, semesterCurriculumItemId: semesterItemId, NOT: excludeId ? { id: excludeId } : undefined },
+      where: {
+        studentGroupId: groupId,
+        semesterCurriculumItemId: semesterItemId,
+        NOT: excludeId ? { id: excludeId } : undefined,
+      },
     });
-    const sameType = siblings.filter((s: GroupCurriculumAssignment) => (s.lessonType ?? null) === (dto.lessonType ?? null));
+    const sameType = siblings.filter(
+      (s: GroupCurriculumAssignment) => (s.lessonType ?? null) === (dto.lessonType ?? null),
+    );
     const subgroup = dto.subgroupNumber ?? null;
     if (sameType.some((s) => (s.subgroupNumber ?? null) === subgroup)) {
       throw new ConflictException(
@@ -215,10 +233,14 @@ export class AssignmentsService {
       );
     }
     if (subgroup === null && sameType.some((s) => s.subgroupNumber !== null)) {
-      throw new ConflictException('По этому виду занятий уже есть назначения по подгруппам — удалите их или назначьте подгруппу');
+      throw new ConflictException(
+        'По этому виду занятий уже есть назначения по подгруппам — удалите их или назначьте подгруппу',
+      );
     }
     if (subgroup !== null && sameType.some((s) => s.subgroupNumber === null)) {
-      throw new ConflictException('По этому виду занятий уже есть назначение на всю группу — удалите его или измените');
+      throw new ConflictException(
+        'По этому виду занятий уже есть назначение на всю группу — удалите его или измените',
+      );
     }
   }
 }

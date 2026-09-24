@@ -40,7 +40,10 @@ export class ProgramsService {
       include: {
         specialty: true,
         academicYears: { orderBy: { startDate: 'asc' } },
-        semesters: { orderBy: { number: 'asc' }, include: { academicYear: { select: { id: true, title: true } } } },
+        semesters: {
+          orderBy: { number: 'asc' },
+          include: { academicYear: { select: { id: true, title: true } } },
+        },
         groups: { orderBy: { code: 'asc' } },
         cycles: { orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }] },
         _count: { select: { items: true } },
@@ -151,7 +154,9 @@ export class ProgramsService {
 
   async remove(id: string, actor: AuthUser) {
     const before = await this.ensureProgram(id, actor);
-    const lessons = await this.prisma.scheduleLesson.count({ where: { studentGroup: { educationalProgramId: id } } });
+    const lessons = await this.prisma.scheduleLesson.count({
+      where: { studentGroup: { educationalProgramId: id } },
+    });
     if (lessons > 0) {
       throw new ConflictException(
         'Нельзя удалить учебный план, по которому уже составлено расписание. Переведите его в архив',

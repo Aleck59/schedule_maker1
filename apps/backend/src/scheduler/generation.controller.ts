@@ -26,7 +26,11 @@ export class GenerationController {
       'Возвращает задание генерации. Статусы: QUEUED (ожидание) → GENERATING (генерация) → VALIDATING (проверка) → ' +
       'COMPLETED (готово) / COMPLETED_WITH_CONFLICTS (есть конфликты) / FAILED. Результат применяется отдельно.',
   })
-  generate(@Param('id', ParseUUIDPipe) id: string, @Body() dto: GenerateScheduleDto, @CurrentUser() user: AuthUser) {
+  generate(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: GenerateScheduleDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.generation.create(id, dto, user);
   }
 
@@ -41,7 +45,11 @@ export class GenerationController {
   @Roles(...STAFF_ROLES)
   @ApiOperation({ summary: 'Статус и результат генерации (предпросмотр, нераспределённые занятия, причины)' })
   @ApiQuery({ name: 'result', required: false, type: Boolean })
-  get(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser, @Query('result') result?: string) {
+  get(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+    @Query('result') result?: string,
+  ) {
     return this.generation.get(id, user, result !== 'false');
   }
 

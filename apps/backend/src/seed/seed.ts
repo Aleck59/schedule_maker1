@@ -1,4 +1,4 @@
-/* eslint-disable no-console */
+import '../config/env';
 import 'reflect-metadata';
 process.env.QUEUE_MODE = 'inline';
 
@@ -114,7 +114,9 @@ async function main() {
   // ------------------------------------------------------------------ организация и настройки
   const org = await prisma.organization.create({ data: ORGANIZATION });
   await prisma.organizationSettings.create({ data: { organizationId: org.id } });
-  await prisma.lessonTime.createMany({ data: DEFAULT_LESSON_TIMES.map((t) => ({ ...t, organizationId: org.id })) });
+  await prisma.lessonTime.createMany({
+    data: DEFAULT_LESSON_TIMES.map((t) => ({ ...t, organizationId: org.id })),
+  });
   const settings = await prisma.organizationSettings.findUniqueOrThrow({ where: { organizationId: org.id } });
 
   // ------------------------------------------------------------------ преподаватели и аудитории
@@ -137,12 +139,25 @@ async function main() {
     const rows: Prisma.TeacherAvailabilityCreateManyInput[] = [];
     for (const u of t.unavailable) {
       for (const lesson of u.lessons) {
-        rows.push({ teacherId: created.id, weekday: u.weekday, lessonNumber: lesson, isAvailable: false, reason: u.reason });
+        rows.push({
+          teacherId: created.id,
+          weekday: u.weekday,
+          lessonNumber: lesson,
+          isAvailable: false,
+          reason: u.reason,
+        });
       }
     }
     for (const p of t.preferences ?? []) {
       if (!rows.some((r) => r.weekday === p.weekday && r.lessonNumber === p.lesson)) {
-        rows.push({ teacherId: created.id, weekday: p.weekday, lessonNumber: p.lesson, isAvailable: true, preferenceWeight: p.weight, reason: 'Нежелательное время' });
+        rows.push({
+          teacherId: created.id,
+          weekday: p.weekday,
+          lessonNumber: p.lesson,
+          isAvailable: true,
+          preferenceWeight: p.weight,
+          reason: 'Нежелательное время',
+        });
       }
     }
     if (rows.length) await prisma.teacherAvailability.createMany({ data: rows });
@@ -164,7 +179,14 @@ async function main() {
     roomIds.set(c.code, created.id);
     const rows: Prisma.ClassroomAvailabilityCreateManyInput[] = [];
     for (const u of c.unavailable ?? []) {
-      for (const lesson of u.lessons) rows.push({ classroomId: created.id, weekday: u.weekday, lessonNumber: lesson, isAvailable: false, reason: u.reason });
+      for (const lesson of u.lessons)
+        rows.push({
+          classroomId: created.id,
+          weekday: u.weekday,
+          lessonNumber: lesson,
+          isAvailable: false,
+          reason: u.reason,
+        });
     }
     if (rows.length) await prisma.classroomAvailability.createMany({ data: rows });
   }
@@ -182,13 +204,30 @@ async function main() {
   const cohorts = [
     { admissionYear: 2024, groupCode: 'ИСП-24-1', students: 25, seed: 2024 },
     ...(liveAdmission !== 2024
-      ? [{ admissionYear: liveAdmission, groupCode: `ИСП-${String(liveAdmission).slice(2)}-1`, students: 24, seed: liveAdmission }]
+      ? [
+          {
+            admissionYear: liveAdmission,
+            groupCode: `ИСП-${String(liveAdmission).slice(2)}-1`,
+            students: 24,
+            seed: liveAdmission,
+          },
+        ]
       : []),
   ];
 
   const programs: ProgramRefs[] = [];
   for (const cohort of cohorts) {
-    programs.push(await createProgram(prisma, org.id, specialty.id, cohort, teacherIds, settings.academicHoursPerLesson, today));
+    programs.push(
+      await createProgram(
+        prisma,
+        org.id,
+        specialty.id,
+        cohort,
+        teacherIds,
+        settings.academicHoursPerLesson,
+        today,
+      ),
+    );
   }
 
   // ------------------------------------------------------------------ календарь: праздники организации
@@ -236,10 +275,22 @@ async function main() {
   // ------------------------------------------------------------------ пользователи
   const hash = (p: string) => bcrypt.hash(p, 10);
   const admin = await prisma.user.create({
-    data: { organizationId: org.id, email: DEMO_USERS.admin.email, fullName: DEMO_USERS.admin.fullName, role: UserRole.ADMIN, passwordHash: await hash(DEMO_USERS.admin.password) },
+    data: {
+      organizationId: org.id,
+      email: DEMO_USERS.admin.email,
+      fullName: DEMO_USERS.admin.fullName,
+      role: UserRole.ADMIN,
+      passwordHash: await hash(DEMO_USERS.admin.password),
+    },
   });
   await prisma.user.create({
-    data: { organizationId: org.id, email: DEMO_USERS.dispatcher.email, fullName: DEMO_USERS.dispatcher.fullName, role: UserRole.DISPATCHER, passwordHash: await hash(DEMO_USERS.dispatcher.password) },
+    data: {
+      organizationId: org.id,
+      email: DEMO_USERS.dispatcher.email,
+      fullName: DEMO_USERS.dispatcher.fullName,
+      role: UserRole.DISPATCHER,
+      passwordHash: await hash(DEMO_USERS.dispatcher.password),
+    },
   });
   await prisma.user.create({
     data: {
@@ -262,7 +313,13 @@ async function main() {
     },
   });
   await prisma.user.create({
-    data: { organizationId: org.id, email: DEMO_USERS.manager.email, fullName: DEMO_USERS.manager.fullName, role: UserRole.MANAGER, passwordHash: await hash(DEMO_USERS.manager.password) },
+    data: {
+      organizationId: org.id,
+      email: DEMO_USERS.manager.email,
+      fullName: DEMO_USERS.manager.fullName,
+      role: UserRole.MANAGER,
+      passwordHash: await hash(DEMO_USERS.manager.password),
+    },
   });
   const actor: AuthUser = {
     id: admin.id,
@@ -281,7 +338,12 @@ async function main() {
   const generation = app.get(GenerationService);
   const calendar = app.get(CalendarService);
 
-  const generate = async (program: ProgramRefs, semesterNumber: number, publish: boolean, groupIds?: string[]) => {
+  const generate = async (
+    program: ProgramRefs,
+    semesterNumber: number,
+    publish: boolean,
+    groupIds?: string[],
+  ) => {
     const s = program.semesters.get(semesterNumber)!;
     const period = await periodsService.create(
       {
@@ -296,7 +358,12 @@ async function main() {
         createdByUserId: actor.id,
         mode: GenerationMode.CALENDAR,
         status: GenerationJobStatus.QUEUED,
-        paramsJson: { mode: 'CALENDAR', solver: 'heuristic', groupIds: groupIds ?? [program.groupId], timeLimitSeconds: 60 },
+        paramsJson: {
+          mode: 'CALENDAR',
+          solver: 'heuristic',
+          groupIds: groupIds ?? [program.groupId],
+          timeLimitSeconds: 60,
+        },
       },
     });
     await runner.run(job.id);
@@ -304,7 +371,9 @@ async function main() {
     log(`Генерация «${period.title}»: ${finished.message}`);
     if (finished.status === GenerationJobStatus.FAILED) throw new Error(finished.error ?? 'Ошибка генерации');
     const applied = await generation.apply(job.id, actor);
-    log(`  применено занятий: ${applied.created}, ошибок проверки: ${applied.validation.errors}, предупреждений: ${applied.validation.warnings}`);
+    log(
+      `  применено занятий: ${applied.created}, ошибок проверки: ${applied.validation.errors}, предупреждений: ${applied.validation.warnings}`,
+    );
     if (publish) {
       try {
         await periodsService.publish(period.id, actor);
@@ -336,17 +405,32 @@ async function main() {
       const r = rand();
       try {
         if ((r < 0.025 || (cancelled === 0 && index === forcedCancel)) && cancelled < 4) {
-          const reason = cancelled % 2 === 0 ? CancellationReason.TEACHER_ABSENT : CancellationReason.GROUP_ABSENT;
-          await lessonsService.cancel(l.id, { reason, notes: reason === CancellationReason.TEACHER_ABSENT ? 'Больничный' : 'Участие группы в олимпиаде' }, actor);
+          const reason =
+            cancelled % 2 === 0 ? CancellationReason.TEACHER_ABSENT : CancellationReason.GROUP_ABSENT;
+          await lessonsService.cancel(
+            l.id,
+            {
+              reason,
+              notes:
+                reason === CancellationReason.TEACHER_ABSENT ? 'Больничный' : 'Участие группы в олимпиаде',
+            },
+            actor,
+          );
           cancelled++;
           cancelledIds.push(l.id);
           continue;
         }
         if (r > 0.985 && substituted < 2 && l.lessonType === LessonType.LECTURE) {
-          const substitute = [...teacherIds.values()].find((id) => id !== l.teacherId && id === teacherIds.get('novikova'));
+          const substitute = [...teacherIds.values()].find(
+            (id) => id !== l.teacherId && id === teacherIds.get('novikova'),
+          );
           if (substitute) {
             try {
-              await lessonsService.substitute(l.id, { substituteTeacherId: substitute, reason: 'Командировка преподавателя' }, actor);
+              await lessonsService.substitute(
+                l.id,
+                { substituteTeacherId: substitute, reason: 'Командировка преподавателя' },
+                actor,
+              );
               substituted++;
             } catch {
               /* заменяющий занят — пропускаем */
@@ -356,7 +440,11 @@ async function main() {
         const isPartial = partial < 1 && r > 0.5 && r < 0.51 && l.academicHours === 2;
         await lessonsService.markConducted(
           l.id,
-          { status: 'CONDUCTED', actualHours: isPartial ? 1 : undefined, notes: isPartial ? 'Проведено частично: учебная тревога' : undefined },
+          {
+            status: 'CONDUCTED',
+            actualHours: isPartial ? 1 : undefined,
+            notes: isPartial ? 'Проведено частично: учебная тревога' : undefined,
+          },
           actor,
         );
         if (isPartial) partial++;
@@ -366,18 +454,32 @@ async function main() {
       }
     }
     // Отработка первой отмены — ставим в ближайший свободный слот
-    const tasks = await prisma.makeupTask.findMany({ where: { sourceLessonId: { in: cancelledIds } }, orderBy: { createdAt: 'asc' } });
+    const tasks = await prisma.makeupTask.findMany({
+      where: { sourceLessonId: { in: cancelledIds } },
+      orderBy: { createdAt: 'asc' },
+    });
     if (tasks[0]) {
-      const source = await prisma.scheduleLesson.findUniqueOrThrow({ where: { id: tasks[0].sourceLessonId } });
-      const slots = await makeupService.freeSlots(tasks[0].id, actor, { from: addDaysStr(toDateStr(source.date), 1) });
+      const source = await prisma.scheduleLesson.findUniqueOrThrow({
+        where: { id: tasks[0].sourceLessonId },
+      });
+      const slots = await makeupService.freeSlots(tasks[0].id, actor, {
+        from: addDaysStr(toDateStr(source.date), 1),
+      });
       const slot = slots.find((s) => s.classroomId) ?? slots[0];
       if (slot) {
-        const res = await makeupService.schedule(tasks[0].id, { date: slot.date, lessonNumber: slot.lessonNumber, classroomId: slot.classroomId ?? undefined }, actor);
-        if (slot.date <= upTo) await lessonsService.markConducted(res.lesson.id, { status: 'CONDUCTED' }, actor);
+        const res = await makeupService.schedule(
+          tasks[0].id,
+          { date: slot.date, lessonNumber: slot.lessonNumber, classroomId: slot.classroomId ?? undefined },
+          actor,
+        );
+        if (slot.date <= upTo)
+          await lessonsService.markConducted(res.lesson.id, { status: 'CONDUCTED' }, actor);
         log(`  отработка поставлена на ${slot.date}, ${slot.lessonNumber} пара`);
       }
     }
-    log(`  отмечено проведённых: ${conducted}, отменено: ${cancelled}, замен: ${substituted}, частично: ${partial}`);
+    log(
+      `  отмечено проведённых: ${conducted}, отменено: ${cancelled}, замен: ${substituted}, частично: ${partial}`,
+    );
   };
 
   // 1) ИСП-24-1: 3 семестр — сгенерирован, опубликован, с фактическими отметками
@@ -389,7 +491,10 @@ async function main() {
 
   // 2) ИСП-24-1: 4 семестр — период создан, расписание не сгенерировано (для демонстрации автосоставления)
   const a4 = a.semesters.get(4)!;
-  await periodsService.create({ semesterId: a4.id, title: `ИСП-24: 4 семестр (${a4.start.slice(0, 4)})` }, actor);
+  await periodsService.create(
+    { semesterId: a4.id, title: `ИСП-24: 4 семестр (${a4.start.slice(0, 4)})` },
+    actor,
+  );
 
   // 3) «Живая» группа текущего учебного года
   if (programs.length > 1) {
@@ -533,8 +638,13 @@ async function createProgram(
   }
 
   // Группа, подгруппы, студенты
-  const currentCourse = Math.min(4, Math.max(1, Number(today.slice(0, 4)) - Y + (Number(today.slice(5, 7)) >= 7 ? 1 : 0)));
-  const currentSemester = [...semesters.entries()].find(([, s]) => today >= s.start && today <= s.end)?.[0] ?? currentCourse * 2 - 1;
+  const currentCourse = Math.min(
+    4,
+    Math.max(1, Number(today.slice(0, 4)) - Y + (Number(today.slice(5, 7)) >= 7 ? 1 : 0)),
+  );
+  const currentSemester =
+    [...semesters.entries()].find(([, s]) => today >= s.start && today <= s.end)?.[0] ??
+    currentCourse * 2 - 1;
   const group = await prisma.studentGroup.create({
     data: {
       educationalProgramId: program.id,
@@ -550,10 +660,20 @@ async function createProgram(
   const names = studentNames(cohort.students, cohort.seed);
   const half = Math.ceil(names.length / 2);
   const sg1 = await prisma.subgroup.create({
-    data: { studentGroupId: group.id, number: 1, name: 'Подгруппа 1 (иностранный язык, лабораторные)', studentCount: half },
+    data: {
+      studentGroupId: group.id,
+      number: 1,
+      name: 'Подгруппа 1 (иностранный язык, лабораторные)',
+      studentCount: half,
+    },
   });
   const sg2 = await prisma.subgroup.create({
-    data: { studentGroupId: group.id, number: 2, name: 'Подгруппа 2 (иностранный язык, лабораторные)', studentCount: names.length - half },
+    data: {
+      studentGroupId: group.id,
+      number: 2,
+      name: 'Подгруппа 2 (иностранный язык, лабораторные)',
+      studentCount: names.length - half,
+    },
   });
   await prisma.student.createMany({
     data: names.map((fullName, i) => ({
@@ -583,11 +703,17 @@ async function createProgram(
     }
   }
   log(`Учебный план «${program.title}», группа ${group.code}: ${names.length} студентов, 2 подгруппы`);
-  return { programId: program.id, admissionYear: Y, semesters, itemBySemester, groupId: group.id, groupCode: group.code };
+  return {
+    programId: program.id,
+    admissionYear: Y,
+    semesters,
+    itemBySemester,
+    groupId: group.id,
+    groupCode: group.code,
+  };
 }
 
 main().catch((e) => {
   console.error('[seed] Ошибка:', e);
   process.exit(1);
 });
-

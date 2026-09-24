@@ -53,7 +53,11 @@ export class AssignmentsController {
 
   @Patch(':id')
   @Roles(...EDITOR_ROLES)
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateAssignmentDto, @CurrentUser() user: AuthUser) {
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateAssignmentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.assignments.update(id, dto, user);
   }
 

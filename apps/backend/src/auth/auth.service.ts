@@ -68,7 +68,9 @@ export class AuthService {
   async refresh(refreshToken: string) {
     let payload: JwtPayload;
     try {
-      payload = await this.jwt.verifyAsync<JwtPayload>(refreshToken, { secret: this.config.jwt.refreshSecret });
+      payload = await this.jwt.verifyAsync<JwtPayload>(refreshToken, {
+        secret: this.config.jwt.refreshSecret,
+      });
     } catch {
       throw new UnauthorizedException('Токен обновления недействителен или истёк');
     }
@@ -149,10 +151,10 @@ export class AuthService {
     const accessTtl = ttlToSeconds(this.config.jwt.accessTtl);
     const refreshTtl = ttlToSeconds(this.config.jwt.refreshTtl);
     const base = { sub: user.id, role: user.role, org: user.organizationId };
-    const accessToken = await this.jwt.signAsync(
-      { ...base, type: 'access' } satisfies JwtPayload,
-      { secret: this.config.jwt.accessSecret, expiresIn: accessTtl },
-    );
+    const accessToken = await this.jwt.signAsync({ ...base, type: 'access' } satisfies JwtPayload, {
+      secret: this.config.jwt.accessSecret,
+      expiresIn: accessTtl,
+    });
     const refreshToken = await this.jwt.signAsync(
       { ...base, type: 'refresh', jti: sha256(`${user.id}:${Date.now()}:${Math.random()}`).slice(0, 16) },
       { secret: this.config.jwt.refreshSecret, expiresIn: refreshTtl },

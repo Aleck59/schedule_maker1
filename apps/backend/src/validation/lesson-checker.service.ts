@@ -31,7 +31,12 @@ export interface LessonCandidate {
   skipHoursCheck?: boolean;
 }
 
-function issue(severity: Severity, validationType: string, message: string, details?: Record<string, unknown>): ValidationIssue {
+function issue(
+  severity: Severity,
+  validationType: string,
+  message: string,
+  details?: Record<string, unknown>,
+): ValidationIssue {
   return { severity, validationType, entityType: 'ScheduleLesson', entityId: null, message, details };
 }
 
@@ -55,7 +60,9 @@ export class LessonCheckerService {
     const weekday = isoWeekday(date);
 
     const [period, group, item, teacher, room] = await Promise.all([
-      this.prisma.schedulePeriod.findFirst({ where: { id: c.schedulePeriodId, organizationId: c.organizationId } }),
+      this.prisma.schedulePeriod.findFirst({
+        where: { id: c.schedulePeriodId, organizationId: c.organizationId },
+      }),
       this.prisma.studentGroup.findFirst({ where: { id: c.studentGroupId }, include: { subgroups: true } }),
       this.prisma.semesterCurriculumItem.findFirst({
         where: { id: c.semesterCurriculumItemId },
@@ -69,7 +76,9 @@ export class LessonCheckerService {
         : Promise.resolve(null),
     ]);
     if (!period || !group || !item) {
-      issues.push(issue(Severity.ERROR, 'INVALID_REFERENCE', 'Не найдены период, группа или дисциплина занятия'));
+      issues.push(
+        issue(Severity.ERROR, 'INVALID_REFERENCE', 'Не найдены период, группа или дисциплина занятия'),
+      );
       return issues;
     }
 
@@ -93,7 +102,13 @@ export class LessonCheckerService {
       );
     }
     if (c.lessonNumber > settings.lessonsPerDay) {
-      issues.push(issue(Severity.WARNING, 'LESSON_NUMBER_EXCEEDS', `Пара №${c.lessonNumber} вне основной сетки (${settings.lessonsPerDay} пар в день)`));
+      issues.push(
+        issue(
+          Severity.WARNING,
+          'LESSON_NUMBER_EXCEEDS',
+          `Пара №${c.lessonNumber} вне основной сетки (${settings.lessonsPerDay} пар в день)`,
+        ),
+      );
     }
     if (c.lessonNumber >= settings.lateLessonNumber) {
       issues.push(issue(Severity.WARNING, 'LATE_LESSONS', `Поздняя пара (№${c.lessonNumber})`));
@@ -103,7 +118,13 @@ export class LessonCheckerService {
     const ctx = await this.planning.buildCalendarContext(c.organizationId, date, date, [c.studentGroupId]);
     const day = ctx.groupDay(c.studentGroupId, date);
     if (!day.isWorkingDay) {
-      issues.push(issue(Severity.WARNING, 'LESSON_ON_DAY_OFF', `${formatDateRu(date)} — выходной день по настройкам учебной недели`));
+      issues.push(
+        issue(
+          Severity.WARNING,
+          'LESSON_ON_DAY_OFF',
+          `${formatDateRu(date)} — выходной день по настройкам учебной недели`,
+        ),
+      );
     }
     const practiceType = practiceEventTypeFor(item.curriculumItem.itemType);
     for (const b of day.blocks) {
@@ -118,13 +139,24 @@ export class LessonCheckerService {
               ? 'LESSON_IN_PRACTICE'
               : 'LESSON_IN_BLOCKED_PERIOD';
       issues.push(
-        issue(Severity.ERROR, code, `${formatDateRu(date)}: ${CALENDAR_EVENT_LABELS[type] ?? type} — «${b.title}»`, {
-          eventId: b.eventId,
-        }),
+        issue(
+          Severity.ERROR,
+          code,
+          `${formatDateRu(date)}: ${CALENDAR_EVENT_LABELS[type] ?? type} — «${b.title}»`,
+          {
+            eventId: b.eventId,
+          },
+        ),
       );
     }
     if (c.lessonType === LessonType.PRACTICE && practiceType && !day.practiceTypes.includes(practiceType)) {
-      issues.push(issue(Severity.WARNING, 'PRACTICE_OUTSIDE_PERIOD', 'Занятие практики вне периода практики группы в календарном графике'));
+      issues.push(
+        issue(
+          Severity.WARNING,
+          'PRACTICE_OUTSIDE_PERIOD',
+          'Занятие практики вне периода практики группы в календарном графике',
+        ),
+      );
     }
 
     // --- Занятия в этот слот и в этот день
@@ -152,7 +184,9 @@ export class LessonCheckerService {
         c.subgroupNumber === null || l.subgroupNumber === null || l.subgroupNumber === c.subgroupNumber;
       if (overlap) {
         issues.push(
-          issue(Severity.ERROR, 'GROUP_CONFLICT', `У группы уже есть занятие в это время: ${describe(l)}`, { lessonId: l.id }),
+          issue(Severity.ERROR, 'GROUP_CONFLICT', `У группы уже есть занятие в это время: ${describe(l)}`, {
+            lessonId: l.id,
+          }),
         );
       }
     }
@@ -160,8 +194,13 @@ export class LessonCheckerService {
     if (!c.teacherId) {
       issues.push(issue(Severity.ERROR, 'NO_TEACHER', 'Не указан преподаватель'));
     } else if (teacher) {
-      if (!teacher.isActive) issues.push(issue(Severity.ERROR, 'TEACHER_UNAVAILABLE', `Преподаватель ${teacher.fullName} неактивен`));
-      const slot = teacher.availability.find((a) => a.weekday === weekday && a.lessonNumber === c.lessonNumber);
+      if (!teacher.isActive)
+        issues.push(
+          issue(Severity.ERROR, 'TEACHER_UNAVAILABLE', `Преподаватель ${teacher.fullName} неактивен`),
+        );
+      const slot = teacher.availability.find(
+        (a) => a.weekday === weekday && a.lessonNumber === c.lessonNumber,
+      );
       if (slot && !slot.isAvailable) {
         issues.push(
           issue(
@@ -172,23 +211,46 @@ export class LessonCheckerService {
         );
       }
       if (c.lessonNumber < teacher.preferredStartLesson || c.lessonNumber > teacher.preferredEndLesson) {
-        issues.push(issue(Severity.INFO, 'TEACHER_PREFERENCE', `Пара вне предпочтительного времени преподавателя ${teacher.fullName}`));
+        issues.push(
+          issue(
+            Severity.INFO,
+            'TEACHER_PREFERENCE',
+            `Пара вне предпочтительного времени преподавателя ${teacher.fullName}`,
+          ),
+        );
       }
       for (const b of ctx.teacherBlocks(teacher.id, date)) {
-        issues.push(issue(Severity.ERROR, 'TEACHER_UNAVAILABLE', `Преподаватель ${teacher.fullName} недоступен: ${b.title}`));
+        issues.push(
+          issue(
+            Severity.ERROR,
+            'TEACHER_UNAVAILABLE',
+            `Преподаватель ${teacher.fullName} недоступен: ${b.title}`,
+          ),
+        );
       }
       for (const l of slotLessons.filter((x) => x.teacherId === c.teacherId && !sameStream(x))) {
         issues.push(
-          issue(Severity.ERROR, 'TEACHER_CONFLICT', `Преподаватель ${teacher.fullName} уже ведёт занятие в это время: ${describe(l)}`, {
-            lessonId: l.id,
-          }),
+          issue(
+            Severity.ERROR,
+            'TEACHER_CONFLICT',
+            `Преподаватель ${teacher.fullName} уже ведёт занятие в это время: ${describe(l)}`,
+            {
+              lessonId: l.id,
+            },
+          ),
         );
       }
-      const teacherDay = new Set(dayLessons.filter((x) => x.teacherId === c.teacherId).map((x) => x.lessonNumber));
+      const teacherDay = new Set(
+        dayLessons.filter((x) => x.teacherId === c.teacherId).map((x) => x.lessonNumber),
+      );
       teacherDay.add(c.lessonNumber);
       if (teacherDay.size > teacher.maxDailyLessons) {
         issues.push(
-          issue(Severity.WARNING, 'TEACHER_OVERLOAD', `У преподавателя ${teacher.fullName} ${teacherDay.size} пар в день (лимит ${teacher.maxDailyLessons})`),
+          issue(
+            Severity.WARNING,
+            'TEACHER_OVERLOAD',
+            `У преподавателя ${teacher.fullName} ${teacherDay.size} пар в день (лимит ${teacher.maxDailyLessons})`,
+          ),
         );
       }
       const ws = weekStart(date);
@@ -202,13 +264,19 @@ export class LessonCheckerService {
       });
       if (weekCount + 1 > teacher.maxWeeklyLessons) {
         issues.push(
-          issue(Severity.WARNING, 'TEACHER_OVERLOAD', `У преподавателя ${teacher.fullName} ${weekCount + 1} пар в неделю (лимит ${teacher.maxWeeklyLessons})`),
+          issue(
+            Severity.WARNING,
+            'TEACHER_OVERLOAD',
+            `У преподавателя ${teacher.fullName} ${weekCount + 1} пар в неделю (лимит ${teacher.maxWeeklyLessons})`,
+          ),
         );
       }
     }
 
     // --- Аудитория
-    const subgroup = c.subgroupNumber ? group.subgroups.find((s) => s.number === c.subgroupNumber) : undefined;
+    const subgroup = c.subgroupNumber
+      ? group.subgroups.find((s) => s.number === c.subgroupNumber)
+      : undefined;
     let size = c.subgroupNumber
       ? subgroup && subgroup.studentCount > 0
         ? subgroup.studentCount
@@ -216,7 +284,9 @@ export class LessonCheckerService {
       : group.studentCount;
     if (c.streamKey) {
       // Для потока учитываем все группы, занимающиеся одновременно
-      const streamGroups = slotLessons.filter((l) => l.streamKey === c.streamKey && l.studentGroupId !== c.studentGroupId);
+      const streamGroups = slotLessons.filter(
+        (l) => l.streamKey === c.streamKey && l.studentGroupId !== c.studentGroupId,
+      );
       for (const l of streamGroups) {
         const g = await this.prisma.studentGroup.findUnique({ where: { id: l.studentGroupId } });
         size += g?.studentCount ?? 0;
@@ -225,22 +295,33 @@ export class LessonCheckerService {
     if (!c.classroomId) {
       issues.push(issue(Severity.ERROR, 'NO_CLASSROOM', 'Не указана аудитория'));
     } else if (room) {
-      if (!room.isActive) issues.push(issue(Severity.ERROR, 'CLASSROOM_UNAVAILABLE', `Аудитория ${room.code} неактивна`));
+      if (!room.isActive)
+        issues.push(issue(Severity.ERROR, 'CLASSROOM_UNAVAILABLE', `Аудитория ${room.code} неактивна`));
       const slot = room.availability.find((a) => a.weekday === weekday && a.lessonNumber === c.lessonNumber);
       if (slot && !slot.isAvailable) {
         issues.push(
-          issue(Severity.ERROR, 'CLASSROOM_UNAVAILABLE', `Аудитория ${room.code} недоступна в это время${slot.reason ? ` (${slot.reason})` : ''}`),
+          issue(
+            Severity.ERROR,
+            'CLASSROOM_UNAVAILABLE',
+            `Аудитория ${room.code} недоступна в это время${slot.reason ? ` (${slot.reason})` : ''}`,
+          ),
         );
       }
       if (room.classroomType !== ClassroomType.ONLINE) {
         for (const l of slotLessons.filter((x) => x.classroomId === c.classroomId && !sameStream(x))) {
           issues.push(
-            issue(Severity.ERROR, 'CLASSROOM_CONFLICT', `Аудитория ${room.code} уже занята: ${describe(l)}`, { lessonId: l.id }),
+            issue(Severity.ERROR, 'CLASSROOM_CONFLICT', `Аудитория ${room.code} уже занята: ${describe(l)}`, {
+              lessonId: l.id,
+            }),
           );
         }
         if (room.capacity < size) {
           issues.push(
-            issue(Severity.ERROR, 'CAPACITY_EXCEEDED', `Вместимость аудитории ${room.code} (${room.capacity}) меньше численности (${size})`),
+            issue(
+              Severity.ERROR,
+              'CAPACITY_EXCEEDED',
+              `Вместимость аудитории ${room.code} (${room.capacity}) меньше численности (${size})`,
+            ),
           );
         }
       }
@@ -302,10 +383,16 @@ export class LessonCheckerService {
       const key = streamKeyOf(c.studentGroupId, c.semesterCurriculumItemId, c.lessonType, c.subgroupNumber);
       const stream =
         streams.find((s) => s.key === key) ??
-        streams.find((s) => s.key === streamKeyOf(c.studentGroupId, c.semesterCurriculumItemId, c.lessonType, null));
+        streams.find(
+          (s) => s.key === streamKeyOf(c.studentGroupId, c.semesterCurriculumItemId, c.lessonType, null),
+        );
       if (!stream) {
         issues.push(
-          issue(Severity.ERROR, 'HOURS_EXCEEDED', 'По учебному плану у дисциплины нет часов этого вида занятий'),
+          issue(
+            Severity.ERROR,
+            'HOURS_EXCEEDED',
+            'По учебному плану у дисциплины нет часов этого вида занятий',
+          ),
         );
       } else {
         const lessons = await this.prisma.scheduleLesson.findMany({

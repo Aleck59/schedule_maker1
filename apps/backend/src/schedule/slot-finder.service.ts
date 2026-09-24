@@ -1,6 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { ClassroomType, LessonType } from '@prisma/client';
-import { addDaysStr, eachDay, isoWeekday, maxDate, minDate, parseDate, toDateStr, todayInTimezone } from '../common/utils/dates';
+import {
+  addDaysStr,
+  eachDay,
+  isoWeekday,
+  maxDate,
+  minDate,
+  parseDate,
+  toDateStr,
+  todayInTimezone,
+} from '../common/utils/dates';
 import { effectiveRoomTypes } from '../common/utils/rooms';
 import { ACTIVE_STATUSES } from '../planning/hours-calculator';
 import { PlanningService } from '../planning/planning.service';
@@ -101,8 +110,13 @@ export class SlotFinderService {
         : Math.ceil(group.studentCount / Math.max(1, group.subgroupCount))
       : group.studentCount;
     const suitableRooms = rooms
-      .filter((r) => types.includes(r.classroomType) && (r.classroomType === ClassroomType.ONLINE || r.capacity >= size))
-      .sort((a, b) => types.indexOf(a.classroomType) - types.indexOf(b.classroomType) || a.capacity - b.capacity);
+      .filter(
+        (r) =>
+          types.includes(r.classroomType) && (r.classroomType === ClassroomType.ONLINE || r.capacity >= size),
+      )
+      .sort(
+        (a, b) => types.indexOf(a.classroomType) - types.indexOf(b.classroomType) || a.capacity - b.capacity,
+      );
 
     const busyTeacher = new Set<string>();
     const busyRoom = new Set<string>();
@@ -125,7 +139,9 @@ export class SlotFinderService {
       }
     }
     const teacherUnavailable = new Set(
-      (teacher?.availability ?? []).filter((a) => !a.isAvailable).map((a) => `${a.weekday}#${a.lessonNumber}`),
+      (teacher?.availability ?? [])
+        .filter((a) => !a.isAvailable)
+        .map((a) => `${a.weekday}#${a.lessonNumber}`),
     );
 
     const result: FreeSlot[] = [];
@@ -191,7 +207,9 @@ export class SlotFinderService {
         });
       }
     }
-    result.sort((a, b) => a.score - b.score || a.date.localeCompare(b.date) || a.lessonNumber - b.lessonNumber);
+    result.sort(
+      (a, b) => a.score - b.score || a.date.localeCompare(b.date) || a.lessonNumber - b.lessonNumber,
+    );
     return result.slice(0, req.limit ?? 10);
   }
 
