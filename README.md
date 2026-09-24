@@ -142,7 +142,6 @@ E2E-тесты пересоздают данные, поэтому имя тес
   `X.Y.Z`, `X.Y`, `X` и `latest`.
 - Сообщения коммитов — в формате [Conventional Commits](https://www.conventionalcommits.org/ru/): `feat(schedule): …`,
   `fix(hours): …`, `docs: …`. Коммиты без `feat`/`fix`/`perf`/`refactor` релиз не создают.
-- Зависимости обновляет Dependabot (`.github/dependabot.yml`).
 
 Для публикации релизов достаточно стандартного `GITHUB_TOKEN`; в настройках репозитория (Settings → Actions → General)
 должно быть разрешено «Read and write permissions» для workflow.
@@ -156,7 +155,7 @@ apps/
   solver/      FastAPI + OR-Tools CP-SAT: app/, tests/
 docs/          проектная документация
 scripts/       служебные скрипты релиза
-.github/       CI/CD и Dependabot
+.github/       CI/CD (GitHub Actions)
 docker-compose.yml, .env.example
 ```
 
