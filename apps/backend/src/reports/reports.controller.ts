@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, Res } from '@nestjs/common';
+import { Controller, ForbiddenException, Get, Param, Query, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import type { Response } from 'express';
@@ -27,8 +27,9 @@ export class ReportsController {
 
   @Get()
   @ApiOperation({ summary: 'Список доступных отчётов' })
-  list() {
-    return this.reports.list();
+  list(@CurrentUser() user: AuthUser) {
+    const all = this.reports.list();
+    return user.role === UserRole.TEACHER ? all.filter((r) => TEACHER_REPORTS.includes(r.type)) : all;
   }
 
   @Get(':type')
@@ -41,7 +42,7 @@ export class ReportsController {
   @ApiQuery({ name: 'teacherId', required: false })
   @ApiQuery({ name: 'classroomId', required: false })
   build(@Param('type') type: string, @Query() query: ReportParams, @CurrentUser() user: AuthUser) {
-    return this.reports.build(type, clean(query), user);
+    return this.reports.build(type, scoped(type, clean(query), user), user);
   }
 
   @Get(':type/export')
@@ -53,7 +54,7 @@ export class ReportsController {
     @CurrentUser() user: AuthUser,
     @Res() res: Response,
   ) {
-    const table = await this.reports.build(type, clean(query), user);
+    const table = await this.reports.build(type, scoped(type, clean(query), user), user);
     if (query.format === 'pdf') {
       const org = await this.prisma.organization.findUnique({ where: { id: user.organizationId } });
       return sendFile(
@@ -70,6 +71,17 @@ export class ReportsController {
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     );
   }
+}
+
+/** Преподавателю доступен только отчёт по собственному расписанию */
+const TEACHER_REPORTS = ['teacher-schedule'];
+
+function scoped(type: string, params: ReportParams, user: AuthUser): ReportParams {
+  if (user.role !== UserRole.TEACHER) return params;
+  if (!TEACHER_REPORTS.includes(type) || !user.teacherId) {
+    throw new ForbiddenException('Преподавателю доступен только отчёт по собственному расписанию');
+  }
+  return { ...params, teacherId: user.teacherId };
 }
 
 function clean(query: object): ReportParams {

@@ -182,7 +182,7 @@ export class ExportController {
   }
 
   @Get('programs/:id/export/hour-control/excel')
-  @Roles(...STAFF_ROLES)
+  @Roles(UserRole.ADMIN, UserRole.DISPATCHER, UserRole.MANAGER)
   @ApiOperation({ summary: 'Excel: выполнение часов по учебному плану' })
   @ApiQuery({ name: 'semesterId', required: false })
   async hourControlExcel(

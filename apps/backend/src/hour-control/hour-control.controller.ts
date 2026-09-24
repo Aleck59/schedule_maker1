@@ -39,7 +39,8 @@ export class HourControlController {
       programId,
       semesterIds: semesterId ? [semesterId] : undefined,
       groupIds: groupId ? [groupId] : undefined,
-      teacherId,
+      // Преподаватель видит только свои дисциплины
+      teacherId: user.role === UserRole.TEACHER ? this.ownTeacherId(user) : teacherId,
       semesterItemId,
     });
   }
@@ -60,7 +61,12 @@ export class HourControlController {
     @Query('semesterId') semesterId?: string,
   ) {
     return this.hours.aggregate(
-      { organizationId: user.organizationId, programId, semesterIds: semesterId ? [semesterId] : undefined },
+      {
+        organizationId: user.organizationId,
+        programId,
+        semesterIds: semesterId ? [semesterId] : undefined,
+        teacherId: user.role === UserRole.TEACHER ? this.ownTeacherId(user) : undefined,
+      },
       by,
     );
   }
@@ -78,6 +84,7 @@ export class HourControlController {
       organizationId: user.organizationId,
       programId: id,
       semesterIds: semesterId ? [semesterId] : undefined,
+      teacherId: user.role === UserRole.TEACHER ? this.ownTeacherId(user) : undefined,
     });
   }
 
@@ -131,6 +138,11 @@ export class HourControlController {
   @ApiQuery({ name: 'semesterId', required: false })
   allTeachers(@CurrentUser() user: AuthUser, @Query('semesterId') semesterId?: string) {
     return this.hours.allTeachersWorkload(user.organizationId, semesterId || undefined);
+  }
+
+  private ownTeacherId(user: AuthUser): string {
+    if (!user.teacherId) throw new ForbiddenException('Учётная запись не связана с преподавателем');
+    return user.teacherId;
   }
 
   private assertTeacher(id: string, user: AuthUser) {
