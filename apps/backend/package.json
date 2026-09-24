@@ -1,0 +1,84 @@
+{
+  "name": "@schedule-maker/backend",
+  "version": "0.0.0-development",
+  "private": true,
+  "description": "REST API системы составления расписания колледжа СПО (NestJS + Prisma)",
+  "scripts": {
+    "build": "nest build",
+    "start": "node dist/main.js",
+    "start:dev": "nest start --watch",
+    "start:prod": "node dist/main.js",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "jest",
+    "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
+    "test:cov": "jest --coverage",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy",
+    "seed": "nest build && node dist/seed/seed.js",
+    "seed:prod": "node dist/seed/seed.js"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.6",
+    "@nestjs/config": "^4.0.2",
+    "@nestjs/core": "^11.1.6",
+    "@nestjs/jwt": "^11.0.0",
+    "@nestjs/passport": "^11.0.5",
+    "@nestjs/platform-express": "^11.1.6",
+    "@nestjs/swagger": "^11.2.0",
+    "@prisma/client": "^6.19.0",
+    "bcryptjs": "^3.0.2",
+    "bullmq": "^5.58.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.2",
+    "exceljs": "^4.4.0",
+    "passport": "^0.7.0",
+    "passport-jwt": "^4.0.1",
+    "pdfmake": "^0.3.11",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@nestjs/cli": "^11.0.10",
+    "@nestjs/schematics": "^11.0.7",
+    "@nestjs/testing": "^11.1.6",
+    "@types/express": "^5.0.3",
+    "@types/jest": "^29.5.14",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^22.18.0",
+    "@types/passport-jwt": "^4.0.1",
+    "@types/supertest": "^6.0.3",
+    "eslint": "^10.0.0",
+    "globals": "^16.3.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.6.2",
+    "prisma": "^6.19.0",
+    "supertest": "^7.1.4",
+    "ts-jest": "^29.4.1",
+    "typescript": "~5.9.2",
+    "typescript-eslint": "^8.43.0"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
+    "collectCoverageFrom": [
+      "**/*.ts",
+      "!**/*.module.ts",
+      "!main.ts",
+      "!seed/**"
+    ],
+    "coverageDirectory": "../coverage",
+    "testEnvironment": "node"
+  }
+}

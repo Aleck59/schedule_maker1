@@ -1,0 +1,959 @@
+// Схема базы данных системы составления расписания колледжа СПО.
+// Основная единица расписания — пара (по умолчанию 2 академических часа).
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// Перечисления
+// ============================================================================
+
+/// Роли пользователей
+enum UserRole {
+  ADMIN // Администратор
+  DISPATCHER // Диспетчер расписания / методист
+  TEACHER // Преподаватель
+  STUDENT // Студент
+  MANAGER // Руководитель (только просмотр)
+}
+
+enum ProgramStatus {
+  DRAFT
+  APPROVED
+  ARCHIVED
+}
+
+enum StudyForm {
+  FULL_TIME // очная
+  PART_TIME // очно-заочная
+  EXTRAMURAL // заочная
+}
+
+enum CurriculumItemType {
+  DISCIPLINE
+  MODULE
+  INTERDISCIPLINARY_COURSE
+  EDUCATIONAL_PRACTICE
+  INDUSTRIAL_PRACTICE
+  PRE_DIPLOMA_PRACTICE
+  FINAL_ATTESTATION
+  ELECTIVE
+}
+
+/// Формы промежуточной аттестации (контроля)
+enum ControlForm {
+  NONE
+  EXAM // экзамен
+  CREDIT // зачёт
+  DIFFERENTIATED_CREDIT // дифференцированный зачёт
+  OTHER // другая форма контроля
+  COURSE_PROJECT // курсовой проект (работа)
+  QUALIFICATION_EXAM // экзамен по модулю (квалификационный)
+}
+
+enum ClassroomType {
+  LECTURE
+  COMPUTER_LAB
+  LABORATORY
+  WORKSHOP
+  SPORTS_HALL
+  GENERAL
+  ONLINE
+}
+
+/// Типы периодов календарного учебного графика
+enum CalendarEventType {
+  THEORETICAL_TRAINING // теоретическое обучение
+  EXAM_SESSION // промежуточная аттестация
+  VACATION // каникулы
+  EDUCATIONAL_PRACTICE // учебная практика
+  INDUSTRIAL_PRACTICE // производственная практика
+  PRE_DIPLOMA_PRACTICE // преддипломная практика
+  FINAL_ATTESTATION // ГИА
+  DIPLOMA_PREPARATION // подготовка ВКР
+  DIPLOMA_DEFENSE // защита ВКР
+  DEMO_EXAM_PREPARATION // подготовка к демонстрационному экзамену
+  DEMO_EXAM // демонстрационный экзамен
+  REATTESTATION // повторная аттестация
+  HOLIDAY // праздничный день
+  OTHER // прочее (в т.ч. недоступность преподавателя)
+}
+
+enum SchedulePeriodStatus {
+  DRAFT
+  GENERATED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum LessonType {
+  LECTURE
+  PRACTICAL
+  LABORATORY
+  CONSULTATION
+  PRACTICE
+  OTHER
+}
+
+enum LessonStatus {
+  PLANNED
+  CONDUCTED
+  CANCELLED
+  MOVED
+  REPLACED
+}
+
+enum ConductedStatus {
+  CONDUCTED
+  CANCELLED
+  POSTPONED
+  REPLACED
+}
+
+enum CancellationReason {
+  GROUP_ABSENT // отсутствие группы
+  TEACHER_ABSENT // отсутствие преподавателя
+  CLASSROOM_UNAVAILABLE // аудитория недоступна
+  HOLIDAY // праздничный / нерабочий день
+  OTHER // иная причина
+}
+
+enum Severity {
+  ERROR
+  WARNING
+  INFO
+}
+
+enum GenerationMode {
+  CALENDAR // календарное расписание по датам
+  WEEKLY_TEMPLATE // постоянное недельное расписание с развёрткой по датам
+}
+
+enum GenerationJobStatus {
+  QUEUED // ожидание
+  GENERATING // генерация
+  VALIDATING // проверка
+  COMPLETED // готово
+  COMPLETED_WITH_CONFLICTS // есть конфликты
+  FAILED // ошибка
+  APPLIED // применено
+  CANCELLED // отменено
+}
+
+enum MakeupTaskStatus {
+  OPEN // требуется отработка
+  SCHEDULED // отработка поставлена в расписание
+  DONE // отработано
+  CANCELLED // не требуется
+}
+
+enum NotificationType {
+  LESSON_CANCELLED
+  LESSON_MOVED
+  TEACHER_SUBSTITUTED
+  LESSON_CREATED
+  LESSON_UPDATED
+  SCHEDULE_PUBLISHED
+  GENERAL
+}
+
+// ============================================================================
+// Организация и настройки
+// ============================================================================
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  shortName String?
+  address   String?
+  timezone  String   @default("Europe/Moscow")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  settings        OrganizationSettings?
+  lessonTimes     LessonTime[]
+  users           User[]
+  teachers        Teacher[]
+  classrooms      Classroom[]
+  programs        EducationalProgram[]
+  schedulePeriods SchedulePeriod[]
+  calendarEvents  CalendarEvent[]
+
+  @@map("organizations")
+}
+
+/// Общие настройки расписания организации
+model OrganizationSettings {
+  id                         String   @id @default(uuid())
+  organizationId             String   @unique
+  /// Академических часов в одной паре
+  academicHoursPerLesson     Int      @default(2)
+  /// Длительность академического часа, мин
+  academicHourMinutes        Int      @default(45)
+  /// Длительность пары, мин
+  lessonDurationMinutes      Int      @default(90)
+  /// Количество пар в день (слотов)
+  lessonsPerDay              Int      @default(6)
+  /// Рекомендуемый максимум пар у группы в день (мягкое ограничение)
+  maxGroupLessonsPerDay      Int      @default(4)
+  /// Максимум пар одной дисциплины у группы в день
+  maxSameDisciplinePerDay    Int      @default(2)
+  /// Рекомендуемый максимум пар одной дисциплины в неделю
+  maxSameDisciplinePerWeek   Int      @default(2)
+  /// Номер пары, начиная с которой пара считается поздней
+  lateLessonNumber           Int      @default(5)
+  /// Учебные дни недели (1 — понедельник ... 7 — воскресенье)
+  workingDays                Int[]    @default([1, 2, 3, 4, 5, 6])
+  maxGroupWindowsPerWeek     Int      @default(2)
+  maxTeacherWindowsPerWeek   Int      @default(4)
+  maxExamsPerWeek            Int      @default(3)
+  maxBuildingChangesPerDay   Int      @default(1)
+  /// Предупреждать о неполных парах (нечётное число часов)
+  warnOnPartialLessons       Boolean  @default(true)
+  /// Ставить консультации в расписание по умолчанию
+  scheduleConsultations      Boolean  @default(true)
+  /// Консультации ставятся в последние N недель теоретического обучения
+  consultationWeeksBeforeEnd Int      @default(3)
+  solverTimeLimitSeconds     Int      @default(60)
+  /// Веса мягких ограничений генератора
+  solverWeightsJson          Json?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("organization_settings")
+}
+
+/// Расписание звонков
+model LessonTime {
+  id             String   @id @default(uuid())
+  organizationId String
+  lessonNumber   Int
+  startTime      String
+  endTime        String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, lessonNumber])
+  @@map("lesson_times")
+}
+
+model User {
+  id               String    @id @default(uuid())
+  organizationId   String
+  fullName         String
+  email            String    @unique
+  passwordHash     String
+  role             UserRole
+  isActive         Boolean   @default(true)
+  /// Для роли «Преподаватель» — связь с карточкой преподавателя
+  teacherId        String?   @unique
+  /// Для роли «Студент» — группа
+  studentGroupId   String?
+  refreshTokenHash String?
+  lastLoginAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  organization          Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  teacher               Teacher?                @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  studentGroup          StudentGroup?           @relation(fields: [studentGroupId], references: [id], onDelete: SetNull)
+  auditLogs             AuditLog[]
+  notifications         Notification[]
+  approvedSubstitutions TeacherSubstitution[]
+  generationJobs        ScheduleGenerationJob[]
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+// ============================================================================
+// Учебные планы
+// ============================================================================
+
+model Specialty {
+  id             String    @id @default(uuid())
+  code           String
+  name           String
+  qualification  String
+  /// Номер приказа ФГОС СПО
+  fgosNumber     String?
+  /// Дата приказа ФГОС СПО
+  fgosDate       DateTime? @db.Date
+  durationMonths Int
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  programs EducationalProgram[]
+
+  @@unique([code, qualification])
+  @@map("specialties")
+}
+
+model EducationalProgram {
+  id             String        @id @default(uuid())
+  organizationId String
+  specialtyId    String
+  title          String
+  admissionYear  Int
+  studyForm      StudyForm     @default(FULL_TIME)
+  durationMonths Int
+  totalSemesters Int
+  status         ProgramStatus @default(DRAFT)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  specialty         Specialty          @relation(fields: [specialtyId], references: [id])
+  academicYears     AcademicYear[]
+  semesters         Semester[]
+  groups            StudentGroup[]
+  cycles            CurriculumCycle[]
+  items             CurriculumItem[]
+  calendarEvents    CalendarEvent[]
+  validationResults ValidationResult[]
+
+  @@index([organizationId])
+  @@map("educational_programs")
+}
+
+model AcademicYear {
+  id                   String   @id @default(uuid())
+  educationalProgramId String
+  /// Например «2026–2027»
+  title                String
+  /// Курс, на котором обучается набор в этом учебном году
+  courseNumber         Int?
+  startDate            DateTime @db.Date
+  endDate              DateTime @db.Date
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  program         EducationalProgram @relation(fields: [educationalProgramId], references: [id], onDelete: Cascade)
+  semesters       Semester[]
+  schedulePeriods SchedulePeriod[]
+
+  @@unique([educationalProgramId, title])
+  @@map("academic_years")
+}
+
+model Semester {
+  id                   String   @id @default(uuid())
+  educationalProgramId String
+  academicYearId       String
+  number               Int
+  courseNumber         Int
+  startDate            DateTime @db.Date
+  endDate              DateTime @db.Date
+  theoreticalWeeks     Int      @default(0)
+  examWeeks            Int      @default(0)
+  vacationWeeks        Int      @default(0)
+  practiceWeeks        Int      @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  program         EducationalProgram       @relation(fields: [educationalProgramId], references: [id], onDelete: Cascade)
+  academicYear    AcademicYear             @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  items           SemesterCurriculumItem[]
+  calendarEvents  CalendarEvent[]
+  schedulePeriods SchedulePeriod[]
+
+  @@unique([educationalProgramId, number])
+  @@map("semesters")
+}
+
+model StudentGroup {
+  id                    String   @id @default(uuid())
+  educationalProgramId  String
+  /// Например «ИСП-24-1»
+  code                  String   @unique
+  title                 String
+  admissionYear         Int
+  courseNumber          Int
+  currentSemesterNumber Int
+  studentCount          Int
+  subgroupCount         Int      @default(1)
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  program          EducationalProgram          @relation(fields: [educationalProgramId], references: [id], onDelete: Cascade)
+  subgroups        Subgroup[]
+  students         Student[]
+  assignments      GroupCurriculumAssignment[]
+  calendarEvents   CalendarEvent[]
+  lessons          ScheduleLesson[]
+  users            User[]
+  makeupTasks      MakeupTask[]
+  assessmentEvents AssessmentEvent[]
+
+  @@index([educationalProgramId])
+  @@map("student_groups")
+}
+
+/// Подгруппа учебной группы (иностранный язык, лабораторные и т.п.)
+model Subgroup {
+  id             String   @id @default(uuid())
+  studentGroupId String
+  number         Int
+  name           String
+  studentCount   Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  group    StudentGroup @relation(fields: [studentGroupId], references: [id], onDelete: Cascade)
+  students Student[]
+
+  @@unique([studentGroupId, number])
+  @@map("subgroups")
+}
+
+model Student {
+  id               String   @id @default(uuid())
+  studentGroupId   String
+  subgroupId       String?
+  fullName         String
+  recordBookNumber String?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  group    StudentGroup @relation(fields: [studentGroupId], references: [id], onDelete: Cascade)
+  subgroup Subgroup?    @relation(fields: [subgroupId], references: [id], onDelete: SetNull)
+
+  @@index([studentGroupId])
+  @@map("students")
+}
+
+model CurriculumCycle {
+  id                   String   @id @default(uuid())
+  educationalProgramId String
+  code                 String
+  name                 String
+  sortOrder            Int      @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  program EducationalProgram @relation(fields: [educationalProgramId], references: [id], onDelete: Cascade)
+  items   CurriculumItem[]
+
+  @@unique([educationalProgramId, code])
+  @@map("curriculum_cycles")
+}
+
+model CurriculumItem {
+  id                   String             @id @default(uuid())
+  educationalProgramId String
+  cycleId              String
+  parentItemId         String?
+  code                 String
+  name                 String
+  itemType             CurriculumItemType
+  isRequired           Boolean            @default(true)
+  /// «Сложная» дисциплина — генератор избегает последних пар
+  isDifficult          Boolean            @default(false)
+  department           String?
+  sortOrder            Int                @default(0)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  program       EducationalProgram       @relation(fields: [educationalProgramId], references: [id], onDelete: Cascade)
+  cycle         CurriculumCycle          @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  parent        CurriculumItem?          @relation("CurriculumItemTree", fields: [parentItemId], references: [id], onDelete: Cascade)
+  children      CurriculumItem[]         @relation("CurriculumItemTree")
+  semesterItems SemesterCurriculumItem[]
+
+  @@unique([educationalProgramId, code])
+  @@index([cycleId])
+  @@map("curriculum_items")
+}
+
+/// Часы элемента учебного плана в конкретном семестре — основа для расписания
+model SemesterCurriculumItem {
+  id                         String          @id @default(uuid())
+  curriculumItemId           String
+  semesterId                 String
+  totalHours                 Int             @default(0)
+  lectureHours               Int             @default(0)
+  practicalHours             Int             @default(0)
+  laboratoryHours            Int             @default(0)
+  consultationHours          Int             @default(0)
+  selfStudyHours             Int             @default(0)
+  assessmentHours            Int             @default(0)
+  /// Часы учебной практики, проводимой на базе колледжа (ставятся в расписание)
+  practiceHours              Int             @default(0)
+  plannedLectureLessons      Int             @default(0)
+  plannedPracticalLessons    Int             @default(0)
+  plannedLaboratoryLessons   Int             @default(0)
+  plannedConsultationLessons Int             @default(0)
+  plannedPracticeLessons     Int             @default(0)
+  controlForm                ControlForm     @default(NONE)
+  /// Практика проводится на базе колледжа
+  practiceAtCollege          Boolean         @default(false)
+  /// Ставить консультации в расписание
+  scheduleConsultations      Boolean         @default(true)
+  /// Допустимые типы аудиторий по видам занятий (пусто — по умолчанию)
+  lectureRoomTypes           ClassroomType[] @default([])
+  practicalRoomTypes         ClassroomType[] @default([])
+  laboratoryRoomTypes        ClassroomType[] @default([])
+  consultationRoomTypes      ClassroomType[] @default([])
+  practiceRoomTypes          ClassroomType[] @default([])
+  notes                      String?
+  createdAt                  DateTime        @default(now())
+  updatedAt                  DateTime        @updatedAt
+
+  curriculumItem   CurriculumItem              @relation(fields: [curriculumItemId], references: [id], onDelete: Cascade)
+  semester         Semester                    @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  assignments      GroupCurriculumAssignment[]
+  lessons          ScheduleLesson[]
+  makeupTasks      MakeupTask[]
+  assessmentEvents AssessmentEvent[]
+
+  @@unique([curriculumItemId, semesterId])
+  @@index([semesterId])
+  @@map("semester_curriculum_items")
+}
+
+/// Нагрузка: группа (подгруппа) × дисциплина семестра × преподаватель
+model GroupCurriculumAssignment {
+  id                       String          @id @default(uuid())
+  studentGroupId           String
+  semesterCurriculumItemId String
+  /// null — занятия для всей группы
+  subgroupNumber           Int?
+  /// null — все виды занятий, не покрытые другими назначениями
+  lessonType               LessonType?
+  teacherId                String?
+  /// Желаемое число пар в неделю (null — автоматически)
+  weeklyLessonTarget       Int?
+  /// Приоритет постановки 1..10 (больше — важнее)
+  priority                 Int             @default(5)
+  /// Переопределение часов для назначения (например, для подгруппы)
+  plannedHours             Int?
+  preferredClassroomId     String?
+  /// Переопределение допустимых типов аудиторий
+  classroomTypes           ClassroomType[] @default([])
+  /// Ключ потока: назначения с одинаковым ключом ставятся одновременно
+  streamKey                String?
+  /// Ручное разрешение превышения плановых часов
+  allowHoursExcess         Boolean         @default(false)
+  createdAt                DateTime        @default(now())
+  updatedAt                DateTime        @updatedAt
+
+  group              StudentGroup           @relation(fields: [studentGroupId], references: [id], onDelete: Cascade)
+  semesterItem       SemesterCurriculumItem @relation(fields: [semesterCurriculumItemId], references: [id], onDelete: Cascade)
+  teacher            Teacher?               @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  preferredClassroom Classroom?             @relation(fields: [preferredClassroomId], references: [id], onDelete: SetNull)
+  lessons            ScheduleLesson[]
+
+  @@index([studentGroupId, semesterCurriculumItemId])
+  @@index([teacherId])
+  @@map("group_curriculum_assignments")
+}
+
+// ============================================================================
+// Преподаватели и аудитории
+// ============================================================================
+
+model Teacher {
+  id                   String   @id @default(uuid())
+  organizationId       String
+  fullName             String
+  department           String?
+  position             String?
+  email                String?
+  phone                String?
+  maxWeeklyLessons     Int      @default(18)
+  maxDailyLessons      Int      @default(4)
+  preferredStartLesson Int      @default(1)
+  preferredEndLesson   Int      @default(6)
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  organization              Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                      User?
+  availability              TeacherAvailability[]
+  assignments               GroupCurriculumAssignment[]
+  lessons                   ScheduleLesson[]
+  conductedLessons          ConductedLesson[]           @relation("ConductedActualTeacher")
+  substitutionsAsOriginal   TeacherSubstitution[]       @relation("SubstitutionOriginal")
+  substitutionsAsSubstitute TeacherSubstitution[]       @relation("SubstitutionSubstitute")
+  calendarEvents            CalendarEvent[]
+  makeupTasks               MakeupTask[]
+  assessmentEvents          AssessmentEvent[]
+
+  @@index([organizationId])
+  @@map("teachers")
+}
+
+model TeacherAvailability {
+  id               String   @id @default(uuid())
+  teacherId        String
+  /// 1 — понедельник ... 7 — воскресенье
+  weekday          Int
+  lessonNumber     Int
+  isAvailable      Boolean  @default(true)
+  /// Предпочтение: > 0 — желательно, < 0 — нежелательно
+  preferenceWeight Int      @default(0)
+  reason           String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  teacher Teacher @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@unique([teacherId, weekday, lessonNumber])
+  @@map("teacher_availability")
+}
+
+model Classroom {
+  id             String        @id @default(uuid())
+  organizationId String
+  code           String
+  name           String
+  building       String?
+  floor          Int?
+  capacity       Int
+  classroomType  ClassroomType
+  equipmentJson  Json?
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization     Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  availability     ClassroomAvailability[]
+  lessons          ScheduleLesson[]
+  conductedLessons ConductedLesson[]
+  preferredFor     GroupCurriculumAssignment[]
+  assessmentEvents AssessmentEvent[]
+
+  @@unique([organizationId, code])
+  @@map("classrooms")
+}
+
+model ClassroomAvailability {
+  id           String   @id @default(uuid())
+  classroomId  String
+  weekday      Int
+  lessonNumber Int
+  isAvailable  Boolean  @default(true)
+  reason       String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  classroom Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+
+  @@unique([classroomId, weekday, lessonNumber])
+  @@map("classroom_availability")
+}
+
+// ============================================================================
+// Календарный учебный график
+// ============================================================================
+
+/// Период календарного графика. Если программа/курс/группа не указаны —
+/// событие действует на всю организацию (например, праздничный день).
+model CalendarEvent {
+  id                   String            @id @default(uuid())
+  organizationId       String
+  educationalProgramId String?
+  semesterId           String?
+  studentGroupId       String?
+  /// Курс, для которого действует событие (если задан)
+  courseNumber         Int?
+  /// Недоступность конкретного преподавателя (курсы, отпуск)
+  teacherId            String?
+  eventType            CalendarEventType
+  title                String
+  startDate            DateTime          @db.Date
+  endDate              DateTime          @db.Date
+  blocksSchedule       Boolean           @default(true)
+  notes                String?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  program      EducationalProgram? @relation(fields: [educationalProgramId], references: [id], onDelete: Cascade)
+  semester     Semester?           @relation(fields: [semesterId], references: [id], onDelete: SetNull)
+  group        StudentGroup?       @relation(fields: [studentGroupId], references: [id], onDelete: Cascade)
+  teacher      Teacher?            @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, startDate, endDate])
+  @@index([educationalProgramId])
+  @@map("calendar_events")
+}
+
+/// Контрольные мероприятия (экзамены, зачёты) — отдельно от обычных пар
+model AssessmentEvent {
+  id                       String      @id @default(uuid())
+  studentGroupId           String
+  semesterCurriculumItemId String
+  controlForm              ControlForm
+  date                     DateTime    @db.Date
+  lessonNumber             Int?
+  teacherId                String?
+  classroomId              String?
+  notes                    String?
+  createdAt                DateTime    @default(now())
+  updatedAt                DateTime    @updatedAt
+
+  group        StudentGroup           @relation(fields: [studentGroupId], references: [id], onDelete: Cascade)
+  semesterItem SemesterCurriculumItem @relation(fields: [semesterCurriculumItemId], references: [id], onDelete: Cascade)
+  teacher      Teacher?               @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  classroom    Classroom?             @relation(fields: [classroomId], references: [id], onDelete: SetNull)
+
+  @@index([studentGroupId, date])
+  @@map("assessment_events")
+}
+
+// ============================================================================
+// Расписание
+// ============================================================================
+
+model SchedulePeriod {
+  id             String               @id @default(uuid())
+  organizationId String
+  academicYearId String
+  semesterId     String
+  title          String
+  startDate      DateTime             @db.Date
+  endDate        DateTime             @db.Date
+  status         SchedulePeriodStatus @default(DRAFT)
+  publishedAt    DateTime?
+  notes          String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  organization      Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  academicYear      AcademicYear            @relation(fields: [academicYearId], references: [id], onDelete: Cascade)
+  semester          Semester                @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  lessons           ScheduleLesson[]
+  validationResults ValidationResult[]
+  generationJobs    ScheduleGenerationJob[]
+
+  @@index([organizationId])
+  @@map("schedule_periods")
+}
+
+model ScheduleLesson {
+  id                       String       @id @default(uuid())
+  schedulePeriodId         String
+  date                     DateTime     @db.Date
+  /// 1 — понедельник ... 7 — воскресенье
+  weekday                  Int
+  lessonNumber             Int
+  startTime                String
+  endTime                  String
+  studentGroupId           String
+  subgroupNumber           Int?
+  semesterCurriculumItemId String
+  assignmentId             String?
+  teacherId                String?
+  classroomId              String?
+  lessonType               LessonType
+  status                   LessonStatus @default(PLANNED)
+  /// Продолжительность в академических часах (1 — неполная пара)
+  academicHours            Int          @default(2)
+  /// Исходное занятие (для перенесённых / компенсирующих занятий)
+  originalLessonId         String?
+  /// Ключ потока (объединённые группы)
+  streamKey                String?
+  /// Создано или изменено вручную (не удаляется при повторной генерации)
+  isManual                 Boolean      @default(false)
+  /// Закреплено — генератор не трогает
+  isLocked                 Boolean      @default(false)
+  /// Ручное разрешение превышения плана
+  allowHoursExcess         Boolean      @default(false)
+  generationJobId          String?
+  topic                    String?
+  notes                    String?
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
+
+  schedulePeriod      SchedulePeriod             @relation(fields: [schedulePeriodId], references: [id], onDelete: Cascade)
+  studentGroup        StudentGroup               @relation(fields: [studentGroupId], references: [id], onDelete: Cascade)
+  semesterItem        SemesterCurriculumItem     @relation(fields: [semesterCurriculumItemId], references: [id], onDelete: Cascade)
+  assignment          GroupCurriculumAssignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  teacher             Teacher?                   @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  classroom           Classroom?                 @relation(fields: [classroomId], references: [id], onDelete: SetNull)
+  originalLesson      ScheduleLesson?            @relation("LessonMove", fields: [originalLessonId], references: [id], onDelete: SetNull)
+  derivedLessons      ScheduleLesson[]           @relation("LessonMove")
+  conducted           ConductedLesson?           @relation("ConductedLessonRecord")
+  replacementFor      ConductedLesson[]          @relation("ConductedReplacement")
+  substitutions       TeacherSubstitution[]
+  makeupTasks         MakeupTask[]               @relation("MakeupSource")
+  resolvedMakeupTasks MakeupTask[]               @relation("MakeupResolved")
+  notifications       Notification[]
+
+  @@index([date, lessonNumber])
+  @@index([schedulePeriodId, date])
+  @@index([studentGroupId, date])
+  @@index([teacherId, date])
+  @@index([classroomId, date])
+  @@index([semesterCurriculumItemId])
+  @@map("schedule_lessons")
+}
+
+/// Факт проведения занятия
+model ConductedLesson {
+  id                  String              @id @default(uuid())
+  scheduleLessonId    String              @unique
+  actualTeacherId     String?
+  actualClassroomId   String?
+  conductedAt         DateTime
+  /// Фактически проведено академических часов
+  actualHours         Int                 @default(0)
+  status              ConductedStatus
+  cancellationReason  CancellationReason?
+  replacementLessonId String?
+  markedByUserId      String?
+  notes               String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  scheduleLesson    ScheduleLesson  @relation("ConductedLessonRecord", fields: [scheduleLessonId], references: [id], onDelete: Cascade)
+  actualTeacher     Teacher?        @relation("ConductedActualTeacher", fields: [actualTeacherId], references: [id], onDelete: SetNull)
+  actualClassroom   Classroom?      @relation(fields: [actualClassroomId], references: [id], onDelete: SetNull)
+  replacementLesson ScheduleLesson? @relation("ConductedReplacement", fields: [replacementLessonId], references: [id], onDelete: SetNull)
+
+  @@index([actualTeacherId])
+  @@map("conducted_lessons")
+}
+
+model TeacherSubstitution {
+  id                  String   @id @default(uuid())
+  scheduleLessonId    String
+  originalTeacherId   String?
+  substituteTeacherId String
+  reason              String?
+  approvedByUserId    String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  scheduleLesson    ScheduleLesson @relation(fields: [scheduleLessonId], references: [id], onDelete: Cascade)
+  originalTeacher   Teacher?       @relation("SubstitutionOriginal", fields: [originalTeacherId], references: [id], onDelete: SetNull)
+  substituteTeacher Teacher        @relation("SubstitutionSubstitute", fields: [substituteTeacherId], references: [id], onDelete: Cascade)
+  approvedBy        User?          @relation(fields: [approvedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([scheduleLessonId])
+  @@map("teacher_substitutions")
+}
+
+/// Задача «требуется отработка» после отмены занятия
+model MakeupTask {
+  id                       String           @id @default(uuid())
+  sourceLessonId           String
+  studentGroupId           String
+  subgroupNumber           Int?
+  semesterCurriculumItemId String
+  teacherId                String?
+  lessonType               LessonType
+  academicHours            Int
+  status                   MakeupTaskStatus @default(OPEN)
+  resolvedLessonId         String?
+  dueDate                  DateTime?        @db.Date
+  notes                    String?
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+
+  sourceLesson   ScheduleLesson         @relation("MakeupSource", fields: [sourceLessonId], references: [id], onDelete: Cascade)
+  resolvedLesson ScheduleLesson?        @relation("MakeupResolved", fields: [resolvedLessonId], references: [id], onDelete: SetNull)
+  group          StudentGroup           @relation(fields: [studentGroupId], references: [id], onDelete: Cascade)
+  semesterItem   SemesterCurriculumItem @relation(fields: [semesterCurriculumItemId], references: [id], onDelete: Cascade)
+  teacher        Teacher?               @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@map("makeup_tasks")
+}
+
+/// Задание на генерацию расписания (выполняется в фоне через очередь)
+model ScheduleGenerationJob {
+  id               String              @id @default(uuid())
+  schedulePeriodId String
+  createdByUserId  String?
+  status           GenerationJobStatus @default(QUEUED)
+  mode             GenerationMode
+  paramsJson       Json
+  progress         Int                 @default(0)
+  message          String?
+  solver           String?
+  resultJson       Json?
+  statsJson        Json?
+  error            String?
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  appliedAt        DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  schedulePeriod SchedulePeriod @relation(fields: [schedulePeriodId], references: [id], onDelete: Cascade)
+  createdBy      User?          @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([schedulePeriodId, createdAt])
+  @@map("schedule_generation_jobs")
+}
+
+model ValidationResult {
+  id                   String   @id @default(uuid())
+  schedulePeriodId     String?
+  educationalProgramId String?
+  severity             Severity
+  validationType       String
+  entityType           String
+  entityId             String?
+  message              String
+  detailsJson          Json?
+  isResolved           Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  schedulePeriod SchedulePeriod?     @relation(fields: [schedulePeriodId], references: [id], onDelete: Cascade)
+  program        EducationalProgram? @relation(fields: [educationalProgramId], references: [id], onDelete: Cascade)
+
+  @@index([schedulePeriodId, severity])
+  @@map("validation_results")
+}
+
+model Notification {
+  id               String           @id @default(uuid())
+  userId           String
+  type             NotificationType
+  title            String
+  message          String
+  scheduleLessonId String?
+  isRead           Boolean          @default(false)
+  createdAt        DateTime         @default(now())
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scheduleLesson ScheduleLesson? @relation(fields: [scheduleLessonId], references: [id], onDelete: SetNull)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?
+  action      String
+  entityType  String
+  entityId    String?
+  oldDataJson Json?
+  newDataJson Json?
+  createdAt   DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
