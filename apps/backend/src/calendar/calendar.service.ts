@@ -220,7 +220,10 @@ export class CalendarService {
       let index = 1;
       while (cursor <= yearEnd) {
         const wEnd = addDaysStr(cursor, 6);
-        const days = eachDay(cursor, wEnd).filter((d) => settings.workingDays.includes(isoWeekday(d)));
+        // Недели на границе учебных лет учитывают только дни своего учебного года
+        const days = eachDay(cursor < yearStart ? yearStart : cursor, wEnd > yearEnd ? yearEnd : wEnd).filter(
+          (d) => settings.workingDays.includes(isoWeekday(d)),
+        );
         const counts = new Map<CalendarEventType, number>();
         let holidays = 0;
         let blockedDays = 0;
