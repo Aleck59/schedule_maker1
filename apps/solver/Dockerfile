@@ -3,7 +3,7 @@
 # Контекст сборки — каталог apps/solver:
 #   docker build apps/solver
 
-FROM python:3.11-slim
+FROM python:3.14-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
