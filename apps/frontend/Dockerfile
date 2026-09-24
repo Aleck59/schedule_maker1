@@ -14,7 +14,7 @@ ARG APP_VERSION=dev
 ENV VITE_APP_VERSION=$APP_VERSION
 RUN npm run build --workspace apps/frontend
 
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:1.29-alpine AS runtime
 # Адрес API и DNS-резолвер подставляются в шаблон конфигурации при запуске контейнера
 ENV API_UPSTREAM=http://backend:3000 \
     NGINX_RESOLVER=127.0.0.11
