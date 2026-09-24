@@ -142,7 +142,7 @@ jobs:
             file: apps/solver/Dockerfile
     steps:
       - uses: actions/checkout@v5
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: Сборка образа
         uses: docker/build-push-action@v6
         with:
