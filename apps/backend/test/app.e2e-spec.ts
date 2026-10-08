@@ -1,6 +1,7 @@
 import { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { createApp } from '../src/main';
+import { PrismaService } from '../src/prisma/prisma.service';
 
 /**
  * Сквозной сценарий на демо-данных: роли, генерация, применение, публикация,
@@ -280,6 +281,294 @@ describe('Расписание СПО (e2e)', () => {
         expect(week.workingDays).toBe(days);
       }
     }
+  });
+
+  it('импорт учебного плана со скана: черновик, проверка и создание плана, графика и группы', async () => {
+    await http.get('/api/curriculum-scans/status').set(auth('dispatcher')).expect(200);
+    await http.get('/api/curriculum-scans').set(auth('teacher')).expect(403);
+    const bad = await http
+      .post('/api/curriculum-scans')
+      .set(auth('dispatcher'))
+      .attach('files', Buffer.from('текст'), 'план.docx')
+      .expect(400);
+    expect(bad.body.message).toMatch(/не поддерживается/);
+
+    // Результат распознавания (формат Python-модуля) — само распознавание проверяется тестами модуля
+    const hours = (h: Record<string, number>) => ({
+      total: 0,
+      contact: 0,
+      lecture: 0,
+      laboratory: 0,
+      practical: 0,
+      seminar: 0,
+      individualProject: 0,
+      selfStudy: 0,
+      assessment: 0,
+      ...h,
+    });
+    const prisma = app.get(PrismaService);
+    const org = await prisma.organization.findFirstOrThrow();
+    const scan = await prisma.curriculumScan.create({
+      data: {
+        organizationId: org.id,
+        fileNames: ['plan.pdf'],
+        status: 'READY',
+        progress: 1,
+        resultJson: {
+          title: {
+            specialtyCode: '40.02.04',
+            specialtyName: 'Юриспруденция',
+            qualification: 'Юрист',
+            studyForm: 'FULL_TIME',
+            durationMonths: 34,
+            admissionYear: 2026,
+            fgosNumber: '798',
+            fgosDate: '2023-10-27',
+          },
+          semesters: [
+            {
+              number: 1,
+              course: 1,
+              startDate: '2026-09-01',
+              endDate: '2027-02-07',
+              weeks: { theory: 18.83, exam: 2, vacation: 2, practice: 0 },
+            },
+            {
+              number: 2,
+              course: 1,
+              startDate: '2027-02-08',
+              endDate: '2027-08-31',
+              weeks: { theory: 18.5, exam: 2, vacation: 8.83, practice: 1 },
+            },
+          ],
+          periods: [
+            { course: 1, type: 'EXAM_SESSION', startDate: '2027-01-11', endDate: '2027-01-23' },
+            { course: 1, type: 'VACATION', startDate: '2027-01-25', endDate: '2027-02-06' },
+            { course: 1, type: 'EDUCATIONAL_PRACTICE', startDate: '2027-06-07', endDate: '2027-06-12' },
+          ],
+          cycles: [
+            { code: 'СГ', name: 'Социально-гуманитарный цикл' },
+            { code: 'П', name: 'Профессиональный цикл' },
+          ],
+          items: [
+            {
+              code: 'СОО.01',
+              name: 'Обязательная часть',
+              kind: 'GROUP',
+              cycleCode: 'СОО',
+              parentCode: null,
+              issues: [],
+              semesters: [
+                {
+                  number: 1,
+                  controlForm: 'OTHER',
+                  hours: hours({ total: 100, contact: 100, practical: 100 }),
+                  cells: {},
+                },
+              ],
+            },
+            {
+              code: 'СОО.01.01',
+              name: 'Русский язык',
+              kind: 'DISCIPLINE',
+              cycleCode: 'СОО.01',
+              parentCode: null,
+              issues: [],
+              semesters: [
+                {
+                  number: 1,
+                  controlForm: 'OTHER',
+                  hours: hours({ total: 50, contact: 50, practical: 50 }),
+                  cells: {},
+                },
+              ],
+            },
+            {
+              code: 'СГ.01',
+              name: 'История России',
+              kind: 'DISCIPLINE',
+              cycleCode: 'СГ',
+              parentCode: null,
+              issues: [],
+              semesters: [
+                {
+                  number: 2,
+                  controlForm: 'CREDIT',
+                  hours: hours({
+                    total: 72,
+                    contact: 68,
+                    lecture: 32,
+                    practical: 18,
+                    seminar: 18,
+                    selfStudy: 4,
+                  }),
+                  cells: { contact: { status: 'corrected', read: '58', crop: '' } },
+                },
+              ],
+            },
+            {
+              code: 'ПМ.01',
+              name: 'Правоприменительная деятельность',
+              kind: 'MODULE',
+              cycleCode: 'П',
+              parentCode: null,
+              issues: [],
+              semesters: [
+                {
+                  number: 2,
+                  controlForm: 'EXAM',
+                  hours: hours({
+                    total: 180,
+                    contact: 64,
+                    lecture: 32,
+                    practical: 32,
+                    selfStudy: 107,
+                    assessment: 9,
+                  }),
+                  cells: {},
+                },
+              ],
+            },
+            {
+              code: 'МДК.01.01',
+              name: 'Административный процесс',
+              kind: 'INTERDISCIPLINARY_COURSE',
+              cycleCode: 'П',
+              parentCode: 'ПМ.01',
+              issues: [],
+              semesters: [
+                {
+                  number: 2,
+                  controlForm: 'CREDIT',
+                  hours: hours({ total: 72, contact: 64, lecture: 32, practical: 32, selfStudy: 8 }),
+                  cells: {},
+                },
+              ],
+            },
+            {
+              code: 'УП.01.01',
+              name: 'Учебная практика',
+              kind: 'EDUCATIONAL_PRACTICE',
+              cycleCode: 'П',
+              parentCode: 'ПМ.01',
+              issues: [],
+              semesters: [
+                {
+                  number: 2,
+                  controlForm: 'DIFFERENTIATED_CREDIT',
+                  hours: hours({ total: 36, selfStudy: 36 }),
+                  cells: {},
+                },
+              ],
+            },
+            {
+              code: 'ПМ.01.01(К)',
+              name: 'Экзамен по модулю',
+              kind: 'MODULE_EXAM',
+              cycleCode: 'П',
+              parentCode: 'ПМ.01',
+              issues: [],
+              semesters: [
+                {
+                  number: 2,
+                  controlForm: 'EXAM',
+                  hours: hours({ total: 36, selfStudy: 27, assessment: 9 }),
+                  cells: {},
+                },
+              ],
+            },
+          ],
+          warnings: [],
+        },
+      },
+    });
+
+    const loaded = await http.get(`/api/curriculum-scans/${scan.id}`).set(auth('dispatcher')).expect(200);
+    const draft = loaded.body.draft;
+    expect(draft.specialty).toMatchObject({
+      code: '40.02.04',
+      name: 'Юриспруденция',
+      qualification: 'Юрист',
+    });
+    expect(draft.program.title).toBe('40.02.04 Юриспруденция, набор 2026');
+    expect(draft.items.find((i: { code: string }) => i.code === 'СОО.01').include).toBe(false);
+    expect(draft.items.find((i: { code: string }) => i.code === 'ПМ.01.01(К)').semesters[0].controlForm).toBe(
+      'QUALIFICATION_EXAM',
+    );
+
+    const invalid = await http
+      .post(`/api/curriculum-scans/${scan.id}/apply`)
+      .set(auth('dispatcher'))
+      .send({ ...draft, semesters: [{ ...draft.semesters[0], number: 2 }, draft.semesters[1]] })
+      .expect(400);
+    expect(invalid.body.errors.join(' ')).toMatch(/Семестр 2 указан дважды/);
+
+    const applied = await http
+      .post(`/api/curriculum-scans/${scan.id}/apply`)
+      .set(auth('dispatcher'))
+      .send({ ...draft, group: { code: 'Ю-26-1', studentCount: 25, subgroupCount: 2 } })
+      .expect(200);
+    expect(applied.body.created).toEqual({
+      semesters: 2,
+      cycles: 3,
+      items: 5,
+      semesterItems: 5,
+      calendarEvents: 3,
+    });
+
+    const programId = applied.body.programId;
+    const tree = await http.get(`/api/programs/${programId}/curriculum`).set(auth('dispatcher')).expect(200);
+    expect(tree.body.cycles.map((c: { code: string }) => c.code).sort()).toEqual(['П', 'СГ', 'СОО.01']);
+    const items = await prisma.curriculumItem.findMany({
+      where: { educationalProgramId: programId },
+      include: { semesterItems: true, parent: true },
+    });
+    const history = items.find((i) => i.code === 'СГ.01')!;
+    expect(history.semesterItems[0]).toMatchObject({
+      lectureHours: 32,
+      practicalHours: 36,
+      selfStudyHours: 4,
+      totalHours: 72,
+      controlForm: 'CREDIT',
+      plannedPracticalLessons: 18,
+    });
+    const practice = items.find((i) => i.code === 'УП.01.01')!;
+    expect(practice.parent?.code).toBe('ПМ.01');
+    expect(practice.semesterItems[0]).toMatchObject({
+      practiceHours: 36,
+      practiceAtCollege: true,
+      plannedPracticeLessons: 18,
+    });
+    const module = items.find((i) => i.code === 'ПМ.01')!;
+    expect(module.semesterItems).toHaveLength(1);
+    expect(module.semesterItems[0]).toMatchObject({
+      controlForm: 'QUALIFICATION_EXAM',
+      totalHours: 36,
+      assessmentHours: 9,
+      lectureHours: 0,
+    });
+    expect(items.some((i) => i.code === 'СОО.01' || i.code === 'ПМ.01.01(К)')).toBe(false);
+
+    const events = await prisma.calendarEvent.findMany({ where: { educationalProgramId: programId } });
+    expect(events.map((e) => e.eventType).sort()).toEqual([
+      'EDUCATIONAL_PRACTICE',
+      'EXAM_SESSION',
+      'VACATION',
+    ]);
+    expect(events.every((e) => e.courseNumber === 1 && e.blocksSchedule)).toBe(true);
+    const group = await prisma.studentGroup.findUniqueOrThrow({
+      where: { code: 'Ю-26-1' },
+      include: { subgroups: true },
+    });
+    expect(group.subgroups).toHaveLength(2);
+    expect(group.educationalProgramId).toBe(programId);
+
+    await http.post(`/api/curriculum-scans/${scan.id}/apply`).set(auth('dispatcher')).send(draft).expect(409);
+    const list = await http.get('/api/curriculum-scans').set(auth('dispatcher')).expect(200);
+    expect(list.body.find((s: { id: string }) => s.id === scan.id)).toMatchObject({
+      status: 'APPLIED',
+      programId,
+    });
   });
 
   it('контроль часов, отчёты и экспорт', async () => {

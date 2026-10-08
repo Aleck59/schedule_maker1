@@ -154,6 +154,13 @@ enum MakeupTaskStatus {
   CANCELLED // не требуется
 }
 
+enum CurriculumScanStatus {
+  PROCESSING // распознавание
+  READY // распознано, ожидает проверки
+  FAILED // ошибка распознавания
+  APPLIED // данные внесены в систему
+}
+
 enum NotificationType {
   LESSON_CANCELLED
   LESSON_MOVED
@@ -185,6 +192,7 @@ model Organization {
   programs        EducationalProgram[]
   schedulePeriods SchedulePeriod[]
   calendarEvents  CalendarEvent[]
+  curriculumScans CurriculumScan[]
 
   @@map("organizations")
 }
@@ -956,4 +964,32 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+// ============================================================================
+// Импорт учебного плана со скана
+// ============================================================================
+
+/// Скан учебного плана (PDF, фото): распознанные данные хранятся до проверки и подтверждения
+model CurriculumScan {
+  id             String               @id @default(uuid())
+  organizationId String
+  createdById    String?
+  fileNames      String[]
+  status         CurriculumScanStatus @default(PROCESSING)
+  /// Доля выполнения распознавания 0…1
+  progress       Float                @default(0)
+  message        String?
+  error          String?
+  /// Результат распознавания (титул, календарный график, семестры, дисциплины)
+  resultJson     Json?
+  /// Учебный план, созданный по скану
+  programId      String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@map("curriculum_scans")
 }

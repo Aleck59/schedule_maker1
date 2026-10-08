@@ -5,6 +5,7 @@ import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { CalendarModule } from './calendar/calendar.module';
 import { ClassroomsModule } from './classrooms/classrooms.module';
+import { CurriculumScansModule } from './curriculum-scans/curriculum-scans.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { EngineModule } from './engine/engine.module';
 import { ExportModule } from './export/export.module';
@@ -40,6 +41,7 @@ import { ValidationModule } from './validation/validation.module';
     UsersModule,
     SpecialtiesModule,
     ProgramsModule,
+    CurriculumScansModule,
     GroupsModule,
     TeachersModule,
     ClassroomsModule,

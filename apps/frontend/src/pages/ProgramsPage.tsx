@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { ColumnDef } from '@tanstack/react-table';
-import { BookPlus, Plus } from 'lucide-react';
+import { BookPlus, Plus, ScanLine } from 'lucide-react';
 import { Controller, useForm } from 'react-hook-form';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { DataTable } from '@/components/common/data-table';
 import { Field } from '@/components/common/field';
@@ -86,8 +86,13 @@ export default function ProgramsPage() {
               <Button variant="outline" onClick={() => setSpecialtyOpen(true)}>
                 <BookPlus /> Специальность
               </Button>
-              <Button onClick={() => setOpen(true)}>
-                <Plus /> Учебный план
+              <Button variant="outline" onClick={() => setOpen(true)}>
+                <Plus /> Учебный план вручную
+              </Button>
+              <Button asChild>
+                <Link to="/programs/import">
+                  <ScanLine /> Загрузить скан плана
+                </Link>
               </Button>
             </>
           )

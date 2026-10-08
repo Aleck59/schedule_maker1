@@ -14,6 +14,7 @@ export type CurriculumItemType =
   | 'FINAL_ATTESTATION'
   | 'ELECTIVE';
 export type ControlForm = 'NONE' | 'EXAM' | 'CREDIT' | 'DIFFERENTIATED_CREDIT' | 'OTHER' | 'COURSE_PROJECT' | 'QUALIFICATION_EXAM';
+export type StudyForm = 'FULL_TIME' | 'PART_TIME' | 'EXTRAMURAL';
 export type CalendarEventType =
   | 'THEORETICAL_TRAINING'
   | 'EXAM_SESSION'
