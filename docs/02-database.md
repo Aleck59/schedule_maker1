@@ -30,6 +30,7 @@ erDiagram
   SemesterCurriculumItem ||--o{ GroupCurriculumAssignment : ""
   Teacher ||--o{ GroupCurriculumAssignment : ""
   Teacher ||--o{ TeacherAvailability : ""
+  Teacher ||--o{ TeacherAvailabilityRule : "гибкие правила"
   Classroom ||--o{ ClassroomAvailability : ""
   EducationalProgram ||--o{ CalendarEvent : "график"
   StudentGroup ||--o{ AssessmentEvent : "экзамены, зачёты"
@@ -72,6 +73,7 @@ erDiagram
 | `Semester` | Семестр | `number`, `courseNumber`, даты, недели теории/аттестации/практики/каникул |
 | `CurriculumCycle` | Цикл (ОГСЭ, ЕН, ОП, ПМ…) | `code`, `name`, `sortOrder` |
 | `CurriculumItem` | Дисциплина, ПМ, МДК, практика, ГИА | `code`, `name`, `itemType`, `parentItemId` (иерархия ПМ → МДК), `isDifficult` |
+| `CurriculumScan` | Скан учебного плана | `fileNames[]`, `status` (PROCESSING, READY, FAILED, APPLIED), `progress`, `message`, `error`, `resultJson` (распознанные данные), `programId` (созданный план) |
 | `SemesterCurriculumItem` | Часы элемента в семестре | `lectureHours`, `practicalHours`, `laboratoryHours`, `consultationHours`, `selfStudyHours`, `assessmentHours`, `practiceHours`, рассчитанные `planned*Lessons`, `controlForm`, `practiceAtCollege`, `scheduleConsultations`, допустимые типы аудиторий по видам занятий |
 
 ### Контингент, кадры, аудитории
@@ -83,6 +85,7 @@ erDiagram
 | `Student` | Студент | `fullName`, `recordBookNumber`, `subgroupId` |
 | `Teacher` | Преподаватель | `department`, `maxWeeklyLessons`, `maxDailyLessons`, `preferredStartLesson/EndLesson` |
 | `TeacherAvailability` | Недоступность и предпочтения | `weekday`, `lessonNumber`, `isAvailable`, `preferenceWeight` (−10…10), `reason` |
+| `TeacherAvailabilityRule` | Гибкие правила доступности | `kind` (UNAVAILABLE, AVAILABLE_ONLY, PREFERRED, UNDESIRED, ONLINE), `weekdays[]`, `lessonNumbers[]`, `timeFrom`/`timeTo`, `parity` (ANY, ODD, EVEN — по неделям учебного года), `monthWeeks[]` (1–5, −1 — последний день недели месяца), `validFrom`/`validTo`, `weight`, `note` |
 | `Classroom` | Аудитория | `code`, `building`, `capacity`, `classroomType`, `equipmentJson` |
 | `ClassroomAvailability` | Недоступность аудитории | `weekday`, `lessonNumber`, `isAvailable` |
 | `GroupCurriculumAssignment` | Нагрузка: кто и как ведёт | `lessonType` (null — все виды), `subgroupNumber` (null — вся группа), `teacherId`, `weeklyLessonTarget`, `priority`, `preferredClassroomId`, `classroomTypes`, `streamKey` (поток), `allowHoursExcess` |

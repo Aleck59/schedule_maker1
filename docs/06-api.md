@@ -1,7 +1,7 @@
 # 6. API
 
 REST API под префиксом `/api`, формат JSON, даты — `YYYY-MM-DD`. Интерактивная документация Swagger:
-`/api/docs`. Таблица ниже сформирована по контроллерам (154 метода); роли проверяются на сервере.
+`/api/docs`. Таблица ниже сформирована по контроллерам (169 методов); роли проверяются на сервере.
 
 ## Общие правила
 
@@ -25,7 +25,10 @@ REST API под префиксом `/api`, формат JSON, даты — `YYYY
 
 | Сценарий | Запросы |
 | --- | --- |
-| Импорт учебного плана | `GET /programs/import-template` → `POST /programs/{id}/import` (multipart, поле `file`) → `GET /programs/{id}/curriculum` |
+| Импорт учебного плана со скана | `POST /curriculum-scans` (multipart, поле `files`: PDF или фото) → опрос `GET /curriculum-scans/{id}` (прогресс, затем `draft`) → `POST /curriculum-scans/{id}/apply` (проверенный черновик) |
+| Импорт учебного плана из Excel | `GET /programs/import-template` → `POST /programs/{id}/import` (multipart, поле `file`) → `GET /programs/{id}/curriculum` |
+| Устранение конфликтов | `GET /schedule-periods/{id}/fixes` → `POST /schedule-periods/{id}/fixes/apply` (выбранный вариант) или `POST /schedule-periods/{id}/fixes/auto` |
+| Мастер настройки | `GET /setup/status` — шаги подготовки расписания и следующий шаг |
 | Генерация | `POST /schedule-periods/{id}/generate` → опрос `GET /generation-jobs/{id}` → `POST /generation-jobs/{id}/apply` |
 | Публикация | `POST /schedule-periods/{id}/validate` → `POST /schedule-periods/{id}/publish` |
 | Отмена и отработка | `POST /schedule-lessons/{id}/cancel` → `GET /makeup-tasks/{id}/free-slots` → `POST /makeup-tasks/{id}/schedule` |
@@ -281,6 +284,11 @@ REST API под префиксом `/api`, формат JSON, даты — `YYYY
 | DELETE | `/api/teachers/{id}` | админ, диспетчер | Удаление |
 | GET | `/api/teachers/{id}/availability` | админ, диспетчер, руководитель, преподаватель | Сетка доступности |
 | POST | `/api/teachers/{id}/availability` | админ, диспетчер, преподаватель | Замена сетки доступности преподавателя (преподаватель может менять свою) |
+| GET | `/api/teachers/{id}/availability-rules` | админ, диспетчер, руководитель, преподаватель (преподаватель — свои) | Гибкие правила доступности преподавателя (с описанием на русском) |
+| POST | `/api/teachers/{id}/availability-rules` | админ, диспетчер, преподаватель (свои) | Добавить правило: «не может» / «только» / «желательно» / «нежелательно» / «онлайн» — дни, пары или время, чётность, недели месяца, период |
+| POST | `/api/teachers/{id}/availability-rules/preview` | админ, диспетчер, преподаватель (свои) | Предпросмотр правила: описание и ближайшие даты, к которым оно применяется |
+| PATCH | `/api/teachers/{id}/availability-rules/{ruleId}` | админ, диспетчер, преподаватель (свои) | Изменить правило доступности |
+| DELETE | `/api/teachers/{id}/availability-rules/{ruleId}` | админ, диспетчер, преподаватель (свои) | Удалить правило доступности |
 
 ### Пользователи
 
@@ -298,4 +306,23 @@ REST API под префиксом `/api`, формат JSON, даты — `YYYY
 | POST | `/api/schedule-periods/{id}/validate` | админ, диспетчер | Полная проверка расписания периода (результаты сохраняются) |
 | GET | `/api/schedule-periods/{id}/conflicts` | админ, диспетчер, руководитель, преподаватель | Актуальные конфликты расписания (ошибки, блокирующие публикацию) |
 | GET | `/api/schedule-periods/{id}/validation-results` | админ, диспетчер, руководитель, преподаватель | Сохранённые результаты последней проверки |
+| GET | `/api/schedule-periods/{id}/fixes` | админ, диспетчер | Предложения по устранению конфликтов: перенос в свободный слот, другая аудитория, замена преподавателя, удаление дубликатов и лишних занятий |
+| POST | `/api/schedule-periods/{id}/fixes/apply` | админ, диспетчер | Применить предложенное исправление |
+| POST | `/api/schedule-periods/{id}/fixes/auto` | админ, диспетчер | Исправить все ошибки автоматически (первым подходящим вариантом) |
 
+### Импорт учебного плана со скана
+
+| Метод | Путь | Роли | Назначение |
+| --- | --- | --- | --- |
+| GET | `/api/curriculum-scans/status` | админ, диспетчер | Доступность распознавания (Tesseract OCR, русский язык) |
+| GET | `/api/curriculum-scans` | админ, диспетчер | Последние загруженные сканы |
+| POST | `/api/curriculum-scans` | админ, диспетчер | Загрузить скан учебного плана (PDF или фотографии страниц) — распознавание выполняется в фоне |
+| GET | `/api/curriculum-scans/{id}` | админ, диспетчер | Состояние распознавания, распознанные данные и черновик для проверки |
+| POST | `/api/curriculum-scans/{id}/apply` | админ, диспетчер | Создать по проверенным данным специальность, учебный план, семестры, дисциплины, календарный график и группу |
+| DELETE | `/api/curriculum-scans/{id}` | админ, диспетчер | Удалить скан |
+
+### Мастер настройки
+
+| Метод | Путь | Роли | Назначение |
+| --- | --- | --- | --- |
+| GET | `/api/setup/status` | админ, диспетчер | Шаги подготовки расписания: что сделано и что делать дальше |

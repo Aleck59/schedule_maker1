@@ -1,7 +1,7 @@
 [project]
-name = "schedule-solver"
+name = "schedule-engine"
 version = "0.0.0"
-description = "Сервис оптимизации расписания колледжа СПО (OR-Tools CP-SAT)"
+description = "Вычислительный модуль расписания колледжа СПО: решатель OR-Tools CP-SAT и распознавание сканов учебных планов"
 requires-python = ">=3.11"
 
 [tool.ruff]

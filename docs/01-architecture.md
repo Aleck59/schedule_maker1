@@ -9,27 +9,35 @@ flowchart LR
   B --> P[(PostgreSQL<br/>Prisma ORM)]
   B --> R[(Redis<br/>очередь BullMQ)]
   R --> W[Воркер генерации<br/>в процессе backend]
-  W -->|POST /solve| S[solver<br/>FastAPI + OR-Tools CP-SAT]
+  W -->|python -m app solve| S[Python-модуль<br/>OR-Tools CP-SAT]
   W -. резерв .-> H[Эвристический<br/>генератор TS]
+  B -->|python -m app recognize| O[Python-модуль<br/>OCR сканов: OpenCV + Tesseract]
 ```
+
+Приложение поставляется двумя Docker-образами: **backend** (API + Python-модуль решателя и распознавания) и
+**frontend** (nginx). PostgreSQL и Redis — стандартные образы.
 
 | Компонент | Технологии | Ответственность |
 | --- | --- | --- |
 | `apps/frontend` | React 19, TypeScript, Vite, Tailwind CSS 4, shadcn/ui (Radix), TanStack Query/Table, React Hook Form + Zod, FullCalendar, DnD Kit, Recharts | Интерфейс всех ролей, drag-and-drop правка расписания, формы с валидацией, графики |
 | `apps/backend` | NestJS 11, Prisma 6, PostgreSQL 16, BullMQ + Redis, JWT (access + refresh), class-validator, Swagger, exceljs, pdfmake | REST API, бизнес-правила, проверка конфликтов, контроль часов, отчёты, экспорт, очередь генерации |
-| `apps/solver` | Python 3.11, FastAPI, Google OR-Tools CP-SAT, pydantic | Оптимизация расписания: понедельная CP-SAT-модель с жёсткими и мягкими ограничениями |
+| `apps/solver` | Python 3.11, Google OR-Tools CP-SAT, pydantic, OpenCV, pypdfium2, Tesseract OCR (rus) | Вычислительный модуль в образе backend, запускается подпроцессом `python -m app`: понедельная CP-SAT-модель расписания; распознавание сканов учебных планов |
 
 ## Модули backend
 
 ```
 auth · users · audit · settings                 — доступ, пользователи, журнал, настройки колледжа и звонки
 specialties · programs (curriculum, import)     — специальности, учебные планы, циклы, дисциплины, часы, импорт Excel
-groups · teachers · classrooms · assignments    — справочники, подгруппы, доступность, педагогическая нагрузка
+curriculum-scans                                — импорт учебного плана со скана (PDF/фото): распознавание, проверка, создание
+engine                                          — запуск Python-модуля (решатель CP-SAT, OCR), прогресс, таймауты
+groups · teachers · classrooms · assignments    — справочники, подгруппы, доступность и гибкие правила, нагрузка
 calendar                                        — календарный график, праздники, практики, аттестация, прогноз ёмкости
 planning                                        — контекст календаря, потоки спроса, калькулятор часов (ядро расчётов)
 scheduler                                       — построение задачи, клиент CP-SAT, эвристика, диагностика, задания, применение
 validation                                      — проверка одного занятия (мгновенно) и всего периода
-schedule                                        — периоды, занятия, переносы, отмены, замены, факт проведения, отработки
+schedule                                        — периоды, занятия, переносы, отмены, замены, факт, отработки,
+                                                  предложения по устранению конфликтов и автоисправление
+setup                                           — мастер настройки: шаги подготовки расписания и следующий шаг
 hour-control · reports · export · dashboard     — выполнение часов, 12 отчётов, Excel/PDF, сводки по ролям
 notifications                                   — уведомления об изменениях и публикации
 ```
@@ -38,6 +46,8 @@ notifications                                   — уведомления об 
 
 - **CalendarContext** определяет для каждой группы и даты, разрешены ли обычные занятия, какие практики идут, какие
   блокировки действуют (каникулы, сессия, праздники, ГИА), и недоступность преподавателей по датам.
+- **TeacherRules** вычисляет гибкие правила доступности преподавателя для конкретной даты и пары: запрет,
+  «только в указанное время», предпочтения, онлайн (недели месяца, чётность, интервалы времени, период действия).
 - **DemandStreams** превращает учебный план и нагрузку в «потоки спроса»: группа × дисциплина семестра × вид занятия
   × подгруппа × преподаватель, с плановыми часами и парами.
 - **Калькулятор часов** сопоставляет занятия потокам и считает план, расписание, факт, остаток, дефицит, превышение и
@@ -50,13 +60,13 @@ sequenceDiagram
   participant UI as Интерфейс
   participant API as backend
   participant Q as BullMQ (Redis)
-  participant S as solver (CP-SAT)
+  participant S as Python-модуль (CP-SAT)
   UI->>API: POST /schedule-periods/:id/generate
   API->>Q: задание (QUEUED)
   Q->>API: воркер: GENERATING
   API->>API: построение задачи (план, график, нагрузка, фиксированные занятия)
-  API->>S: POST /solve
-  S-->>API: размещение + неразмещённые
+  API->>S: python -m app solve (JSON в stdin)
+  S-->>API: размещение + неразмещённые (JSON в stdout)
   API->>API: диагностика причин, VALIDATING, проверка результата
   API-->>UI: статус COMPLETED / COMPLETED_WITH_CONFLICTS (опрос)
   UI->>API: POST /generation-jobs/:id/apply
@@ -64,10 +74,34 @@ sequenceDiagram
 ```
 
 - Если Redis не задан, задание выполняется в процессе API (`QUEUE_MODE=inline`).
-- `SOLVER_MODE=auto`: CP-SAT при доступности сервиса, иначе встроенная эвристика; `cp-sat` — только CP-SAT (с
-  резервом при ошибке); `heuristic` — только эвристика.
+- `SOLVER_MODE=auto`: CP-SAT, если Python-модуль доступен, иначе встроенная эвристика; `cp-sat` — только CP-SAT;
+  `heuristic` — только эвристика. Интерпретатор и каталог модуля задаются `PYTHON_BIN` и `ENGINE_DIR` (в образе
+  backend они уже настроены).
 - Результат хранится в задании (предпросмотр), применяется отдельно; ручные, закреплённые и проведённые занятия
   сохраняются.
+
+## Импорт учебного плана со скана
+
+```mermaid
+sequenceDiagram
+  participant UI as Интерфейс
+  participant API as backend
+  participant O as Python-модуль (OCR)
+  UI->>API: POST /curriculum-scans (PDF или фото)
+  API->>O: python -m app recognize файлы
+  O-->>API: ход распознавания (stderr), результат JSON
+  UI->>API: GET /curriculum-scans/:id (прогресс, затем черновик)
+  UI->>UI: проверка: сведения, календарный график, часы по семестрам
+  UI->>API: POST /curriculum-scans/:id/apply
+  API->>API: транзакция: специальность, план, годы, семестры, циклы, дисциплины, часы, график, группа
+```
+
+Распознавание: страницы PDF растеризуются (pypdfium2), выравниваются по линиям таблиц, ячейки находятся по сетке
+(OpenCV), текст ячеек распознаётся пакетно Tesseract (русский язык, для чисел — повторное прочтение). Разбираются
+титульный лист, календарный учебный график (коды недель и дней) и страницы «план по семестрам». Суммы часов
+проверяются равенствами «контакт = лекции + лабораторные + практические + семинары», «всего = контакт + ИП + СР +
+контроль» и «семестр + семестр = итог за курс»; ошибки распознавания исправляются автоматически, сомнительные ячейки
+помечаются и показываются с фрагментом скана.
 
 ## Роли и безопасность
 
@@ -89,7 +123,7 @@ sequenceDiagram
 
 ## Развёртывание
 
-- `docker-compose.yml`: PostgreSQL, Redis, solver, backend (миграции и демо-данные при старте), frontend (nginx
-  раздаёт SPA и проксирует `/api`).
+- `docker-compose.yml`: PostgreSQL, Redis, backend (API, решатель CP-SAT и распознавание сканов; миграции и
+  демо-данные при старте), frontend (nginx раздаёт SPA и проксирует `/api`).
 - CI/CD (GitHub Actions): проверки на каждый push и pull request; автоматический релиз из `main` с semantic-release и
   публикацией образов в GHCR (подробнее в [README](../README.md#cicd-и-автоматический-релиз)).
