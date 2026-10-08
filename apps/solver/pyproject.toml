@@ -1,0 +1,17 @@
+[project]
+name = "schedule-engine"
+version = "0.0.0"
+description = "Вычислительный модуль расписания колледжа СПО: решатель OR-Tools CP-SAT и распознавание сканов учебных планов"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

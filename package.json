@@ -1,0 +1,24 @@
+{
+  "name": "schedule-maker",
+  "version": "0.0.0-development",
+  "private": true,
+  "description": "Автоматизированное составление расписания занятий колледжа СПО",
+  "license": "MIT",
+  "workspaces": [
+    "apps/backend",
+    "apps/frontend"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev:backend": "npm run start:dev -w apps/backend",
+    "dev:frontend": "npm run dev -w apps/frontend",
+    "build": "npm run build -w apps/backend && npm run build -w apps/frontend",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "db:migrate": "npm run prisma:deploy -w apps/backend",
+    "db:seed": "npm run seed -w apps/backend"
+  }
+}

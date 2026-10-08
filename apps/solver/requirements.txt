@@ -1,0 +1,6 @@
+pydantic==2.11.9
+ortools==9.14.6206
+# Распознавание сканов учебных планов (также нужен системный tesseract-ocr с языком rus)
+numpy==2.2.6
+opencv-python-headless==4.12.0.88
+pypdfium2==4.30.0
