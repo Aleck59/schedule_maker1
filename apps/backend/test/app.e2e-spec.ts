@@ -283,6 +283,77 @@ describe('Расписание СПО (e2e)', () => {
     }
   });
 
+  it('предложения по устранению конфликтов: применение в один клик и автоисправление', async () => {
+    const prisma = app.get(PrismaService);
+    await http.get(`/api/schedule-periods/${periodId}/fixes`).set(auth('teacher')).expect(403);
+    const baseline = (
+      await http.post(`/api/schedule-periods/${periodId}/validate`).set(auth('dispatcher')).expect(200)
+    ).body.errors;
+    const list = await http
+      .get(`/api/schedule-lessons?periodId=${periodId}&groupId=${groupId}&from=2026-03-02&to=2026-03-07`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    const source = list.body.find(
+      (l: { status: string; subgroupNumber: number | null }) =>
+        l.status === 'PLANNED' && l.subgroupNumber === null,
+    );
+    const row = await prisma.scheduleLesson.findUniqueOrThrow({ where: { id: source.id } });
+    const { id: _id, createdAt: _c, updatedAt: _u, ...copy } = row;
+    await prisma.scheduleLesson.create({ data: { ...copy, isManual: true } });
+
+    const fixes = await http
+      .get(`/api/schedule-periods/${periodId}/fixes`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    expect(fixes.body.errors).toBeGreaterThan(baseline);
+    const group = fixes.body.fixes.find(
+      (f: { issue: { validationType: string } }) => f.issue.validationType === 'GROUP_CONFLICT',
+    );
+    expect(group.lessons).toHaveLength(2);
+    expect(group.options[0]).toMatchObject({ action: 'DELETE', title: 'Удалить дублирующее занятие' });
+    const move = group.options.find((o: { action: string }) => o.action === 'MOVE');
+    expect(move.title).toMatch(/^Перенести на \d{2}\.\d{2}\.\d{4}/);
+    await http
+      .post(`/api/schedule-periods/${periodId}/fixes/apply`)
+      .set(auth('dispatcher'))
+      .send(move)
+      .expect(200);
+
+    // После переноса остаётся превышение часов — предлагается удалить лишнее занятие
+    const next = await http
+      .get(`/api/schedule-periods/${periodId}/fixes`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    expect(
+      next.body.fixes.some(
+        (f: { issue: { validationType: string } }) => f.issue.validationType === 'GROUP_CONFLICT',
+      ),
+    ).toBe(false);
+    const excess = next.body.fixes.find(
+      (f: { issue: { validationType: string } }) => f.issue.validationType === 'HOURS_EXCEEDED',
+    );
+    expect(excess.options[0]).toMatchObject({ action: 'DELETE' });
+    await http
+      .post(`/api/schedule-periods/${periodId}/fixes/apply`)
+      .set(auth('dispatcher'))
+      .send(excess.options[0])
+      .expect(200);
+    const fixed = await http
+      .post(`/api/schedule-periods/${periodId}/validate`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    expect(fixed.body.errors).toBe(baseline);
+
+    // Новый дубликат исправляется автоматически
+    await prisma.scheduleLesson.create({ data: { ...copy, isManual: true } });
+    const auto = await http
+      .post(`/api/schedule-periods/${periodId}/fixes/auto`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    expect(auto.body.applied.length).toBeGreaterThan(0);
+    expect(auto.body.errors).toBe(baseline);
+  });
+
   it('гибкие правила доступности: предпросмотр, права, проверка расписания', async () => {
     const me = await http.get('/api/auth/me').set(auth('teacher')).expect(200);
     const teacherId: string = me.body.teacherId;

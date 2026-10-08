@@ -37,6 +37,21 @@ const lessonInclude = {
 
 type LessonFull = Prisma.ScheduleLessonGetPayload<{ include: typeof lessonInclude }>;
 
+function excessLessons(list: LessonForHours[], excess: number, today: string): string[] {
+  // Сначала будущие занятия (с конца семестра), затем прошедшие неотмеченные
+  const candidates = list
+    .filter((l) => l.status === 'PLANNED' && !l.conducted)
+    .sort((a, b) => Number(b.date >= today) - Number(a.date >= today) || b.date.localeCompare(a.date));
+  const ids: string[] = [];
+  let removed = 0;
+  for (const l of candidates) {
+    if (removed >= excess) break;
+    ids.push(l.id);
+    removed += l.academicHours;
+  }
+  return ids;
+}
+
 function gapsOf(set: Set<number>): number {
   if (set.size < 2) return 0;
   const arr = [...set];
@@ -550,6 +565,7 @@ export class ScheduleValidatorService {
       conducted: l.conducted,
     }));
     const { matched } = matchLessonsToStreams(streams, forHours);
+    const periodLessonIds = new Set(lessons.map((l) => l.id));
     const semesterEnd = toDateStr(period.semester.endDate);
     const allowedDaysCache = new Map<string, string[]>();
     for (const s of streams) {
@@ -571,7 +587,17 @@ export class ScheduleValidatorService {
           severity: h.excessApproved ? Severity.WARNING : Severity.ERROR,
           validationType: h.excessApproved ? 'HOURS_EXCESS_APPROVED' : 'HOURS_EXCEEDED',
           message: `Превышение часов: ${label} — в расписании ${h.scheduled} ч при плане ${h.planned} ч${h.excessApproved ? ' (разрешено вручную)' : ''}`,
-          details: { streamKey: s.key, planned: h.planned, scheduled: h.scheduled },
+          details: {
+            streamKey: s.key,
+            planned: h.planned,
+            scheduled: h.scheduled,
+            // Будущие запланированные занятия (с конца), удаление которых убирает превышение
+            excessLessonIds: excessLessons(
+              list.filter((l) => periodLessonIds.has(l.id)),
+              h.excess,
+              today,
+            ),
+          },
         });
       } else if (h.scheduleDeficit > 0) {
         add({

@@ -184,7 +184,7 @@ function RuleDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{rule ? 'Изменить правило доступности' : 'Новое правило доступности'}</DialogTitle>
           <DialogDescription>Правило учитывается при автосоставлении, ручной правке и проверке расписания.</DialogDescription>

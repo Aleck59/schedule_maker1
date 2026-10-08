@@ -137,3 +137,6 @@ export function label(map: Record<string, string>, key: string | null | undefine
   if (!key) return '';
   return map[key] ?? key;
 }
+
+/** Краткие названия дней недели (индекс — ISO-номер дня, 1 — понедельник) */
+export const WEEKDAY_SHORT_LABELS = ['', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];

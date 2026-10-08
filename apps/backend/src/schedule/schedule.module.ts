@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { GroupsModule } from '../groups/groups.module';
+import { ConflictFixesController } from './conflict-fixes.controller';
+import { ConflictFixesService } from './conflict-fixes.service';
 import { EntityScheduleController } from './entity-schedule.controller';
 import { MakeupTasksService } from './makeup-tasks.service';
 import { ScheduleLessonsController } from './schedule-lessons.controller';
@@ -10,8 +12,19 @@ import { SlotFinderService } from './slot-finder.service';
 
 @Module({
   imports: [GroupsModule],
-  controllers: [SchedulePeriodsController, ScheduleLessonsController, EntityScheduleController],
-  providers: [SchedulePeriodsService, ScheduleLessonsService, MakeupTasksService, SlotFinderService],
+  controllers: [
+    SchedulePeriodsController,
+    ScheduleLessonsController,
+    EntityScheduleController,
+    ConflictFixesController,
+  ],
+  providers: [
+    SchedulePeriodsService,
+    ScheduleLessonsService,
+    MakeupTasksService,
+    SlotFinderService,
+    ConflictFixesService,
+  ],
   exports: [SchedulePeriodsService, ScheduleLessonsService, SlotFinderService],
 })
 export class ScheduleModule {}

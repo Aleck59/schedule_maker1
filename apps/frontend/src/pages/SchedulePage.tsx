@@ -15,6 +15,7 @@ import {
   Undo2,
   Unlock,
   X,
+  Wand2,
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -24,6 +25,7 @@ import { SimpleSelect } from '@/components/common/simple-select';
 import { EmptyState, ErrorState, LoadingState, Spinner } from '@/components/common/states';
 import { PeriodStatusBadge } from '@/components/common/status-badge';
 import { CreateLessonDialog } from '@/components/schedule/create-lesson-dialog';
+import { ConflictFixesDialog } from '@/components/schedule/conflict-fixes';
 import { issuesFromError, IssuesList } from '@/components/schedule/issues-list';
 import { LessonDialog } from '@/components/schedule/lesson-dialog';
 import { LessonTypeLegend } from '@/components/schedule/lesson-card';
@@ -74,6 +76,7 @@ export default function SchedulePage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pendingMove, setPendingMove] = useState<{ lesson: Lesson; date: string; lessonNumber: number; issues: ValidationIssue[] } | null>(null);
   const [showValidation, setShowValidation] = useState(false);
+  const [showFixes, setShowFixes] = useState(false);
 
   const setParam = (updates: Record<string, string | null>) => {
     const next = new URLSearchParams(params);
@@ -349,9 +352,16 @@ export default function SchedulePage() {
               {validation.data.filter((v) => v.severity === 'WARNING').length}
               {errorsCount > 0 && ' — публикация заблокирована'}
             </span>
-            <Button variant="ghost" size="icon-sm" onClick={() => setShowValidation(false)}>
-              <X />
-            </Button>
+            <span className="flex items-center gap-1">
+              {validation.data.some((v) => v.severity === 'ERROR' || v.validationType === 'ONLINE_EXPECTED') && (
+                <Button size="sm" onClick={() => setShowFixes(true)}>
+                  <Wand2 /> Как исправить
+                </Button>
+              )}
+              <Button variant="ghost" size="icon-sm" onClick={() => setShowValidation(false)}>
+                <X />
+              </Button>
+            </span>
           </AlertTitle>
           <AlertDescription>
             {validation.data.length === 0 ? (
@@ -363,6 +373,10 @@ export default function SchedulePage() {
             )}
           </AlertDescription>
         </Alert>
+      )}
+
+      {period && canEdit && (
+        <ConflictFixesDialog periodId={period.id} open={showFixes} onOpenChange={setShowFixes} onChanged={invalidate} />
       )}
 
       <Card className="py-3">
