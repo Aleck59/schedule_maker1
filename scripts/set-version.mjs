@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Установка версии релиза во всех частях монорепозитория:
-// package.json (корень, backend, frontend), package-lock.json и сервис решателя.
+// package.json (корень, backend, frontend), package-lock.json и Python-модуль (apps/solver).
 // Вызывается semantic-release на шаге prepare: node scripts/set-version.mjs 1.2.3
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
