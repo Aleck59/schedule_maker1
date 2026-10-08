@@ -4,6 +4,7 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -16,6 +17,8 @@ import { ReplaceAvailabilityDto } from '../common/dto/availability.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { EDITOR_ROLES, Roles, STAFF_ROLES } from '../common/decorators/roles.decorator';
 import { AuthUser } from '../common/types/auth-user';
+import { AvailabilityRulesService } from './availability-rules.service';
+import { AvailabilityRuleDto, UpdateAvailabilityRuleDto } from './dto/availability-rule.dto';
 import { CreateTeacherDto, UpdateTeacherDto } from './dto/teachers.dto';
 import { TeachersService } from './teachers.service';
 
@@ -23,7 +26,17 @@ import { TeachersService } from './teachers.service';
 @ApiBearerAuth()
 @Controller('teachers')
 export class TeachersController {
-  constructor(private readonly teachers: TeachersService) {}
+  constructor(
+    private readonly teachers: TeachersService,
+    private readonly rules: AvailabilityRulesService,
+  ) {}
+
+  /** Преподаватель управляет только своими правилами и сеткой */
+  private checkOwn(user: AuthUser, teacherId: string) {
+    if (user.role === UserRole.TEACHER && user.teacherId !== teacherId) {
+      throw new ForbiddenException('Преподаватель может изменять только свою доступность');
+    }
+  }
 
   @Get()
   @Roles(...STAFF_ROLES)
@@ -87,9 +100,70 @@ export class TeachersController {
     @Body() dto: ReplaceAvailabilityDto,
     @CurrentUser() user: AuthUser,
   ) {
-    if (user.role === UserRole.TEACHER && user.teacherId !== id) {
-      throw new ForbiddenException('Преподаватель может изменять только свою доступность');
-    }
+    this.checkOwn(user, id);
     return this.teachers.replaceAvailability(id, dto, user);
+  }
+
+  @Get(':id/availability-rules')
+  @Roles(...STAFF_ROLES, UserRole.TEACHER)
+  @ApiOperation({ summary: 'Гибкие правила доступности преподавателя (с описанием на русском)' })
+  listRules(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    if (user.role === UserRole.TEACHER) this.checkOwn(user, id);
+    return this.rules.list(id, user);
+  }
+
+  @Post(':id/availability-rules')
+  @Roles(UserRole.ADMIN, UserRole.DISPATCHER, UserRole.TEACHER)
+  @ApiOperation({
+    summary:
+      'Добавить правило: «не может» / «только» / «желательно» / «нежелательно» / «онлайн» — дни, пары или время, чётность, недели месяца, период',
+  })
+  createRule(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AvailabilityRuleDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    this.checkOwn(user, id);
+    return this.rules.create(id, dto, user);
+  }
+
+  @Post(':id/availability-rules/preview')
+  @HttpCode(200)
+  @Roles(UserRole.ADMIN, UserRole.DISPATCHER, UserRole.TEACHER)
+  @ApiOperation({ summary: 'Предпросмотр правила: описание и ближайшие даты, к которым оно применяется' })
+  @ApiQuery({ name: 'from', required: false, description: 'Дата начала просмотра (по умолчанию — сегодня)' })
+  previewRule(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AvailabilityRuleDto,
+    @CurrentUser() user: AuthUser,
+    @Query('from') from?: string,
+  ) {
+    this.checkOwn(user, id);
+    return this.rules.preview(id, dto, user, from && /^\d{4}-\d{2}-\d{2}$/.test(from) ? from : undefined);
+  }
+
+  @Patch(':id/availability-rules/:ruleId')
+  @Roles(UserRole.ADMIN, UserRole.DISPATCHER, UserRole.TEACHER)
+  @ApiOperation({ summary: 'Изменить правило доступности' })
+  updateRule(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('ruleId', ParseUUIDPipe) ruleId: string,
+    @Body() dto: UpdateAvailabilityRuleDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    this.checkOwn(user, id);
+    return this.rules.update(id, ruleId, dto, user);
+  }
+
+  @Delete(':id/availability-rules/:ruleId')
+  @Roles(UserRole.ADMIN, UserRole.DISPATCHER, UserRole.TEACHER)
+  @ApiOperation({ summary: 'Удалить правило доступности' })
+  removeRule(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('ruleId', ParseUUIDPipe) ruleId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    this.checkOwn(user, id);
+    return this.rules.remove(id, ruleId, user);
   }
 }

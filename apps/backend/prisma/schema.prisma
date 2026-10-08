@@ -154,6 +154,22 @@ enum MakeupTaskStatus {
   CANCELLED // не требуется
 }
 
+/// Вид правила доступности преподавателя
+enum AvailabilityRuleKind {
+  UNAVAILABLE // не может вести занятия
+  AVAILABLE_ONLY // может вести занятия только в указанное время
+  PREFERRED // желательное время
+  UNDESIRED // нежелательное время
+  ONLINE // занятия проводятся онлайн (дистанционно)
+}
+
+/// Чётность недели учебного года (неделя 1 — содержит 1 сентября)
+enum WeekParity {
+  ANY
+  ODD
+  EVEN
+}
+
 enum CurriculumScanStatus {
   PROCESSING // распознавание
   READY // распознано, ожидает проверки
@@ -592,6 +608,7 @@ model Teacher {
   organization              Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user                      User?
   availability              TeacherAvailability[]
+  availabilityRules         TeacherAvailabilityRule[]
   assignments               GroupCurriculumAssignment[]
   lessons                   ScheduleLesson[]
   conductedLessons          ConductedLesson[]           @relation("ConductedActualTeacher")
@@ -622,6 +639,36 @@ model TeacherAvailability {
 
   @@unique([teacherId, weekday, lessonNumber])
   @@map("teacher_availability")
+}
+
+/// Гибкое правило доступности: дни недели, пары или время, чётность недели,
+/// недели месяца («первая неделя», «последняя суббота месяца»), период действия, онлайн
+model TeacherAvailabilityRule {
+  id            String               @id @default(uuid())
+  teacherId     String
+  kind          AvailabilityRuleKind
+  /// Дни недели 1–7; пусто — любой день
+  weekdays      Int[]                @default([])
+  /// Номера пар; пусто — любая пара (или по времени)
+  lessonNumbers Int[]                @default([])
+  /// Интервал времени «ЧЧ:ММ» — вместо (или вместе с) номерами пар
+  timeFrom      String?
+  timeTo        String?
+  parity        WeekParity           @default(ANY)
+  /// Порядковый номер дня недели в месяце: 1–5, −1 — последний (пусто — любой)
+  monthWeeks    Int[]                @default([])
+  validFrom     DateTime?            @db.Date
+  validTo       DateTime?            @db.Date
+  /// Сила предпочтения 1–10 (для «желательно» и «нежелательно»)
+  weight        Int                  @default(5)
+  note          String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  teacher Teacher @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@index([teacherId])
+  @@map("teacher_availability_rules")
 }
 
 model Classroom {

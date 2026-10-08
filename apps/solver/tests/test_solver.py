@@ -105,7 +105,11 @@ def check_hard_constraints(problem: Problem, result):
         teacher_slots[(d.teacher_id, p.date, p.lesson_number)] += 1
         if p.room_id:
             room_slots[(p.room_id, p.date, p.lesson_number)] += 1
-            assert p.room_id in d.room_ids, "аудитория не из списка допустимых"
+            teacher = next(t for t in problem.teachers if t.id == d.teacher_id)
+            online = (p.date, p.lesson_number) in {tuple(x) for x in teacher.online_slots}
+            assert p.room_id in d.room_ids or (online and p.room_id == problem.online_room_id), (
+                "аудитория не из списка допустимых"
+            )
         for g in d.group_ids:
             group_slots[(g, p.date, p.lesson_number)].append(d.subgroup_number)
         for k in d.discipline_keys:
@@ -114,6 +118,9 @@ def check_hard_constraints(problem: Problem, result):
         weekday = dt.date.fromisoformat(p.date).isoweekday()
         assert (weekday, p.lesson_number) not in {tuple(x) for x in teacher.unavailable}, (
             "преподаватель недоступен"
+        )
+        assert (p.date, p.lesson_number) not in {tuple(x) for x in teacher.blocked_slots}, (
+            "слот запрещён правилом доступности"
         )
         allowed = (
             set(d.allowed_dates)
@@ -289,3 +296,31 @@ def test_cli_solve_and_info():
     data = json.loads(info.stdout)
     assert data["ortools"]
     assert "ocr" in data
+
+
+def test_flexible_rules_blocked_slots_and_online_room():
+    """Гибкие правила: запрет конкретных слотов дат и онлайн-слоты (онлайн-аудитория)."""
+    raw = base_problem(demands=[demand("a", ["g2"], "t2", 8, ["r_gen"], size=20)])
+    days = [d["date"] for d in raw["days"]]
+    blocked = [[d, n] for d in days[:6] for n in range(1, 7)]  # первая неделя полностью недоступна
+    online_day = days[7]
+    raw["rooms"].append(
+        {"id": "r_online", "code": "Онлайн", "capacity": 500, "type": "ONLINE", "unlimited": True}
+    )
+    raw["onlineRoomId"] = "r_online"
+    for t in raw["teachers"]:
+        if t["id"] == "t2":
+            t["blockedSlots"] = blocked
+            t["onlineSlots"] = [[online_day, n] for n in range(1, 7)]
+            t["slotPreferences"] = [[online_day, 1, 10]]
+    problem = Problem.model_validate(raw)
+    result = solve(problem)
+    assert result.stats.placed_lessons == 8
+    check_hard_constraints(problem, result)
+    blocked_set = {(d, n) for d, n in blocked}
+    for p in result.placements:
+        assert (p.date, p.lesson_number) not in blocked_set
+        if p.date == online_day:
+            assert p.room_id == "r_online"
+        else:
+            assert p.room_id == "r_gen"

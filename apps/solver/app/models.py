@@ -37,6 +37,11 @@ class Teacher(CamelModel):
     unavailable: list[tuple[int, int]] = Field(default_factory=list)
     preferences: list[tuple[int, int, int]] = Field(default_factory=list)
     blocked_dates: list[str] = Field(default_factory=list)
+    # Гибкие правила доступности на конкретные даты: [дата, пара], [дата, пара, вес]
+    blocked_slots: list[tuple[str, int]] = Field(default_factory=list)
+    slot_preferences: list[tuple[str, int, int]] = Field(default_factory=list)
+    # Слоты, в которых занятия преподавателя проводятся онлайн
+    online_slots: list[tuple[str, int]] = Field(default_factory=list)
 
 
 class Room(CamelModel):
@@ -103,6 +108,8 @@ class Problem(CamelModel):
     settings: Settings = Field(default_factory=Settings)
     weights: dict[str, float] = Field(default_factory=dict)
     seed: int = 42
+    # Онлайн-аудитория для занятий в онлайн-слотах преподавателей
+    online_room_id: str | None = None
 
 
 class Placement(CamelModel):

@@ -130,4 +130,35 @@ describe('Эвристический генератор расписания', (
     const { reasons } = diagnoseDemand(problem, result, problem.demands[0], 2);
     expect(reasons[0].code).toBe('NO_SUITABLE_ROOM');
   });
+
+  it('гибкие правила: запрещённые слоты дат и онлайн-слоты в онлайн-аудитории', () => {
+    const problem = baseProblem();
+    const dates = problem.days.map((d) => d.date);
+    const blocked = dates
+      .slice(0, 6)
+      .flatMap((d) => [1, 2, 3, 4, 5, 6].map((n) => [d, n] as [string, number]));
+    const onlineDay = dates[7];
+    problem.rooms.push({
+      id: 'r_online',
+      code: 'Онлайн',
+      building: null,
+      capacity: 500,
+      type: 'ONLINE',
+      unavailable: [],
+      unlimited: true,
+    });
+    problem.onlineRoomId = 'r_online';
+    problem.teachers[1].blockedSlots = blocked;
+    problem.teachers[1].onlineSlots = [1, 2, 3, 4, 5, 6].map((n) => [onlineDay, n] as [string, number]);
+    problem.teachers[1].slotPreferences = [[onlineDay, 1, 10]];
+    problem.demands = [demand('a', ['g2'], 't2', 8, ['r_gen'], { size: 20 })];
+    const result = solveHeuristic(problem);
+    expect(result.stats.placedLessons).toBe(8);
+    const blockedSet = new Set(blocked.map(([d, n]) => `${d}#${n}`));
+    for (const p of result.placements) {
+      expect(blockedSet.has(`${p.date}#${p.lessonNumber}`)).toBe(false);
+      expect(p.roomId).toBe(p.date === onlineDay ? 'r_online' : 'r_gen');
+    }
+    expect(result.placements.some((p) => p.date === onlineDay)).toBe(true);
+  });
 });

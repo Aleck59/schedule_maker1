@@ -11,6 +11,7 @@ import {
   todayInTimezone,
 } from '../common/utils/dates';
 import { effectiveRoomTypes } from '../common/utils/rooms';
+import { TeacherRules } from '../planning/availability-rules';
 import { ACTIVE_STATUSES } from '../planning/hours-calculator';
 import { PlanningService } from '../planning/planning.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -87,7 +88,10 @@ export class SlotFinderService {
         },
       }),
       req.teacherId
-        ? this.prisma.teacher.findUnique({ where: { id: req.teacherId }, include: { availability: true } })
+        ? this.prisma.teacher.findUnique({
+            where: { id: req.teacherId },
+            include: { availability: true, availabilityRules: true },
+          })
         : Promise.resolve(null),
       this.prisma.classroom.findMany({
         where: { organizationId: req.organizationId, isActive: true },
@@ -138,6 +142,8 @@ export class SlotFinderService {
         groupDayCount.set(d, (groupDayCount.get(d) ?? 0) + 1);
       }
     }
+    const rules = new TeacherRules(teacher?.availabilityRules ?? [], settings.lessonTimes);
+    const onlineRoom = rooms.find((r) => r.classroomType === ClassroomType.ONLINE);
     const teacherUnavailable = new Set(
       (teacher?.availability ?? [])
         .filter((a) => !a.isAvailable)
@@ -158,19 +164,29 @@ export class SlotFinderService {
         const slot = `${date}#${lesson}`;
         const gs = busyGroup.get(`${req.studentGroupId}#${slot}`);
         if (gs && (req.subgroupNumber === null || gs.has(0) || gs.has(req.subgroupNumber))) continue;
+        const verdict = rules.evaluate(date, lesson);
         if (teacher) {
-          if (teacherUnavailable.has(`${weekday}#${lesson}`)) continue;
+          if (teacherUnavailable.has(`${weekday}#${lesson}`) || verdict.blocked) continue;
           if (busyTeacher.has(`${teacher.id}#${slot}`)) continue;
           if ((teacherDayCount.get(`${teacher.id}#${date}`) ?? 0) >= teacher.maxDailyLessons) continue;
         }
-        const room = suitableRooms.find(
+        // Онлайн-слот преподавателя (по правилу) — онлайн-аудитория
+        const candidates = verdict.online && onlineRoom ? [onlineRoom] : suitableRooms;
+        const room = candidates.find(
           (r) =>
             !r.availability.some((a) => a.weekday === weekday && a.lessonNumber === lesson) &&
             (r.classroomType === ClassroomType.ONLINE || !busyRoom.has(`${r.id}#${slot}`)),
         );
-        if (!room && suitableRooms.length > 0) continue;
+        if (!room && candidates.length > 0) continue;
         let score = 0;
         const notes: string[] = [];
+        if (verdict.online) notes.push('онлайн');
+        if (verdict.weight !== 0) {
+          score -= verdict.weight / 5;
+          notes.push(
+            verdict.weight > 0 ? 'желательное время преподавателя' : 'нежелательное время преподавателя',
+          );
+        }
         score += (parseDate(date).getTime() - parseDate(from).getTime()) / 86400000 / 7;
         if (dayCount + 1 > settings.maxGroupLessonsPerDay) {
           score += 5;

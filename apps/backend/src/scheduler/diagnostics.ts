@@ -139,7 +139,10 @@ export function diagnoseDemand(
     mark(p.date, p.lessonNumber, d.groupIds, d.subgroupNumber, d.teacherId, p.roomId, d.disciplineKeys);
   }
   const unavailable = new Set(teacher.unavailable.map(([w, l]) => `${w}#${l}`));
+  const blockedSlots = new Set((teacher.blockedSlots ?? []).map(([d, l]) => `${d}#${l}`));
+  const onlineSlots = new Set((teacher.onlineSlots ?? []).map(([d, l]) => `${d}#${l}`));
   const rooms = problem.rooms.filter((r) => demand.roomIds.includes(r.id));
+  const onlineRoom = problem.rooms.find((r) => r.id === problem.onlineRoomId);
 
   const funnel: Funnel = {
     total: 0,
@@ -154,7 +157,7 @@ export function diagnoseDemand(
     for (let lesson = 1; lesson <= problem.lessonsPerDay; lesson++) {
       if (problem.settings.forbidLateLessons && lesson >= problem.settings.lateLessonNumber) continue;
       funnel.total++;
-      if (unavailable.has(`${day.weekday}#${lesson}`)) continue;
+      if (unavailable.has(`${day.weekday}#${lesson}`) || blockedSlots.has(`${day.date}#${lesson}`)) continue;
       funnel.teacherAvailable++;
       if (teacherBusy.has(`${teacher.id}#${day.date}#${lesson}`)) continue;
       funnel.teacherFree++;
@@ -175,7 +178,8 @@ export function diagnoseDemand(
       });
       if (!discOk) continue;
       funnel.disciplineOk++;
-      const roomOk = rooms.some((r) => {
+      const slotRooms = onlineRoom && onlineSlots.has(`${day.date}#${lesson}`) ? [onlineRoom] : rooms;
+      const roomOk = slotRooms.some((r) => {
         if (r.unavailable.some(([w, l]) => w === day.weekday && l === lesson)) return false;
         return r.unlimited || !roomBusy.has(`${r.id}#${day.date}#${lesson}`);
       });

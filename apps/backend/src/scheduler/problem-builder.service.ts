@@ -11,6 +11,7 @@ import {
   weekStart,
 } from '../common/utils/dates';
 import { LESSON_TYPE_SHORT } from '../common/utils/labels';
+import { TeacherRules } from '../planning/availability-rules';
 import { streamKeyOf } from '../planning/planning.service';
 import { PlanningService } from '../planning/planning.service';
 import { DemandStream } from '../planning/planning.types';
@@ -197,7 +198,7 @@ export class ProblemBuilderService {
     const teacherIds = Array.from(new Set(streams.map((s) => s.teacherId).filter((x): x is string => !!x)));
     const teachersDb = await this.prisma.teacher.findMany({
       where: { id: { in: teacherIds } },
-      include: { availability: true },
+      include: { availability: true, availabilityRules: true },
     });
     const teacherById = new Map(teachersDb.map((t) => [t.id, t]));
 
@@ -461,7 +462,17 @@ export class ProblemBuilderService {
           .filter((a) => a.isAvailable && a.preferenceWeight !== 0)
           .map((a) => [a.weekday, a.lessonNumber, a.preferenceWeight] as [number, number, number]),
         blockedDates: days.filter((d) => ctx.teacherBlocks(t.id, d.date).length > 0).map((d) => d.date),
+        ...this.ruleSlots(new TeacherRules(t.availabilityRules, settings.lessonTimes), days, lessonsPerDay),
       }));
+    const onlineRoomId = rooms.find((r) => r.type === ClassroomType.ONLINE)?.id ?? null;
+    for (const t of teachers) {
+      if (t.onlineSlots?.length && !onlineRoomId) {
+        warnings.push(
+          `${t.name}: по правилам доступности часть занятий проводится онлайн, но в справочнике нет онлайн-аудитории — ` +
+            'такие занятия будут поставлены в обычные аудитории',
+        );
+      }
+    }
 
     const occupied: SolverOccupied[] = existingInRange
       .filter((l) => !replaceable.has(l.id) && dayDates.has(toDateStr(l.date)))
@@ -509,6 +520,7 @@ export class ProblemBuilderService {
       },
       weights: { ...settings.weights, ...(params.weights ?? {}) },
       seed: params.seed ?? 42,
+      onlineRoomId,
     };
 
     for (const g of problem.groups) {
@@ -543,5 +555,26 @@ export class ProblemBuilderService {
         },
       ]),
     );
+  }
+
+  /** Слоты по гибким правилам доступности: запреты, предпочтения и онлайн на конкретные даты */
+  private ruleSlots(rules: TeacherRules, days: SolverDay[], lessonsPerDay: number) {
+    const blockedSlots: Array<[string, number]> = [];
+    const slotPreferences: Array<[string, number, number]> = [];
+    const onlineSlots: Array<[string, number]> = [];
+    if (!rules.isEmpty) {
+      for (const d of days) {
+        for (let lesson = 1; lesson <= lessonsPerDay; lesson++) {
+          const v = rules.evaluate(d.date, lesson);
+          if (v.blocked) {
+            blockedSlots.push([d.date, lesson]);
+            continue;
+          }
+          if (v.weight) slotPreferences.push([d.date, lesson, v.weight]);
+          if (v.online) onlineSlots.push([d.date, lesson]);
+        }
+      }
+    }
+    return { blockedSlots, slotPreferences, onlineSlots };
   }
 }

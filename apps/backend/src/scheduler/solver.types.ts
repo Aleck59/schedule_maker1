@@ -36,6 +36,12 @@ export interface SolverTeacher {
   /** [день недели, номер пары, вес] — предпочтения (< 0 нежелательно) */
   preferences: Array<[number, number, number]>;
   blockedDates: string[];
+  /** [дата, номер пары] — недоступные слоты по гибким правилам (недели месяца, чётность, время) */
+  blockedSlots?: Array<[string, number]>;
+  /** [дата, номер пары, вес] — предпочтения по гибким правилам */
+  slotPreferences?: Array<[string, number, number]>;
+  /** [дата, номер пары] — занятия в этих слотах проводятся онлайн (в онлайн-аудитории) */
+  onlineSlots?: Array<[string, number]>;
 }
 
 export interface SolverRoom {
@@ -111,6 +117,8 @@ export interface SolverProblem {
   settings: SolverSettings;
   weights: Record<string, number>;
   seed: number;
+  /** Онлайн-аудитория для занятий в онлайн-слотах преподавателей */
+  onlineRoomId?: string | null;
 }
 
 export interface SolverPlacement {

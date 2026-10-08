@@ -144,6 +144,15 @@ class CpSatScheduler:
         self.teacher_unavail = {t.id: {(w, n) for w, n in t.unavailable} for t in problem.teachers}
         self.teacher_pref = {t.id: {(w, n): v for w, n, v in t.preferences} for t in problem.teachers}
         self.room_unavail = {r.id: {(w, n) for w, n in r.unavailable} for r in problem.rooms}
+        # Гибкие правила доступности (конкретные даты): запреты, предпочтения, онлайн
+        self.teacher_blocked = {t.id: {(d, n) for d, n in t.blocked_slots} for t in problem.teachers}
+        self.teacher_slot_pref = {
+            t.id: {(d, n): v for d, n, v in t.slot_preferences} for t in problem.teachers
+        }
+        self.teacher_online = {t.id: {(d, n) for d, n in t.online_slots} for t in problem.teachers}
+        self.online_room_id = (
+            problem.online_room_id if problem.online_room_id in {r.id for r in problem.rooms} else None
+        )
         subgroups: dict[str, list[int]] = {g.id: sorted(g.subgroups) for g in problem.groups}
         for d in problem.demands:
             if d.subgroup_number is not None:
@@ -224,6 +233,8 @@ class CpSatScheduler:
         t = ds.teacher
         if (day.weekday, lesson) in self.teacher_unavail.get(t.id, set()):
             return False
+        if (day.key, lesson) in self.teacher_blocked.get(t.id, set()):
+            return False
         if (t.id, day.key, lesson) in st.teacher_slot:
             return False
         tday = st.teacher_day.get((t.id, day.key), set())
@@ -258,13 +269,19 @@ class CpSatScheduler:
             t = ds.teacher
             if lesson < t.preferred_start_lesson or lesson > t.preferred_end_lesson:
                 cost += w["teacherPreference"]
-            cost -= self.teacher_pref.get(t.id, {}).get((day.weekday, lesson), 0) * (
-                w["teacherPreference"] / 5
-            )
+            pref = self.teacher_pref.get(t.id, {}).get((day.weekday, lesson), 0)
+            pref += self.teacher_slot_pref.get(t.id, {}).get((day.key, lesson), 0)
+            cost -= pref * (w["teacherPreference"] / 5)
         if ds.d.is_difficult and lesson >= max(4, s.late_lesson_number - 1):
             cost += w["difficultLate"]
         cost += lesson * 0.3
         return cost
+
+    def _rooms_for(self, ds: DemandState, day: DayRef, lesson: int) -> list[str]:
+        """Аудитории для слота: в онлайн-слоте преподавателя — только онлайн-аудитория."""
+        if self.online_room_id and (day.key, lesson) in self.teacher_online.get(ds.teacher.id, set()):
+            return [self.online_room_id]
+        return ds.d.room_ids
 
     # ------------------------------------------------------------------ модель недели
 
@@ -290,7 +307,7 @@ class CpSatScheduler:
                     if not self._slot_ok(st, ds, day, lesson):
                         continue
                     base_cost = self._slot_cost(ds, day, lesson)
-                    for room_id in ds.d.room_ids:
+                    for room_id in self._rooms_for(ds, day, lesson):
                         if not self._room_ok(st, room_id, day, lesson):
                             continue
                         var = model.new_bool_var(f"x_{i}_{day.key}_{lesson}_{room_id[:8]}")
@@ -666,9 +683,11 @@ class CpSatScheduler:
                     day = next((d for d in days if d.weekday == weekday), None)
                     if day is None or not self._slot_ok(st, ds, day, lesson):
                         continue
-                    room = room_id if room_id and self._room_ok(st, room_id, day, lesson) else None
+                    options = self._rooms_for(ds, day, lesson)
+                    ok = room_id in options and self._room_ok(st, room_id, day, lesson)
+                    room = room_id if ok else None
                     if room is None:
-                        room = next((r for r in ds.d.room_ids if self._room_ok(st, r, day, lesson)), None)
+                        room = next((r for r in options if self._room_ok(st, r, day, lesson)), None)
                     if room is None:
                         continue
                     self._commit(st, ds, day, lesson, room)

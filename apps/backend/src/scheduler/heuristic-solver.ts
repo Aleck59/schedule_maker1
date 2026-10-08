@@ -273,6 +273,26 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     unavailableTeacher.set(t.id, new Set(t.unavailable.map(([w, l]) => `${w}#${l}`)));
     preferenceTeacher.set(t.id, new Map(t.preferences.map(([w, l, v]) => [`${w}#${l}`, v])));
   }
+  // Гибкие правила доступности: слоты конкретных дат (недели месяца, чётность, время, онлайн)
+  const blockedSlotTeacher = new Map<string, Set<string>>();
+  const slotPrefTeacher = new Map<string, Map<string, number>>();
+  const onlineSlotTeacher = new Map<string, Set<string>>();
+  for (const t of problem.teachers) {
+    blockedSlotTeacher.set(t.id, new Set((t.blockedSlots ?? []).map(([d, l]) => `${d}#${l}`)));
+    slotPrefTeacher.set(t.id, new Map((t.slotPreferences ?? []).map(([d, l, v]) => [`${d}#${l}`, v])));
+    onlineSlotTeacher.set(t.id, new Set((t.onlineSlots ?? []).map(([d, l]) => `${d}#${l}`)));
+  }
+  const onlineRoom = problem.onlineRoomId ? (roomsById.get(problem.onlineRoomId) ?? null) : null;
+  const teacherUnavailableAt = (teacherId: string, day: DayRef, lesson: number) =>
+    unavailableTeacher.get(teacherId)?.has(`${day.weekday}#${lesson}`) ||
+    blockedSlotTeacher.get(teacherId)?.has(`${day.key}#${lesson}`) ||
+    false;
+  /** Аудитории для слота: онлайн-слот преподавателя — только онлайн-аудитория */
+  const roomIdsFor = (ds: DemandState, day: DayRef, lesson: number): string[] =>
+    onlineRoom && onlineSlotTeacher.get(ds.teacher.id)?.has(`${day.key}#${lesson}`)
+      ? [onlineRoom.id]
+      : ds.d.roomIds;
+
   const unavailableRoom = new Map<string, Set<string>>();
   for (const r of problem.rooms)
     unavailableRoom.set(r.id, new Set(r.unavailable.map(([w, l]) => `${w}#${l}`)));
@@ -353,7 +373,7 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
   // --- Проверки и штрафы
   const teacherFree = (st: ScheduleState, ds: DemandState, day: DayRef, lesson: number, weekLimit = true) => {
     const t = ds.teacher;
-    if (unavailableTeacher.get(t.id)?.has(`${day.weekday}#${lesson}`)) return false;
+    if (teacherUnavailableAt(t.id, day, lesson)) return false;
     if (st.teacherSlot.has(`${t.id}#${day.key}#${lesson}`)) return false;
     const td = st.teacherDay.get(`${t.id}#${day.key}`);
     if (td && td.size >= t.maxDailyLessons && !td.has(lesson)) return false;
@@ -415,7 +435,9 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     if (settings.respectTeacherPreferences) {
       const t = ds.teacher;
       if (lesson < t.preferredStartLesson || lesson > t.preferredEndLesson) cost += weights.teacherPreference;
-      const pref = preferenceTeacher.get(t.id)?.get(`${day.weekday}#${lesson}`) ?? 0;
+      const pref =
+        (preferenceTeacher.get(t.id)?.get(`${day.weekday}#${lesson}`) ?? 0) +
+        (slotPrefTeacher.get(t.id)?.get(`${day.key}#${lesson}`) ?? 0);
       cost -= pref * (weights.teacherPreference / 5);
     }
     if (d.isDifficult && lesson >= Math.max(4, settings.lateLessonNumber - 1)) cost += weights.difficultLate;
@@ -471,7 +493,7 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
         if (!disciplineOk(st, ds, day, lesson)) continue;
         const base = slotCost(st, ds, day, lesson);
         if (best && base >= best.cost + 50) continue;
-        for (const roomId of ds.d.roomIds) {
+        for (const roomId of roomIdsFor(ds, day, lesson)) {
           const room = roomsById.get(roomId);
           if (!room || !roomFree(st, room, day, lesson)) continue;
           const cost = base + roomCost(st, ds, room, day);
@@ -488,7 +510,7 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
       if (!ds.allowedDays.has(day.key)) continue;
       for (let lesson = 1; lesson <= lessonsPerDay; lesson++) {
         if (!slotAllowed(ds, day, lesson)) continue;
-        if (unavailableTeacher.get(ds.teacher.id)?.has(`${day.weekday}#${lesson}`)) continue;
+        if (teacherUnavailableAt(ds.teacher.id, day, lesson)) continue;
         const occupants = (st.slotIndex.get(`${day.key}#${lesson}`) ?? []).filter((p) => !p.fixed);
         const blockers = occupants.filter(
           (p) =>
@@ -510,7 +532,7 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
           groupFree(st, ds, day, lesson) &&
           disciplineOk(st, ds, day, lesson);
         if (canPlace) {
-          const room = ds.d.roomIds
+          const room = roomIdsFor(ds, day, lesson)
             .map((r) => roomsById.get(r)!)
             .find((r) => r && roomFree(st, r, day, lesson));
           if (room) {
@@ -559,8 +581,7 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
       for (const day of days) {
         if (!ds.allowedDays.has(day.key)) continue;
         for (let l = 1; l <= lessonsPerDay; l++) {
-          if (slotAllowed(ds, day, l) && !unavailableTeacher.get(ds.teacher.id)?.has(`${day.weekday}#${l}`))
-            slots++;
+          if (slotAllowed(ds, day, l) && !teacherUnavailableAt(ds.teacher.id, day, l)) slots++;
         }
       }
       freedom.set(ds, slots * Math.max(1, ds.d.roomIds.length));
@@ -685,13 +706,12 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
           ) {
             continue;
           }
-          const preferred = t.roomId ? roomsById.get(t.roomId) : undefined;
+          const options = roomIdsFor(ds, day, t.lesson);
+          const preferred = t.roomId && options.includes(t.roomId) ? roomsById.get(t.roomId) : undefined;
           const room =
             preferred && roomFree(state, preferred, day, t.lesson)
               ? preferred
-              : ds.d.roomIds
-                  .map((r) => roomsById.get(r)!)
-                  .find((r) => r && roomFree(state, r, day, t.lesson));
+              : options.map((r) => roomsById.get(r)!).find((r) => r && roomFree(state, r, day, t.lesson));
           if (!room) continue;
           state.apply({ demand: ds, day, lesson: t.lesson, roomId: room.id, fixed: false });
           ds.placed++;

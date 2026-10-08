@@ -3,6 +3,7 @@ import { CalendarEventType, ClassroomType, LessonType, Severity } from '@prisma/
 import { addDaysStr, formatDateRu, isoWeekday, parseDate, toDateStr, weekStart } from '../common/utils/dates';
 import { CALENDAR_EVENT_LABELS, CLASSROOM_TYPE_LABELS } from '../common/utils/labels';
 import { effectiveRoomTypes } from '../common/utils/rooms';
+import { describeRule, SlotVerdict, TeacherRules } from '../planning/availability-rules';
 import { PRACTICE_EVENT_TYPES, practiceEventTypeFor } from '../planning/calendar-context';
 import { ACTIVE_STATUSES, computeStreamHours, matchLessonsToStreams } from '../planning/hours-calculator';
 import { PlanningService, streamKeyOf } from '../planning/planning.service';
@@ -58,6 +59,7 @@ export class LessonCheckerService {
     const exclude = new Set([...(c.excludeIds ?? []), ...(c.lessonId ? [c.lessonId] : [])]);
     const date = c.date;
     const weekday = isoWeekday(date);
+    let verdict: SlotVerdict | null = null;
 
     const [period, group, item, teacher, room] = await Promise.all([
       this.prisma.schedulePeriod.findFirst({
@@ -69,7 +71,10 @@ export class LessonCheckerService {
         include: { semester: true, curriculumItem: true },
       }),
       c.teacherId
-        ? this.prisma.teacher.findFirst({ where: { id: c.teacherId }, include: { availability: true } })
+        ? this.prisma.teacher.findFirst({
+            where: { id: c.teacherId },
+            include: { availability: true, availabilityRules: true },
+          })
         : Promise.resolve(null),
       c.classroomId
         ? this.prisma.classroom.findFirst({ where: { id: c.classroomId }, include: { availability: true } })
@@ -228,6 +233,28 @@ export class LessonCheckerService {
           ),
         );
       }
+      verdict = new TeacherRules(teacher.availabilityRules, settings.lessonTimes).evaluate(
+        date,
+        c.lessonNumber,
+      );
+      if (verdict.blocked && verdict.blockedBy) {
+        issues.push(
+          issue(
+            Severity.ERROR,
+            'TEACHER_UNAVAILABLE',
+            `Преподаватель ${teacher.fullName} недоступен по правилу «${describeRule(verdict.blockedBy, settings.lessonTimes)}»`,
+            { ruleId: verdict.blockedBy.id },
+          ),
+        );
+      } else if (verdict.weight < 0) {
+        issues.push(
+          issue(
+            Severity.INFO,
+            'TEACHER_PREFERENCE',
+            `Нежелательное время для преподавателя ${teacher.fullName}`,
+          ),
+        );
+      }
       for (const l of slotLessons.filter((x) => x.teacherId === c.teacherId && !sameStream(x))) {
         issues.push(
           issue(
@@ -335,7 +362,17 @@ export class LessonCheckerService {
         orderBy: { lessonType: 'asc' },
       });
       const allowed = effectiveRoomTypes(c.lessonType, item, assignment?.classroomTypes);
-      if (!allowed.includes(room.classroomType)) {
+      const online = verdict?.online ?? false;
+      if (online && room.classroomType !== ClassroomType.ONLINE && verdict?.onlineBy) {
+        issues.push(
+          issue(
+            Severity.WARNING,
+            'ONLINE_EXPECTED',
+            `По правилу «${describeRule(verdict.onlineBy, settings.lessonTimes)}» занятие проводится онлайн — выберите онлайн-аудиторию`,
+          ),
+        );
+      }
+      if (!allowed.includes(room.classroomType) && !(online && room.classroomType === ClassroomType.ONLINE)) {
         issues.push(
           issue(
             Severity.ERROR,

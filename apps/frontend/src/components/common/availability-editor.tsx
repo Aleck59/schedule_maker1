@@ -70,9 +70,13 @@ export function AvailabilityEditor({ path, editable, invalidateKey }: { path: st
             <tr>
               <th className="p-1" />
               {Array.from({ length: lessons }, (_, i) => (
-                <th key={i} className="w-14 p-1 text-center font-medium">
+                <th key={i} className="w-16 p-1 text-center font-medium">
                   {i + 1} пара
-                  <div className="text-muted-foreground text-[10px] font-normal">{settings.data?.lessonTimes[i]?.startTime}</div>
+                  {settings.data?.lessonTimes[i] && (
+                    <div className="text-muted-foreground text-[10px] font-normal whitespace-nowrap">
+                      {settings.data.lessonTimes[i].startTime}–{settings.data.lessonTimes[i].endTime}
+                    </div>
+                  )}
                 </th>
               ))}
             </tr>
@@ -90,7 +94,7 @@ export function AvailabilityEditor({ path, editable, invalidateKey }: { path: st
                         type="button"
                         onClick={() => toggle(key)}
                         className={cn(
-                          'h-8 w-14 rounded border text-[10px] transition',
+                          'h-8 w-16 rounded border text-[10px] transition',
                           state === 'available' && 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300',
                           state === 'preferred' && 'bg-sky-200 font-semibold text-sky-900',
                           state === 'undesired' && 'bg-amber-200 text-amber-900',

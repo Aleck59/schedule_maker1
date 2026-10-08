@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { AvailabilityEditor } from '@/components/common/availability-editor';
+import { AvailabilityRules } from '@/components/common/availability-rules';
 import { Confirm } from '@/components/common/confirm';
 import { PageHeader } from '@/components/common/page-header';
 import { ErrorState, LoadingState } from '@/components/common/states';
@@ -237,6 +238,18 @@ export default function TeacherDetailsPage() {
             </CardHeader>
             <CardContent>
               <AvailabilityEditor path={`/teachers/${t.id}/availability`} editable={canEdit} invalidateKey={['teacher', id]} />
+            </CardContent>
+          </Card>
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle>Гибкие правила</CardTitle>
+              <CardDescription>
+                Недели месяца (например, «последняя суббота месяца»), чётные и нечётные недели, интервал времени, онлайн-занятия и
+                период действия.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <AvailabilityRules teacherId={t.id} editable={canEdit} />
             </CardContent>
           </Card>
         </TabsContent>

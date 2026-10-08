@@ -11,6 +11,7 @@ import {
 } from '../common/utils/dates';
 import { CALENDAR_EVENT_LABELS, CLASSROOM_TYPE_LABELS, LESSON_TYPE_LABELS } from '../common/utils/labels';
 import { effectiveRoomTypes } from '../common/utils/rooms';
+import { describeRule, TeacherRules } from '../planning/availability-rules';
 import { PRACTICE_EVENT_TYPES, practiceEventTypeFor } from '../planning/calendar-context';
 import {
   ACTIVE_STATUSES,
@@ -27,7 +28,7 @@ const lessonInclude = {
   studentGroup: {
     select: { id: true, code: true, studentCount: true, subgroupCount: true, subgroups: true },
   },
-  teacher: { include: { availability: true } },
+  teacher: { include: { availability: true, availabilityRules: true } },
   classroom: { include: { availability: true } },
   semesterItem: { include: { curriculumItem: true, semester: true } },
   assignment: { select: { classroomTypes: true, allowHoursExcess: true } },
@@ -62,6 +63,15 @@ export class ScheduleValidatorService {
     if (!period) throw new NotFoundException('Период расписания не найден');
     const settings = await this.settings.getEffective(organizationId);
     const today = todayInTimezone(settings.timezone);
+    const teacherRules = new Map<string, TeacherRules>();
+    const rulesOf = (t: { id: string; availabilityRules: ConstructorParameters<typeof TeacherRules>[0] }) => {
+      let rules = teacherRules.get(t.id);
+      if (!rules) {
+        rules = new TeacherRules(t.availabilityRules, settings.lessonTimes);
+        teacherRules.set(t.id, rules);
+      }
+      return rules;
+    };
     const from = toDateStr(period.startDate);
     const to = toDateStr(period.endDate);
     const issues: ValidationIssue[] = [];
@@ -176,6 +186,16 @@ export class ScheduleValidatorService {
             message: `Преподаватель ${l.teacher.fullName} недоступен (${b.title}): ${describe(l)}`,
           });
         }
+        const verdict = rulesOf(l.teacher).evaluate(date, l.lessonNumber);
+        if (verdict.blocked && verdict.blockedBy) {
+          add({
+            ...base,
+            severity: Severity.ERROR,
+            validationType: 'TEACHER_UNAVAILABLE',
+            message: `Преподаватель ${l.teacher.fullName} недоступен по правилу «${describeRule(verdict.blockedBy, settings.lessonTimes)}»: ${describe(l)}`,
+            details: { ruleId: verdict.blockedBy.id },
+          });
+        }
       }
       if (!l.classroomId || !l.classroom) {
         add({
@@ -198,7 +218,19 @@ export class ScheduleValidatorService {
           });
         }
         const allowed = effectiveRoomTypes(l.lessonType, l.semesterItem, l.assignment?.classroomTypes);
-        if (!allowed.includes(room.classroomType)) {
+        const online = l.teacher ? rulesOf(l.teacher).evaluate(date, l.lessonNumber) : null;
+        if (online?.online && room.classroomType !== ClassroomType.ONLINE && online.onlineBy) {
+          add({
+            ...base,
+            severity: Severity.WARNING,
+            validationType: 'ONLINE_EXPECTED',
+            message: `По правилу «${describeRule(online.onlineBy, settings.lessonTimes)}» занятие проводится онлайн, а поставлено в аудиторию ${room.code}: ${describe(l)}`,
+          });
+        }
+        if (
+          !allowed.includes(room.classroomType) &&
+          !(online?.online && room.classroomType === ClassroomType.ONLINE)
+        ) {
           add({
             ...base,
             severity: Severity.ERROR,

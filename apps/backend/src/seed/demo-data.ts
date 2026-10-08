@@ -43,6 +43,16 @@ export interface TeacherSeed {
   /** [день недели, пары] недоступные слоты */
   unavailable: Array<{ weekday: number; lessons: number[]; reason: string }>;
   preferences?: Array<{ weekday: number; lesson: number; weight: number }>;
+  /** Гибкие правила доступности (недели месяца, чётность, время, онлайн) */
+  rules?: Array<{
+    kind: 'UNAVAILABLE' | 'AVAILABLE_ONLY' | 'PREFERRED' | 'UNDESIRED' | 'ONLINE';
+    weekdays?: number[];
+    lessonNumbers?: number[];
+    monthWeeks?: number[];
+    timeFrom?: string;
+    timeTo?: string;
+    note?: string;
+  }>;
 }
 
 const ALL = [1, 2, 3, 4, 5, 6];
@@ -83,6 +93,7 @@ export const TEACHERS: TeacherSeed[] = [
     preferredStartLesson: 1,
     preferredEndLesson: 5,
     unavailable: [{ weekday: 3, lessons: ALL, reason: 'Методический день' }],
+    rules: [{ kind: 'ONLINE', weekdays: [6], monthWeeks: [1], note: 'Первая суббота месяца — дистанционно' }],
   },
   {
     key: 'kuznetsov',
@@ -114,6 +125,14 @@ export const TEACHERS: TeacherSeed[] = [
     preferredStartLesson: 1,
     preferredEndLesson: 5,
     unavailable: [{ weekday: 4, lessons: ALL, reason: 'Методический день' }],
+    rules: [
+      {
+        kind: 'UNAVAILABLE',
+        weekdays: [6],
+        monthWeeks: [-1],
+        note: 'Последняя суббота месяца — экзамены в языковом центре',
+      },
+    ],
   },
   {
     key: 'volkova',

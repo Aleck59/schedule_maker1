@@ -283,6 +283,97 @@ describe('Расписание СПО (e2e)', () => {
     }
   });
 
+  it('гибкие правила доступности: предпросмотр, права, проверка расписания', async () => {
+    const me = await http.get('/api/auth/me').set(auth('teacher')).expect(200);
+    const teacherId: string = me.body.teacherId;
+    const preview = await http
+      .post(`/api/teachers/${teacherId}/availability-rules/preview?from=2026-09-01`)
+      .set(auth('teacher'))
+      .send({ kind: 'UNAVAILABLE', weekdays: [6], monthWeeks: [-1] })
+      .expect(200);
+    expect(preview.body.description).toBe('Не может вести занятия: последняя суббота месяца, все пары');
+    expect(preview.body.dates.slice(0, 3).map((d: { date: string }) => d.date)).toEqual([
+      '2026-09-26',
+      '2026-10-31',
+      '2026-11-28',
+    ]);
+    const own = await http
+      .post(`/api/teachers/${teacherId}/availability-rules`)
+      .set(auth('teacher'))
+      .send({ kind: 'ONLINE', monthWeeks: [1], note: 'Курсы повышения квалификации' })
+      .expect(201);
+    const others = await http.get('/api/teachers').set(auth('dispatcher')).expect(200);
+    const other = others.body.find((t: { id: string }) => t.id !== teacherId);
+    await http
+      .post(`/api/teachers/${other.id}/availability-rules`)
+      .set(auth('teacher'))
+      .send({ kind: 'UNAVAILABLE', weekdays: [1] })
+      .expect(403);
+    await http
+      .post(`/api/teachers/${teacherId}/availability-rules`)
+      .set(auth('dispatcher'))
+      .send({ kind: 'UNAVAILABLE', timeFrom: '15:00', timeTo: '12:00' })
+      .expect(400);
+    const list = await http
+      .get(`/api/teachers/${teacherId}/availability-rules`)
+      .set(auth('teacher'))
+      .expect(200);
+    expect(list.body[0].description).toMatch(/^Занятия онлайн: 1-я неделя месяца/);
+    await http
+      .delete(`/api/teachers/${teacherId}/availability-rules/${own.body.id}`)
+      .set(auth('teacher'))
+      .expect(200);
+
+    // Запрет на конкретную дату и пару → ошибка проверки расписания и ручной правки
+    const lessons = await http
+      .get(`/api/schedule-lessons?periodId=${periodId}&teacherId=${teacherId}&from=2026-02-16&to=2026-02-21`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    const lesson = lessons.body.find((l: { status: string }) => l.status === 'PLANNED');
+    expect(lesson).toBeDefined();
+    const before = await http
+      .post(`/api/schedule-periods/${periodId}/validate`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    const rule = await http
+      .post(`/api/teachers/${teacherId}/availability-rules`)
+      .set(auth('dispatcher'))
+      .send({
+        kind: 'UNAVAILABLE',
+        lessonNumbers: [lesson.lessonNumber],
+        validFrom: lesson.date,
+        validTo: lesson.date,
+        note: 'Заседание аттестационной комиссии',
+      })
+      .expect(201);
+    const after = await http
+      .post(`/api/schedule-periods/${periodId}/validate`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    expect(after.body.canPublish).toBe(false);
+    expect(after.body.errors).toBe(before.body.errors + 1);
+    const issue = after.body.items.find(
+      (i: { validationType: string; message: string }) =>
+        i.validationType === 'TEACHER_UNAVAILABLE' && i.message.includes('по правилу'),
+    );
+    expect(issue.message).toMatch(/Заседание аттестационной комиссии/);
+    const check = await http
+      .post('/api/schedule-lessons/check')
+      .set(auth('dispatcher'))
+      .send({ lessonId: lesson.id, date: lesson.date, lessonNumber: lesson.lessonNumber })
+      .expect(200);
+    expect(check.body.ok).toBe(false);
+    await http
+      .delete(`/api/teachers/${teacherId}/availability-rules/${rule.body.id}`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    const restored = await http
+      .post(`/api/schedule-periods/${periodId}/validate`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    expect(restored.body.errors).toBe(before.body.errors);
+  });
+
   it('импорт учебного плана со скана: черновик, проверка и создание плана, графика и группы', async () => {
     await http.get('/api/curriculum-scans/status').set(auth('dispatcher')).expect(200);
     await http.get('/api/curriculum-scans').set(auth('teacher')).expect(403);

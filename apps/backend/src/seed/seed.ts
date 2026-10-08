@@ -161,6 +161,11 @@ async function main() {
       }
     }
     if (rows.length) await prisma.teacherAvailability.createMany({ data: rows });
+    if (t.rules?.length) {
+      await prisma.teacherAvailabilityRule.createMany({
+        data: t.rules.map((r) => ({ ...r, teacherId: created.id })),
+      });
+    }
   }
   const roomIds = new Map<string, string>();
   for (const c of CLASSROOMS) {

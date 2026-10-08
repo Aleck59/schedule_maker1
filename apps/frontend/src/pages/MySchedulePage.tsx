@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { Download, List, Table2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { AvailabilityEditor } from '@/components/common/availability-editor';
+import { AvailabilityRules } from '@/components/common/availability-rules';
 import { PageHeader } from '@/components/common/page-header';
 import { EmptyState, ErrorState, LoadingState } from '@/components/common/states';
 import { EntityWeekSchedule } from '@/components/schedule/entity-week-schedule';
 import { LessonDialog } from '@/components/schedule/lesson-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { usePeriods } from '@/hooks/use-reference';
 import { downloadFile, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
@@ -71,6 +73,21 @@ export default function MySchedulePage() {
         <EmptyState title="Расписание ещё не опубликовано" description="Как только диспетчер опубликует расписание, оно появится здесь" />
       )}
       {view === 'grid' ? <EntityWeekSchedule filter={filter} mode={isTeacher ? 'teacher' : 'group'} /> : <DayList filter={filter} isTeacher={isTeacher} />}
+      {isTeacher && user?.teacherId && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Моя доступность</CardTitle>
+            <CardDescription>
+              Отметьте, когда вы не можете вести занятия, когда желательно и когда занятия проходят онлайн. Диспетчер учтёт это при
+              составлении расписания.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <AvailabilityEditor path={`/teachers/${user.teacherId}/availability`} editable invalidateKey={['my-availability']} />
+            <AvailabilityRules teacherId={user.teacherId} editable />
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

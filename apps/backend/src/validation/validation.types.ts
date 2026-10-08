@@ -43,6 +43,7 @@ export const VALIDATION_TYPE_LABELS: Record<string, string> = {
   LESSON_ON_DAY_OFF: 'Занятие в выходной день',
   LESSON_NUMBER_EXCEEDS: 'Пара вне расписания звонков',
   UNASSIGNED_TEACHER: 'Не назначен преподаватель',
+  ONLINE_EXPECTED: 'Занятие должно проводиться онлайн',
 };
 
 /** Ошибки, блокирующие публикацию расписания */
