@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
+import subprocess
+import sys
 from collections import Counter, defaultdict
-
-from fastapi.testclient import TestClient
+from pathlib import Path
 
 from app.cpsat import solve
-from app.main import app
 from app.models import Problem
 from app.pacing import cumulative_target_by_days, effective_rate
 
@@ -263,13 +264,28 @@ def test_weekly_template_mode_unrolls_by_dates():
     assert len(weekdays) <= 3
 
 
-def test_http_api():
-    client = TestClient(app)
-    assert client.get("/health").json()["status"] == "ok"
+def test_cli_solve_and_info():
+    """Backend вызывает решатель подпроцессом: python -m app solve (JSON через stdin/stdout)."""
+    root = Path(__file__).resolve().parents[1]
     raw = base_problem(demands=[demand("a", ["g2"], "t2", 4, ["r_gen"], size=20)])
-    response = client.post("/solve", json=raw)
-    assert response.status_code == 200
-    body = response.json()
+    proc = subprocess.run(
+        [sys.executable, "-m", "app", "solve"],
+        input=json.dumps(raw),
+        capture_output=True,
+        text=True,
+        cwd=root,
+        timeout=120,
+    )
+    assert proc.returncode == 0, proc.stderr
+    body = json.loads(proc.stdout)
     assert body["solver"] == "cp-sat"
     assert body["stats"]["placedLessons"] == 4
     assert {"demandId", "date", "lessonNumber", "roomId"} <= set(body["placements"][0])
+
+    info = subprocess.run(
+        [sys.executable, "-m", "app", "info"], capture_output=True, text=True, cwd=root, timeout=60
+    )
+    assert info.returncode == 0, info.stderr
+    data = json.loads(info.stdout)
+    assert data["ortools"]
+    assert "ocr" in data

@@ -74,15 +74,11 @@ jobs:
           - image: backend
             context: .
             file: apps/backend/Dockerfile
-            description: REST API расписания (NestJS, Prisma)
+            description: REST API расписания (NestJS, Prisma), решатель OR-Tools CP-SAT, распознавание сканов
           - image: frontend
             context: .
             file: apps/frontend/Dockerfile
             description: Веб-интерфейс расписания (React, nginx)
-          - image: solver
-            context: apps/solver
-            file: apps/solver/Dockerfile
-            description: Сервис оптимизации расписания (OR-Tools CP-SAT)
     steps:
       - uses: actions/checkout@v5
         with:

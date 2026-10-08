@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { CalendarModule } from './calendar/calendar.module';
 import { ClassroomsModule } from './classrooms/classrooms.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { EngineModule } from './engine/engine.module';
 import { ExportModule } from './export/export.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -29,6 +30,7 @@ import { ValidationModule } from './validation/validation.module';
 @Module({
   imports: [
     PrismaModule,
+    EngineModule,
     AuditModule,
     SettingsModule,
     PlanningModule,

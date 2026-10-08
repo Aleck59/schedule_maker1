@@ -99,7 +99,7 @@ jobs:
         run: npm run build -w apps/frontend
 
   solver:
-    name: Solver (OR-Tools CP-SAT)
+    name: Python-модуль (CP-SAT, OCR)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -112,6 +112,11 @@ jobs:
           python-version: '3.11'
           cache: pip
           cache-dependency-path: apps/solver/requirements*.txt
+      - name: Tesseract OCR (русский язык)
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-rus
       - name: Установка зависимостей
         run: pip install -r requirements-dev.txt
       - name: Ruff (линтер и форматирование)
@@ -138,9 +143,6 @@ jobs:
           - image: frontend
             context: .
             file: apps/frontend/Dockerfile
-          - image: solver
-            context: apps/solver
-            file: apps/solver/Dockerfile
     steps:
       - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v3

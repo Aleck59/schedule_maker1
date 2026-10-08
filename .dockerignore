@@ -1,4 +1,5 @@
 # Контекст сборки образов backend и frontend — корень репозитория
+# (в образ backend входит Python-модуль apps/solver без тестов)
 **/node_modules
 **/dist
 **/coverage
@@ -14,4 +15,4 @@
 .github
 docs
 dump.rdb
-apps/solver
+apps/solver/tests

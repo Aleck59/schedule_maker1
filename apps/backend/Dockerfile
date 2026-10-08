@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1.7
-# REST API (NestJS + Prisma). Контекст сборки — корень репозитория:
+# REST API (NestJS + Prisma) вместе с вычислительным модулем на Python: решатель
+# OR-Tools CP-SAT и распознавание сканов учебных планов (Tesseract OCR).
+# Контекст сборки — корень репозитория:
 #   docker build -f apps/backend/Dockerfile .
 
 FROM node:22-bookworm-slim AS base
@@ -9,7 +11,7 @@ RUN apt-get update \
 WORKDIR /app
 ENV PATH=/app/node_modules/.bin:$PATH
 
-# ---------------------------------------------------------------- сборка
+# ---------------------------------------------------------------- сборка API
 FROM base AS build
 COPY package.json package-lock.json ./
 COPY apps/backend/package.json apps/backend/
@@ -19,7 +21,7 @@ COPY apps/backend apps/backend
 WORKDIR /app/apps/backend
 RUN prisma generate && npm run build
 
-# ---------------------------------------------------------------- production-зависимости
+# ---------------------------------------------------------------- production-зависимости API
 FROM base AS deps
 COPY package.json package-lock.json ./
 COPY apps/backend/package.json apps/backend/
@@ -28,20 +30,39 @@ RUN npm ci --omit=dev --workspace apps/backend --include-workspace-root && npm c
 COPY apps/backend/prisma apps/backend/prisma
 RUN cd apps/backend && prisma generate
 
+# ---------------------------------------------------------------- Python-окружение модуля
+FROM base AS engine
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 python3-venv \
+  && rm -rf /var/lib/apt/lists/*
+COPY apps/solver/requirements.txt /tmp/requirements.txt
+RUN python3 -m venv /opt/venv \
+  && /opt/venv/bin/pip install --no-cache-dir --disable-pip-version-check -r /tmp/requirements.txt
+
 # ---------------------------------------------------------------- образ запуска
 FROM base AS runtime
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 tesseract-ocr tesseract-ocr-rus \
+  && rm -rf /var/lib/apt/lists/*
 ARG APP_VERSION=dev
 ENV NODE_ENV=production \
     CHECKPOINT_DISABLE=1 \
     APP_VERSION=$APP_VERSION \
-    PORT=3000
+    PORT=3000 \
+    PYTHON_BIN=/opt/venv/bin/python \
+    ENGINE_DIR=/app/engine \
+    PYTHONDONTWRITEBYTECODE=1
+COPY --from=engine /opt/venv /opt/venv
+COPY apps/solver/app /app/engine/app
 COPY --from=deps /app/node_modules /app/node_modules
 COPY --from=deps /app/package.json /app/package.json
 COPY --from=deps /app/apps/backend/package.json /app/apps/backend/package.json
 COPY --from=deps /app/apps/backend/prisma /app/apps/backend/prisma
 COPY --from=build /app/apps/backend/dist /app/apps/backend/dist
 COPY apps/backend/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# Проверка: модуль импортируется, OR-Tools и Tesseract (rus) доступны
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
+  && cd /app/engine && /opt/venv/bin/python -m app info
 WORKDIR /app/apps/backend
 USER node
 EXPOSE 3000

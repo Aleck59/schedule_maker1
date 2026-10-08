@@ -1,4 +1,5 @@
-# Полный стек: PostgreSQL, Redis, сервис CP-SAT, API и веб-интерфейс.
+# Полный стек: PostgreSQL, Redis и два образа приложения — backend (API + решатель
+# OR-Tools CP-SAT + распознавание сканов) и frontend (веб-интерфейс).
 # Запуск: cp .env.example .env && docker compose up -d --build
 # Интерфейс: http://localhost:8080 · Swagger: http://localhost:8080/api/docs
 
@@ -35,16 +36,6 @@ services:
       timeout: 3s
       retries: 20
 
-  solver:
-    image: ${IMAGE_REGISTRY:-schedule-maker}/solver:${IMAGE_TAG:-local}
-    build:
-      context: ./apps/solver
-      args:
-        APP_VERSION: ${IMAGE_TAG:-local}
-    <<: *restart
-    environment:
-      LOG_LEVEL: ${SOLVER_LOG_LEVEL:-INFO}
-
   backend:
     image: ${IMAGE_REGISTRY:-schedule-maker}/backend:${IMAGE_TAG:-local}
     build:
@@ -56,7 +47,6 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-schedule}:${POSTGRES_PASSWORD:-schedule}@postgres:5432/${POSTGRES_DB:-schedule}?schema=public
       REDIS_URL: redis://redis:6379
-      SOLVER_URL: http://solver:8000
       SOLVER_MODE: ${SOLVER_MODE:-auto}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-access-secret}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret}
@@ -69,8 +59,6 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      solver:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
