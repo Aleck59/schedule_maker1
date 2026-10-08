@@ -6,6 +6,7 @@ import {
   CalendarClock,
   CalendarX2,
   ClipboardCheck,
+  Compass,
   GraduationCap,
   RotateCcw,
   ShieldAlert,
@@ -18,6 +19,8 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/common/states
 import { StatCard } from '@/components/common/stat-card';
 import { HourStatusBadge, PeriodStatusBadge } from '@/components/common/status-badge';
 import { LessonDialog } from '@/components/schedule/lesson-dialog';
+import { guideLink, useSetupStatus } from '@/components/setup/use-setup';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -138,6 +141,7 @@ function StaffView({ data }: { data: StaffDashboard }) {
   return (
     <div className="space-y-5">
       <PageHeader title="Главная" description={`Сегодня ${formatDateLong(data.today)}`} />
+      <SetupBanner />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard title="Активные группы" value={c.activeGroups} icon={GraduationCap} onClick={() => navigate('/groups')} />
         <StatCard title="Преподаватели" value={c.teachers} icon={Users} onClick={() => navigate('/teachers')} />
@@ -557,5 +561,34 @@ function StudentView({ data }: { data: StudentDashboard }) {
       </Card>
       <LessonDialog lessonId={lessonId} open={!!lessonId} onOpenChange={(o) => !o && setLessonId(null)} />
     </div>
+  );
+}
+
+/** Напоминание о незавершённой настройке со ссылкой на следующий шаг мастера */
+function SetupBanner() {
+  const setup = useSetupStatus();
+  const data = setup.data;
+  if (!data?.next) return null;
+  const next = data.steps.find((s) => s.key === data.next)!;
+  return (
+    <Alert variant="info">
+      <Compass />
+      <AlertTitle>
+        Подготовка расписания: выполнено {data.completed} из {data.total} шагов
+      </AlertTitle>
+      <AlertDescription>
+        <div>
+          Следующий шаг — <b>{next.title}</b>: {next.description}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button size="sm" asChild>
+            <Link to={guideLink(next.link)}>{next.action}</Link>
+          </Button>
+          <Button size="sm" variant="outline" asChild>
+            <Link to="/setup">Мастер настройки</Link>
+          </Button>
+        </div>
+      </AlertDescription>
+    </Alert>
   );
 }

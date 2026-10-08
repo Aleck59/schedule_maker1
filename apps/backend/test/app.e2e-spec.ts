@@ -733,6 +733,35 @@ describe('Расписание СПО (e2e)', () => {
     });
   });
 
+  it('мастер настройки: шаги подготовки расписания и следующий шаг', async () => {
+    await http.get('/api/setup/status').set(auth('teacher')).expect(403);
+    const res = await http.get('/api/setup/status').set(auth('dispatcher')).expect(200);
+    expect(res.body.steps.map((s: { key: string }) => s.key)).toEqual([
+      'settings',
+      'curriculum',
+      'calendar',
+      'groups',
+      'teachers',
+      'classrooms',
+      'workload',
+      'generation',
+      'validation',
+      'publish',
+    ]);
+    const byKey = Object.fromEntries(
+      res.body.steps.map((s: { key: string; done: boolean }) => [s.key, s.done]),
+    );
+    expect(byKey).toMatchObject({
+      settings: true,
+      curriculum: true,
+      groups: true,
+      teachers: true,
+      publish: true,
+    });
+    expect(res.body.completed).toBe(res.body.steps.filter((s: { done: boolean }) => s.done).length);
+    if (res.body.next) expect(byKey[res.body.next]).toBe(false);
+  });
+
   it('контроль часов, отчёты и экспорт', async () => {
     const hc = await http.get(`/api/groups/${groupId}/hour-control`).set(auth('manager')).expect(200);
     expect(hc.body.rows.length).toBeGreaterThan(10);

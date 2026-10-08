@@ -32,6 +32,7 @@ const NotificationsPage = lazy(() => import('@/pages/NotificationsPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 const UsersPage = lazy(() => import('@/pages/UsersPage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
+const SetupPage = lazy(() => import('@/pages/SetupPage'));
 
 const STAFF: UserRole[] = ['ADMIN', 'DISPATCHER', 'MANAGER'];
 const EDITORS: UserRole[] = ['ADMIN', 'DISPATCHER'];
@@ -83,6 +84,7 @@ export default function App() {
                 }
               >
                 <Route index element={page(<DashboardPage />)} />
+                <Route path="setup" element={page(<SetupPage />, EDITORS)} />
                 <Route path="my" element={page(<MySchedulePage />, ['TEACHER', 'STUDENT'])} />
                 <Route path="schedule" element={page(<SchedulePage />, [...STAFF, 'TEACHER'])} />
                 <Route path="generation" element={page(<GenerationPage />, EDITORS)} />

@@ -8,6 +8,7 @@ import {
   CalendarCheck2,
   CalendarDays,
   CalendarRange,
+  Compass,
   ClipboardCheck,
   FileSpreadsheet,
   GraduationCap,
@@ -35,6 +36,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { GuideBar } from '@/components/setup/guide-bar';
+import { useSetupStatus } from '@/components/setup/use-setup';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { formatDateTime } from '@/lib/format';
@@ -59,6 +62,7 @@ const NAV: Array<{ section: string; items: NavItem[] }> = [
   {
     section: 'Расписание',
     items: [
+      { to: '/setup', label: 'Мастер настройки', icon: Compass, roles: EDITORS },
       { to: '/', label: 'Главная', icon: LayoutDashboard, roles: ['ADMIN', 'DISPATCHER', 'MANAGER', 'TEACHER', 'STUDENT'] },
       { to: '/my', label: 'Моё расписание', icon: CalendarCheck2, roles: ['TEACHER', 'STUDENT'] },
       { to: '/schedule', label: 'Расписание', icon: CalendarDays, roles: [...STAFF, 'TEACHER'] },
@@ -117,6 +121,7 @@ function useTheme() {
 
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { user } = useAuth();
+  const setup = useSetupStatus();
   return (
     <nav className="flex h-full flex-col">
       <div className="flex items-center gap-2.5 px-5 py-5">
@@ -151,6 +156,16 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                   >
                     <item.icon className="size-4 opacity-80" />
                     {item.label}
+                    {item.to === '/setup' && setup.data && (
+                      <span
+                        className={cn(
+                          'ml-auto rounded px-1.5 text-[10px] font-semibold',
+                          setup.data.next ? 'bg-amber-400/20 text-amber-200' : 'bg-emerald-400/20 text-emerald-200',
+                        )}
+                      >
+                        {setup.data.completed}/{setup.data.total}
+                      </span>
+                    )}
                   </NavLink>
                 ))}
               </div>
@@ -296,6 +311,7 @@ export function AppLayout() {
           </div>
         </header>
         <main className="mx-auto w-full max-w-[1600px] flex-1 space-y-5 p-4 md:p-6">
+          <GuideBar />
           <Outlet />
         </main>
       </div>

@@ -23,6 +23,7 @@ import { ReportsModule } from './reports/reports.module';
 import { ScheduleModule } from './schedule/schedule.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { SettingsModule } from './settings/settings.module';
+import { SetupModule } from './setup/setup.module';
 import { SpecialtiesModule } from './specialties/specialties.module';
 import { TeachersModule } from './teachers/teachers.module';
 import { UsersModule } from './users/users.module';
@@ -42,6 +43,7 @@ import { ValidationModule } from './validation/validation.module';
     SpecialtiesModule,
     ProgramsModule,
     CurriculumScansModule,
+    SetupModule,
     GroupsModule,
     TeachersModule,
     ClassroomsModule,
