@@ -136,7 +136,7 @@ export class PdfService {
       pageOrientation: 'landscape',
       pageSize: 'A4',
       pageMargins: [20, 24, 20, 28],
-      info: { title: params.title, creator: 'Расписание СПО' },
+      info: { title: params.title, creator: 'Расписание СПО и ВО' },
       content,
       footer: (current: number, total: number) => ({
         text: `Сформировано ${formatDateRu(new Date().toISOString())} · стр. ${current} из ${total}`,

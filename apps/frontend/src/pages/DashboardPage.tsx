@@ -11,6 +11,7 @@ import {
   RotateCcw,
   ShieldAlert,
   Users,
+  Wand2,
 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
@@ -132,6 +133,7 @@ export default function DashboardPage() {
 
 function StaffView({ data }: { data: StaffDashboard }) {
   const navigate = useNavigate();
+  const { canEdit } = useAuth();
   const c = data.counters;
   const pie = data.planCompletion
     ? (Object.entries(data.planCompletion.byStatus) as Array<[HourStatus, number]>)
@@ -140,7 +142,19 @@ function StaffView({ data }: { data: StaffDashboard }) {
     : [];
   return (
     <div className="space-y-5">
-      <PageHeader title="Главная" description={`Сегодня ${formatDateLong(data.today)}`} />
+      <PageHeader
+        title="Главная"
+        description={`Сегодня ${formatDateLong(data.today)}`}
+        actions={
+          canEdit && (
+            <Button asChild>
+              <Link to="/generation?scope=all">
+                <Wand2 /> Составить расписание для всех групп
+              </Link>
+            </Button>
+          )
+        }
+      />
       <SetupBanner />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard title="Активные группы" value={c.activeGroups} icon={GraduationCap} onClick={() => navigate('/groups')} />

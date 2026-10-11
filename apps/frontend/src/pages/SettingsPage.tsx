@@ -67,7 +67,7 @@ export default function SettingsPage() {
   const data = settings.data!;
   return (
     <div className="space-y-5">
-      <PageHeader title="Настройки" description="Параметры колледжа, сетка звонков, правила составления расписания и журнал изменений" />
+      <PageHeader title="Настройки" description="Параметры образовательной организации, сетка звонков, правила составления расписания и журнал изменений" />
       {!isAdmin && (
         <Alert variant="info">
           <AlertDescription>Изменять настройки может только администратор. Диспетчеру доступен просмотр и журнал изменений.</AlertDescription>

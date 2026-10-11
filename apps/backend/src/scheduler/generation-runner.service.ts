@@ -140,6 +140,7 @@ export class GenerationRunnerService {
           : h;
       lessons.push({
         demandId: p.demandId,
+        periodId: meta.periodId,
         date: p.date,
         weekday: isoWeekday(p.date),
         lessonNumber: p.lessonNumber,
@@ -227,6 +228,7 @@ export class GenerationRunnerService {
 
     return {
       period: { id: built.period.id, title: built.period.title },
+      periods: built.periods.length > 1 ? built.periods : undefined,
       range: built.range,
       mode: params.mode,
       solver: result.solver,

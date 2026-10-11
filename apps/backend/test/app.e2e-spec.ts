@@ -733,6 +733,187 @@ describe('Расписание СПО (e2e)', () => {
     });
   });
 
+  it('уровень образования специальности определяется по коду', async () => {
+    const vo = await http
+      .post('/api/specialties')
+      .set(auth('dispatcher'))
+      .send({ code: '38.03.01', name: 'Экономика', qualification: 'Бакалавр', durationMonths: 48 })
+      .expect(201);
+    expect(vo.body.educationLevel).toBe('BACHELOR');
+    const spo = await http
+      .post('/api/specialties')
+      .set(auth('dispatcher'))
+      .send({
+        code: '38.02.01',
+        name: 'Экономика и бухгалтерский учет',
+        qualification: 'Бухгалтер',
+        durationMonths: 34,
+      })
+      .expect(201);
+    expect(spo.body.educationLevel).toBe('SPO');
+  });
+
+  it('составление расписания для всех групп: план, совместная генерация, режим занятий группы', async () => {
+    const period = await http.get(`/api/schedule-periods/${periodId}`).set(auth('dispatcher')).expect(200);
+    // Через три недели после начала семестра: у обеих групп идёт теоретическое обучение
+    const date = new Date(new Date(period.body.startDate).getTime() + 21 * 86400000)
+      .toISOString()
+      .slice(0, 10);
+    const groups = await http.get('/api/groups').set(auth('dispatcher')).expect(200);
+    const other = groups.body.find(
+      (g: { code: string; isActive: boolean }) =>
+        g.isActive && g.code.startsWith('ИСП-') && g.code !== 'ИСП-24-1',
+    );
+    expect(other).toBeDefined();
+    // Вторая смена: группе можно ставить только 2–3 пары
+    await http
+      .patch(`/api/groups/${other.id}`)
+      .set(auth('dispatcher'))
+      .send({ firstLessonNumber: 2, lastLessonNumber: 3 })
+      .expect(200);
+    await http
+      .patch(`/api/groups/${other.id}`)
+      .set(auth('dispatcher'))
+      .send({ firstLessonNumber: 4, lastLessonNumber: 2 })
+      .expect(400);
+
+    await http.get(`/api/generation/all/plan?date=${date}`).set(auth('teacher')).expect(403);
+    const plan = await http.get(`/api/generation/all/plan?date=${date}`).set(auth('dispatcher')).expect(200);
+    const rows = plan.body.groups as Array<{
+      groupId: string;
+      included: boolean;
+      periodId: string | null;
+      createPeriod: boolean;
+      reason: string | null;
+    }>;
+    const main = rows.find((r) => r.groupId === groupId)!;
+    expect(main).toMatchObject({ included: true, periodId, createPeriod: false });
+    const second = rows.find((r) => r.groupId === other.id)! as (typeof rows)[number] & {
+      semesterId: string;
+    };
+    expect(second.included).toBe(true);
+    // В демо-плане у этого семестра нет дисциплин: две обязательные и одна по выбору
+    const cycles = await http
+      .get(`/api/programs/${other.educationalProgramId}/cycles`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    const semesterHours = {
+      semesterId: second.semesterId,
+      totalHours: 72,
+      lectureHours: 24,
+      practicalHours: 24,
+      selfStudyHours: 24,
+    };
+    for (const [code, name, isRequired] of [
+      ['ОП.90', 'Основы алгоритмизации', true],
+      ['ОП.91', 'Компьютерные сети', true],
+      ['ОП.92', 'Дисциплина по выбору', false],
+    ] as const) {
+      await http
+        .post(`/api/programs/${other.educationalProgramId}/curriculum-items`)
+        .set(auth('dispatcher'))
+        .send({
+          cycleId: cycles.body[0].id,
+          code,
+          name,
+          itemType: 'DISCIPLINE',
+          isRequired,
+          semesters: [semesterHours],
+        })
+        .expect(201);
+    }
+    // Нагрузка группы на этот семестр: по учебному плану (без дисциплины по выбору), преподаватели — по очереди
+    await http
+      .post('/api/assignments/generate')
+      .set(auth('dispatcher'))
+      .send({ studentGroupId: other.id, semesterId: second.semesterId })
+      .expect(201);
+    const teachers = await http.get('/api/teachers').set(auth('dispatcher')).expect(200);
+    const assignments = await http
+      .get(`/api/assignments?groupId=${other.id}&semesterId=${second.semesterId}`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    for (const [i, a] of (assignments.body as Array<{ id: string; teacherId: string | null }>).entries()) {
+      if (a.teacherId) continue;
+      await http
+        .patch(`/api/assignments/${a.id}`)
+        .set(auth('dispatcher'))
+        .send({ teacherId: teachers.body[i % teachers.body.length].id })
+        .expect(200);
+    }
+    expect(plan.body.summary.included).toBeGreaterThanOrEqual(2);
+    for (const r of rows.filter((x) => !x.included)) expect(r.reason).toMatch(/[а-яё]/i);
+
+    const dateTo = new Date(new Date(`${date}T00:00:00Z`).getTime() + 13 * 86400000)
+      .toISOString()
+      .slice(0, 10);
+    const res = await http
+      .post('/api/generation/all')
+      .set(auth('dispatcher'))
+      .send({ date, dateFrom: date, dateTo, solver: 'heuristic' })
+      .expect(201);
+    const joint = res.body.job;
+    expect(joint.periodIds.length).toBeGreaterThanOrEqual(2);
+    expect(joint.periodIds).toContain(periodId);
+    let status = joint.status;
+    for (let i = 0; i < 60 && ['QUEUED', 'GENERATING', 'VALIDATING'].includes(status); i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      const j = await http
+        .get(`/api/generation-jobs/${joint.id}?result=false`)
+        .set(auth('dispatcher'))
+        .expect(200);
+      status = j.body.status;
+    }
+    expect(['COMPLETED', 'COMPLETED_WITH_CONFLICTS']).toContain(status);
+    const full = await http.get(`/api/generation-jobs/${joint.id}`).set(auth('dispatcher')).expect(200);
+    const result = full.body.result;
+    expect(result.periods.length).toBe(joint.periodIds.length);
+    const lessons = result.lessons as Array<{
+      periodId: string;
+      groupIds: string[];
+      lessonNumber: number;
+      date: string;
+    }>;
+    expect(lessons.length).toBeGreaterThan(0);
+    const otherLessons = lessons.filter((l) => l.groupIds.includes(other.id));
+    expect(otherLessons.length).toBeGreaterThan(0);
+    expect(otherLessons.every((l) => l.lessonNumber >= 2 && l.lessonNumber <= 3)).toBe(true);
+    expect(new Set(lessons.map((l) => l.periodId)).size).toBeGreaterThanOrEqual(2);
+    expect(lessons.every((l) => l.date >= date && l.date <= dateTo)).toBe(true);
+    // Дисциплина по выбору без нагрузки в расписание не попадает
+    expect(otherLessons.some((l) => (l as { itemCode?: string }).itemCode === 'ОП.92')).toBe(false);
+    expect(otherLessons.some((l) => (l as { itemCode?: string }).itemCode === 'ОП.90')).toBe(true);
+
+    // Пока идёт совместная генерация, периоды заняты; история совместных генераций
+    const history = await http.get('/api/generation-jobs').set(auth('dispatcher')).expect(200);
+    expect(history.body[0].id).toBe(joint.id);
+    const periodJobs = await http
+      .get(
+        `/api/schedule-periods/${second.periodId ?? joint.periodIds.find((id: string) => id !== periodId)}/generation-jobs`,
+      )
+      .set(auth('dispatcher'))
+      .expect(200);
+    expect(periodJobs.body.some((j: { id: string }) => j.id === joint.id)).toBe(true);
+
+    const applied = await http
+      .post(`/api/generation-jobs/${joint.id}/apply`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    expect(applied.body.created).toBeGreaterThan(0);
+    const otherPeriodId = joint.periodIds.find((id: string) => id !== periodId);
+    const own = await http
+      .get(`/api/schedule-lessons?periodId=${otherPeriodId}&groupId=${other.id}`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    const ownLessons = Array.isArray(own.body) ? own.body : own.body.items;
+    expect(ownLessons.length).toBeGreaterThan(0);
+    await http
+      .patch(`/api/groups/${other.id}`)
+      .set(auth('dispatcher'))
+      .send({ firstLessonNumber: null, lastLessonNumber: null })
+      .expect(200);
+  });
+
   it('мастер настройки: шаги подготовки расписания и следующий шаг', async () => {
     await http.get('/api/setup/status').set(auth('teacher')).expect(403);
     const res = await http.get('/api/setup/status').set(auth('dispatcher')).expect(200);

@@ -23,12 +23,16 @@ from __future__ import annotations
 import os
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from ortools.sat.python import cp_model
 
 from .models import Demand, Placement, Problem, Room, SolveResult, Stats, Teacher, Unplaced
 from .pacing import cumulative_target_by_days, effective_rate
+
+# Ход решения: доля выполненной работы (0…1) и сообщение
+Progress = Callable[[float, str], None]
 
 DEFAULT_WEIGHTS: dict[str, float] = {
     "groupWindows": 30,
@@ -130,8 +134,9 @@ class State:
 
 
 class CpSatScheduler:
-    def __init__(self, problem: Problem):
+    def __init__(self, problem: Problem, on_progress: Progress | None = None):
         self.p = problem
+        self.on_progress = on_progress or (lambda fraction, message: None)
         self.started = time.monotonic()
         self.deadline = self.started + max(5.0, problem.time_limit_seconds)
         self.log: list[str] = []
@@ -141,6 +146,7 @@ class CpSatScheduler:
         self.groups = {g.id: g for g in problem.groups}
         self.L = problem.lessons_per_day
         self.settings = problem.settings
+        self.group_lessons = {g.id: set(g.allowed_lessons) for g in problem.groups if g.allowed_lessons}
         self.teacher_unavail = {t.id: {(w, n) for w, n in t.unavailable} for t in problem.teachers}
         self.teacher_pref = {t.id: {(w, n): v for w, n, v in t.preferences} for t in problem.teachers}
         self.room_unavail = {r.id: {(w, n) for w, n in r.unavailable} for r in problem.rooms}
@@ -241,6 +247,8 @@ class CpSatScheduler:
         if len(tday) >= t.max_daily_lessons and lesson not in tday:
             return False
         for g in d.group_ids:
+            if g in self.group_lessons and lesson not in self.group_lessons[g]:
+                return False
             markers = st.group_slot.get((g, day.key, lesson))
             if markers:
                 if d.subgroup_number is None or 0 in markers or d.subgroup_number in markers:
@@ -549,10 +557,15 @@ class CpSatScheduler:
             per_week = max(
                 0.5, main_budget / max(1, len(weeks)) / (3 if self.p.mode == "WEEKLY_TEMPLATE" else 1)
             )
-            for w in weeks:
+            required = sum(max(0, d.lessons_required) for d in self.p.demands)
+            for i, w in enumerate(weeks):
                 if time.monotonic() > self.deadline:
                     self.log.append("Достигнут лимит времени — возвращён лучший найденный вариант")
                     break
+                self.on_progress(
+                    0.85 * i / max(1, len(weeks)),
+                    f"Неделя {i + 1} из {len(weeks)}: поставлено {len(self.placements)} из {required} пар",
+                )
                 targets = {}
                 for ds in calendar_states:
                     if w not in ds.days_by_week:
@@ -571,6 +584,10 @@ class CpSatScheduler:
                 self.log.append(
                     f"Компенсационный проход: {len(leftovers)} дисциплин с недопоставленными парами"
                 )
+            self.on_progress(
+                0.88 if spread else 0.95,
+                f"Компенсационный проход: {len(leftovers)} дисциплин с недопоставленными парами",
+            )
             remaining = max(0.5, self.deadline - time.monotonic())
             weeks_with = [w for w in weeks if any(w in ds.days_by_week for ds in leftovers)]
             per_week = max(0.3, remaining / max(1, len(weeks_with)) / (2 if spread else 1))
@@ -694,5 +711,5 @@ class CpSatScheduler:
                     need -= 1
 
 
-def solve(problem: Problem) -> SolveResult:
-    return CpSatScheduler(problem).solve()
+def solve(problem: Problem, on_progress: Progress | None = None) -> SolveResult:
+    return CpSatScheduler(problem, on_progress).solve()

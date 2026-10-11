@@ -77,6 +77,7 @@ export class GroupsService {
   }
 
   async create(dto: CreateGroupDto, actor: AuthUser) {
+    checkStudyMode(dto);
     const program = await this.prisma.educationalProgram.findFirst({
       where: { id: dto.educationalProgramId, organizationId: actor.organizationId },
     });
@@ -96,6 +97,7 @@ export class GroupsService {
           currentSemesterNumber: dto.currentSemesterNumber,
           studentCount: dto.studentCount,
           subgroupCount,
+          ...studyMode(dto),
           isActive: dto.isActive ?? true,
         },
       });
@@ -119,6 +121,11 @@ export class GroupsService {
 
   async update(id: string, dto: UpdateGroupDto, actor: AuthUser) {
     const before = await this.get(id, actor);
+    checkStudyMode({
+      firstLessonNumber:
+        dto.firstLessonNumber === undefined ? before.firstLessonNumber : dto.firstLessonNumber,
+      lastLessonNumber: dto.lastLessonNumber === undefined ? before.lastLessonNumber : dto.lastLessonNumber,
+    });
     if (dto.educationalProgramId && dto.educationalProgramId !== before.educationalProgramId) {
       const lessons = await this.prisma.scheduleLesson.count({ where: { studentGroupId: id } });
       if (lessons > 0) {
@@ -138,6 +145,7 @@ export class GroupsService {
         currentSemesterNumber: dto.currentSemesterNumber,
         studentCount: dto.studentCount,
         subgroupCount: dto.subgroupCount,
+        ...studyMode(dto, before),
         isActive: dto.isActive,
       },
     });
@@ -339,5 +347,28 @@ export class GroupsService {
     if (total > 0) {
       await this.prisma.studentGroup.update({ where: { id: groupId }, data: { studentCount: total } });
     }
+  }
+}
+
+/** Режим занятий группы: учебные дни и допустимые пары */
+function studyMode(
+  dto: Pick<UpdateGroupDto, 'studyDays' | 'firstLessonNumber' | 'lastLessonNumber'>,
+  before?: { studyDays: number[] },
+) {
+  return {
+    studyDays:
+      dto.studyDays === undefined
+        ? before
+          ? undefined
+          : []
+        : [...new Set(dto.studyDays)].sort((a, b) => a - b),
+    firstLessonNumber: dto.firstLessonNumber,
+    lastLessonNumber: dto.lastLessonNumber,
+  };
+}
+
+function checkStudyMode(dto: { firstLessonNumber?: number | null; lastLessonNumber?: number | null }) {
+  if (dto.firstLessonNumber && dto.lastLessonNumber && dto.firstLessonNumber > dto.lastLessonNumber) {
+    throw new BadRequestException('Первая допустимая пара группы не может быть позже последней');
   }
 }

@@ -23,7 +23,7 @@ const COLUMNS = [
   { key: 'consultation', header: 'Консультации', width: 12 },
   { key: 'selfStudy', header: 'Самост. работа', width: 12 },
   { key: 'assessment', header: 'Аттестация', width: 11 },
-  { key: 'practice', header: 'Практика в колледже, ч', width: 14 },
+  { key: 'practice', header: 'Практика на базе организации, ч', width: 14 },
   { key: 'control', header: 'Форма контроля', width: 18 },
   { key: 'difficult', header: 'Сложная (да/нет)', width: 12 },
 ] as const;
@@ -117,7 +117,7 @@ export class CurriculumImportService {
 
   async template(): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
-    wb.creator = 'Расписание СПО';
+    wb.creator = 'Расписание СПО и ВО';
     const ws = wb.addWorksheet('Учебный план');
     ws.columns = COLUMNS.map((c) => ({ header: c.header, key: c.key, width: c.width }));
     ws.getRow(1).font = { bold: true };
@@ -162,7 +162,7 @@ export class CurriculumImportService {
       { f: 'Форма контроля', v: 'Экзамен (Э), Зачёт (З), ДЗ, Другая форма контроля, КП, Э(к)' },
       {
         f: 'Часы',
-        v: 'Самостоятельная работа и аттестация не ставятся в расписание автоматически. Практика в колледже — часы учебной практики, проводимой на базе колледжа',
+        v: 'Самостоятельная работа и аттестация не ставятся в расписание автоматически. Практика на базе организации — часы учебной практики, проводимой в своих аудиториях',
       },
       { f: 'Повторы', v: 'Одна дисциплина может занимать несколько строк — по одной на каждый семестр' },
     ]);
@@ -187,7 +187,10 @@ export class CurriculumImportService {
     const colIndex = new Map<string, number>();
     headerRow.eachCell((cell, col) => {
       const text = cellText(cell.value).toLowerCase();
-      const column = COLUMNS.find((c) => c.header.toLowerCase() === text);
+      // «Практика в колледже, ч» — заголовок шаблонов прежних версий
+      const column =
+        COLUMNS.find((c) => c.header.toLowerCase() === text) ??
+        (text === 'практика в колледже, ч' ? COLUMNS.find((c) => c.key === 'practice') : undefined);
       if (column) colIndex.set(column.key, col);
     });
     for (const required of ['code', 'name']) {

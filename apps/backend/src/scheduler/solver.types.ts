@@ -22,6 +22,8 @@ export interface SolverGroup {
   allowedDates: string[];
   /** Мягкий лимит пар в день */
   maxLessonsPerDay: number;
+  /** Допустимые номера пар группы (вторая смена, вечерние группы); не задано — все пары */
+  allowedLessons?: number[];
 }
 
 export interface SolverTeacher {

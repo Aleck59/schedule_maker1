@@ -55,7 +55,7 @@ export class PlanningService {
     if (NON_SCHEDULED_ITEM_TYPES.includes(itemType)) return [];
     const result: Array<{ type: LessonType; hours: number }> = [];
     if (PRACTICE_ITEM_TYPES.includes(itemType)) {
-      // Практика ставится только если проводится на базе колледжа; вне колледжа — только период в календаре
+      // Практика ставится только если проводится на базе организации; вне её — только период в календаре
       if (item.practiceAtCollege && item.practiceHours > 0) {
         result.push({ type: LessonType.PRACTICE, hours: item.practiceHours });
       }
@@ -113,6 +113,8 @@ export class PlanningService {
         const assignments = (item.assignments as AssignmentWithTeacher[]).filter(
           (a) => a.studentGroupId === group.id,
         );
+        // Дисциплины по выбору и факультативы ставятся только группам, которые их выбрали (есть нагрузка)
+        if (!item.curriculumItem.isRequired && assignments.length === 0) continue;
         for (const { type, hours } of this.schedulableTypes(item, settings.scheduleConsultations)) {
           const specific = assignments.filter((a) => a.lessonType === type);
           const general = assignments.filter((a) => a.lessonType === null);

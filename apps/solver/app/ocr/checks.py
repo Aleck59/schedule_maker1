@@ -73,6 +73,7 @@ def build_equations(blocks: list[str], sem_blocks: list[str], fields_contact: li
             "laboratory",
             "practical",
             "seminar",
+            "consultation",
             "individualProject",
             "selfStudy",
             "assessment",

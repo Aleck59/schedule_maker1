@@ -47,22 +47,30 @@ class Cell:
         return [self.x, self.y, self.w, self.h]
 
 
-def detect_cells(gray: np.ndarray, min_size: int = 14) -> list[Cell]:
-    """Ячейки — связные области внутри линий сетки."""
+def detect_cells_map(gray: np.ndarray, min_size: int = 14) -> tuple[list[Cell], np.ndarray, dict[int, Cell]]:
+    """Ячейки — связные области внутри линий сетки; также карта меток областей (для текстового слоя)."""
     h, w = gray.shape
     hor, ver = line_masks(gray)
     grid = cv2.dilate(hor | ver, np.ones((3, 3), np.uint8))
-    n, _, stats, _ = cv2.connectedComponentsWithStats(255 - grid, connectivity=4)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(255 - grid, connectivity=4)
     cells = []
+    label_of: dict[int, Cell] = {}
     for i in range(1, n):
         x, y, cw, ch, area = (int(v) for v in stats[i])
         if cw < min_size or ch < min_size or cw > w * 0.7 or ch > h * 0.4:
             continue
         if area < 0.6 * cw * ch:
             continue
-        cells.append(Cell(x, y, cw, ch))
+        cell = Cell(x, y, cw, ch)
+        cells.append(cell)
+        label_of[i] = cell
     cells.sort(key=lambda c: (c.y, c.x))
-    return cells
+    return cells, labels, label_of
+
+
+def detect_cells(gray: np.ndarray, min_size: int = 14) -> list[Cell]:
+    """Ячейки — связные области внутри линий сетки."""
+    return detect_cells_map(gray, min_size)[0]
 
 
 def _crop(gray: np.ndarray, c: Cell, inset: int = 3) -> np.ndarray:

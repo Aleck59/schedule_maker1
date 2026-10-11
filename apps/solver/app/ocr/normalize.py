@@ -41,6 +41,11 @@ CYCLE_NAMES = {
     "П": "Профессиональный цикл",
     "ГИА": "Государственная итоговая аттестация",
     "ФТД": "Факультативные дисциплины",
+    # Высшее образование (бакалавриат, специалитет, магистратура)
+    "Б1": "Дисциплины (модули)",
+    "Б2": "Практика",
+    "Б3": "Государственная итоговая аттестация",
+    "К.М": "Комплексные модули",
 }
 PROFESSIONAL_PREFIXES = {"ПМ", "МДК", "УП", "ПП", "ПДП", "П"}
 KNOWN_PREFIXES = sorted(set(CYCLE_NAMES) | PROFESSIONAL_PREFIXES, key=len, reverse=True)
@@ -52,11 +57,67 @@ def to_cyrillic(text: str) -> str:
     return text.translate(LAT2CYR)
 
 
+# Индексы плана высшего образования: «Б1.О.01», «Б1.В.ДВ.01.02», «Б2.О.01(У)», «Б3.01(Д)», «ФТД.В.01», «К.М.01.01»
+VO_INDEX_RE = re.compile(r"^(?:Б[123]|ФТД|К\.М)(?:\.(?:О|В|Б|Ч|ДВ|\d{2}))+(?:\((?:У|П|Пд|Н|Д|Г)\))?$")
+VO_SUFFIXES = {"У": "У", "П": "П", "ПД": "Пд", "Н": "Н", "Д": "Д", "Г": "Г"}
+
+
+def norm_vo_index(text: str) -> str | None:
+    """Индекс элемента плана высшего образования или None."""
+    t = to_cyrillic(text.strip()).upper().replace(" ", "").replace(",", ".").rstrip(".")
+    # «Б1» нередко распознаётся как «Ы», «Б» — как «6»
+    t = re.sub(r"^Ы\.?", "Б1.", t)
+    t = re.sub(r"^6([123])", r"Б\1", t)
+    m = re.match(r"^(Б[123]|ФТД|К\.?М)\.?(.*)$", t)
+    if not m or len(t) > 26:
+        return None
+    head = "К.М" if m.group(1).startswith("К") else m.group(1)
+    rest = m.group(2)
+    suffix = ""
+    sm = re.search(r"\(([А-ЯЁ]{1,2})\)?$", rest)
+    if sm:
+        key = sm.group(1)
+        if key not in VO_SUFFIXES:
+            return None
+        suffix = f"({VO_SUFFIXES[key]})"
+        rest = rest[: sm.start()]
+    segments = [s for s in rest.split(".") if s]
+    if not segments:
+        return None
+    out: list[str] = []
+    for i, seg in enumerate(segments):
+        if seg == "ДВ":
+            out.append(seg)
+        elif i == 0 and head in ("Б1", "Б2", "ФТД") and seg in ("О", "0", "В", "8", "08", "Б"):
+            # Часть плана: О — обязательная, В — формируемая участниками («В» читается как «8»),
+            # Б — базовая (планы прежних стандартов)
+            out.append({"0": "О", "8": "В", "08": "В"}.get(seg, seg))
+        elif seg == "Ч" and i == 0:
+            out.append(seg)
+        else:
+            digits = seg.replace("О", "0").replace("З", "3").replace("Ю", "10").replace("Б", "6")
+            if not re.fullmatch(r"\d{1,2}", digits):
+                return None
+            out.append(f"{int(digits):02d}")
+    code = f"{head}.{'.'.join(out)}{suffix}"
+    return code if VO_INDEX_RE.match(code) else None
+
+
+def is_vo_index(code: str) -> bool:
+    return bool(VO_INDEX_RE.match(code))
+
+
 def norm_index(text: str, prev_prefix: str | None = None) -> str | None:
-    """Индекс элемента плана («СГ.01», «МДК.02.01», «ПМ.01.01(К)», «ГИА.01(Г)») или None."""
+    """Индекс элемента плана («СГ.01», «МДК.02.01», «ПМ.01.01(К)», «ГИА.01(Г)», «Б1.О.01») или None."""
     t = to_cyrillic(text.strip()).upper().replace(" ", "").replace(",", ".")
     t = t.rstrip(".")
-    if not t or len(t) > 18:
+    if not t or len(t) > 26:
+        return None
+    if re.match(r"^(Б[123]|Ы|6[123]|ФТД\.|К\.?М\.)", t) or (prev_prefix or "") in ("Б1", "Б2", "Б3", "К.М"):
+        vo = norm_vo_index(t)
+        if vo or not re.match(r"^(ФТД|К)", t):
+            return vo
+    if len(t) > 18:
         return None
     # Буквенная часть до первой точки или цифры; ведущий ноль — это «О»
     m = re.match(r"^([А-ЯЁ0]{1,5})\.?(.*)$", t)
@@ -79,10 +140,21 @@ def norm_index(text: str, prev_prefix: str | None = None) -> str | None:
         else:
             letters = candidates[0]
     code = f"{letters}.{rest}"
-    return code if INDEX_RE.match(code) else None
+    if not INDEX_RE.match(code):
+        return None
+    # Номера в индексах — двузначные: «СОО.1.05» → «СОО.01.05»; одиночный «0» — недочитанный номер
+    m = re.match(r"^([А-ЯЁ]+)\.([\d.]+)(\(.\))?$", code)
+    if m:
+        parts = m.group(2).split(".")
+        if any(p == "0" for p in parts):
+            return None
+        code = f"{m.group(1)}.{'.'.join(p.zfill(2) for p in parts)}{m.group(3) or ''}"
+    return code
 
 
 def index_prefix(code: str) -> str:
+    if code.startswith("К.М"):
+        return "К.М"
     return code.split(".", 1)[0]
 
 

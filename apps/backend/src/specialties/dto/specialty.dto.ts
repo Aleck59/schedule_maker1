@@ -1,11 +1,21 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
+import { EducationLevel } from '@prisma/client';
+import { IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
 import { DATE_MESSAGE, DATE_REGEX } from '../../common/dto/date-range.dto';
 
 export class CreateSpecialtyDto {
-  @ApiProperty({ example: '09.02.07' })
+  @ApiProperty({ example: '09.02.07', description: 'Код специальности СПО или направления подготовки ВО' })
   @Matches(/^\d{2}\.\d{2}\.\d{2}$/, { message: 'Код специальности должен быть в формате 00.00.00' })
   code: string;
+
+  @ApiPropertyOptional({
+    enum: EducationLevel,
+    description:
+      'Уровень образования; по умолчанию определяется по коду (00.02.00 — СПО, 00.03.00 — бакалавриат…)',
+  })
+  @IsOptional()
+  @IsEnum(EducationLevel, { message: 'Некорректный уровень образования' })
+  educationLevel?: EducationLevel;
 
   @ApiProperty({ example: 'Информационные системы и программирование' })
   @IsString()

@@ -185,6 +185,21 @@ export const STUDY_FORM_LABELS: Record<string, string> = {
   EXTRAMURAL: 'Заочная',
 };
 
+export const EDUCATION_LEVEL_LABELS: Record<string, string> = {
+  SPO: 'СПО',
+  BACHELOR: 'Бакалавриат',
+  SPECIALIST: 'Специалитет',
+  MASTER: 'Магистратура',
+  POSTGRADUATE: 'Аспирантура',
+};
+
+/** Уровень образования по коду специальности (направления): 00.02.00 — СПО, 00.03.00 — бакалавриат… */
+export function educationLevelByCode(code: string): string {
+  const levels: Record<string, string> = { '03': 'BACHELOR', '04': 'MASTER', '05': 'SPECIALIST', '06': 'POSTGRADUATE', '07': 'POSTGRADUATE', '08': 'POSTGRADUATE' };
+  const m = /^\d{2}\.(\d{2})\.\d{2}$/.exec(code.trim());
+  return (m && levels[m[1]]) || 'SPO';
+}
+
 export const PROGRAM_STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Черновик',
   APPROVED: 'Утверждён',

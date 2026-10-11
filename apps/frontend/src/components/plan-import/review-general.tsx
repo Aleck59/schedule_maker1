@@ -2,8 +2,8 @@ import { Field } from '@/components/common/field';
 import { SimpleSelect } from '@/components/common/simple-select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { STUDY_FORM_LABELS } from '@/lib/labels';
-import type { StudyForm } from '@/lib/types';
+import { EDUCATION_LEVEL_LABELS, educationLevelByCode, STUDY_FORM_LABELS } from '@/lib/labels';
+import type { EducationLevel, StudyForm } from '@/lib/types';
 import type { Draft } from './types';
 
 /** Шаг 1: сведения титульного листа — специальность и учебный план */
@@ -17,17 +17,34 @@ export function ReviewGeneral({ draft, onChange }: { draft: Draft; onChange: (dr
     <div className="grid gap-4 lg:grid-cols-2">
       <Card>
         <CardHeader>
-          <CardTitle>Специальность</CardTitle>
+          <CardTitle>Специальность (направление подготовки)</CardTitle>
           <CardDescription>Распознано с титульного листа. Если специальность уже есть в системе, будет использована она.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2">
           <Field label="Код" required error={!s.code ? 'Укажите код специальности' : codeError}>
-            <Input value={s.code} placeholder="40.02.04" onChange={(e) => setSpecialty({ code: e.target.value.trim() })} />
+            <Input
+              value={s.code}
+              placeholder="40.02.04"
+              onChange={(e) => {
+                const code = e.target.value.trim();
+                setSpecialty({
+                  code,
+                  ...(/^\d{2}\.\d{2}\.\d{2}$/.test(code) ? { educationLevel: educationLevelByCode(code) as EducationLevel } : {}),
+                });
+              }}
+            />
+          </Field>
+          <Field label="Уровень образования">
+            <SimpleSelect
+              value={s.educationLevel ?? (educationLevelByCode(s.code) as EducationLevel)}
+              onChange={(v) => setSpecialty({ educationLevel: (v ?? 'SPO') as EducationLevel })}
+              options={Object.entries(EDUCATION_LEVEL_LABELS).map(([value, label]) => ({ value, label }))}
+            />
           </Field>
           <Field label="Наименование" required error={!s.name ? 'Укажите наименование' : undefined}>
             <Input value={s.name} placeholder="Юриспруденция" onChange={(e) => setSpecialty({ name: e.target.value })} />
           </Field>
-          <Field label="Квалификация" required error={!s.qualification ? 'Укажите квалификацию' : undefined} className="sm:col-span-2">
+          <Field label="Квалификация" required error={!s.qualification ? 'Укажите квалификацию' : undefined}>
             <Input value={s.qualification} placeholder="Юрист" onChange={(e) => setSpecialty({ qualification: e.target.value })} />
           </Field>
           <Field label="Приказ ФГОС, №">

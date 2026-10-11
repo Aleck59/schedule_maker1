@@ -23,7 +23,7 @@ import { useApi } from '@/lib/query';
 import type { HourControlResponse, HourControlRow, HourStatus, StreamHours } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
-type AggregateBy = 'group' | 'discipline' | 'teacher' | 'semester' | 'program' | 'college';
+type AggregateBy = 'group' | 'discipline' | 'teacher' | 'semester' | 'program' | 'level' | 'college';
 
 interface AggregateResponse {
   by: AggregateBy;
@@ -45,7 +45,8 @@ const AGGREGATES: Array<[AggregateBy, string]> = [
   ['teacher', 'Преподаватели'],
   ['semester', 'Семестры'],
   ['program', 'Образовательные программы'],
-  ['college', 'Колледж'],
+  ['level', 'СПО / ВО'],
+  ['college', 'Организация'],
 ];
 
 export default function HourControlPage() {

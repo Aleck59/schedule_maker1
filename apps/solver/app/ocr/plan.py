@@ -14,12 +14,21 @@ import numpy as np
 
 from .calendar import CalendarTable, _monday_of_first_week, _week_row, cluster_rows, parse_calendar_page
 from .checks import Num, build_equations, make_num, resolve
-from .image import is_blank, load_pages, prepare
-from .normalize import CYCLE_NAMES, index_prefix, main_control, parse_control, parse_fraction_weeks
+from .image import count_pages, is_blank, iter_pages, prepare
+from .normalize import (
+    CYCLE_NAMES,
+    index_prefix,
+    is_vo_index,
+    main_control,
+    parse_control,
+    parse_fraction_weeks,
+)
+from .pdftext import fill_cells, page_text
 from .semesters import HOUR_FIELDS, RawRow, SemesterPage, parse_semester_page
-from .table import Cell, crop_png, detect_cells, ocr_cells
+from .sessions import Session, parse_session_schedule
+from .table import Cell, crop_png, detect_cells, detect_cells_map, ocr_cells
 from .tesseract import ocr_text, tesseract_info
-from .title import is_title_page, parse_title
+from .title import education_level, is_title_page, parse_plan_header, parse_title
 
 log = logging.getLogger("engine.ocr")
 
@@ -35,7 +44,11 @@ CODE_TYPES = {
     "Д": "DIPLOMA_PREPARATION",
     "Г": "FINAL_ATTESTATION",
     "*": "HOLIDAY",
+    "С": "OTHER",
 }
+# Коды графика, которые сохраняются у заочной формы вне сессий
+KEEP_OUTSIDE_SESSIONS = {"К", "У", "П", "Пд", "Д", "Г", "*", "="}
+PERIOD_TITLES = {"С": "Межсессионный период (самостоятельная работа)"}
 PROFESSIONAL_KINDS = {
     "MODULE",
     "MODULE_EXAM",
@@ -50,7 +63,26 @@ def _data_url(png: bytes) -> str:
     return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
 
 
+VO_PRACTICE_KINDS = {
+    "У": "EDUCATIONAL_PRACTICE",
+    "Н": "EDUCATIONAL_PRACTICE",
+    "П": "INDUSTRIAL_PRACTICE",
+    "Пд": "PRE_DIPLOMA_PRACTICE",
+}
+
+
 def kind_of(code: str, name: str, all_codes: set[str]) -> str:
+    if is_vo_index(code):
+        if any(other.startswith(code + ".") for other in all_codes):
+            return "GROUP"
+        if code.startswith("Б2"):
+            m = re.search(r"\((\w+)\)$", code)
+            return VO_PRACTICE_KINDS.get(m.group(1) if m else "", "INDUSTRIAL_PRACTICE")
+        if code.startswith("Б3"):
+            return "FINAL_ATTESTATION"
+        if code.startswith("ФТД"):
+            return "ELECTIVE"
+        return "DISCIPLINE"
     prefix = index_prefix(code)
     if code.endswith("(К)") or "экзамен по модулю" in name.lower():
         return "MODULE_EXAM"
@@ -70,6 +102,14 @@ def kind_of(code: str, name: str, all_codes: set[str]) -> str:
     return "DISCIPLINE"
 
 
+def is_required(code: str, kind: str) -> bool:
+    """Обязательна ли дисциплина для группы: факультативы и вторые и далее дисциплины по выбору — нет."""
+    if kind == "ELECTIVE":
+        return False
+    m = re.search(r"\.ДВ\.\d{2}\.(\d{2})$", code)
+    return not (m and int(m.group(1)) > 1)
+
+
 def module_code(code: str) -> str | None:
     m = re.match(r"^(?:МДК|УП|ПП|ПМ)\.(\d{1,2})\.", code)
     return f"ПМ.{int(m.group(1)):02d}" if m else None
@@ -77,6 +117,7 @@ def module_code(code: str) -> str | None:
 
 def repair_codes(codes: list[str]) -> dict[str, str]:
     """Исправление букв индекса по соседним строкам: «ОО.01» при наличии «СОО.01.01» → «СОО.01»."""
+    codes = [c for c in codes if not is_vo_index(c)]
     present = set(codes)
     renames: dict[str, str] = {}
     prefixes = {index_prefix(c) for c in codes}
@@ -105,40 +146,75 @@ class Recognizer:
         self.semester_pages: list[SemesterPage] = []
         self.calendar_sources: list[tuple[int, np.ndarray, list[Cell]]] = []
         self.grays: dict[int, np.ndarray] = {}
+        self.text_pages = 0
+        # Даты сессий заочной формы («График сессий»)
+        self.sessions: list[Session] = []
+        # Сведения из колонтитула цифрового плана (надёжнее распознанного титульного листа)
+        self.header: dict[str, Any] = {}
 
     # ------------------------------------------------------------------ страницы
     def read_pages(self, paths: list[str]) -> None:
         self.on_progress(0.02, "Загрузка страниц")
-        pages = load_pages(paths)
-        total = len(pages)
-        for i, raw in enumerate(pages):
+        total = count_pages(paths)
+        for i, page in enumerate(iter_pages(paths)):
             self.on_progress(0.05 + 0.8 * i / max(1, total), f"Распознавание страницы {i + 1} из {total}")
-            if is_blank(raw):
+            if page.glyphs is None and is_blank(page.gray):
                 self.pages_info.append({"index": i, "kind": "blank"})
                 continue
-            gray = prepare(raw)
-            cells = detect_cells(gray)
-            ocr_cells(gray, cells)
-            kind = self._classify(i, gray, cells)
-            self.pages_info.append({"index": i, "kind": kind, "cells": len(cells)})
-            log.info("Страница %d: %s, ячеек %d", i + 1, kind, len(cells))
+            text: str | None = None
+            if page.glyphs is not None:
+                # Цифровая страница: текст берётся из PDF, изображение — только для поиска ячеек
+                gray = page.gray
+                cells, labels, label_of = detect_cells_map(gray)
+                fill_cells(cells, labels, label_of, page.glyphs)
+                text = page_text(page.glyphs)
+                self.text_pages += 1
+                if not self.header:
+                    self.header = parse_plan_header(text)
+            else:
+                gray = prepare(page.gray)
+                cells = detect_cells(gray)
+                ocr_cells(gray, cells)
+            kind = self._classify(i, gray, cells, text)
+            self.pages_info.append(
+                {
+                    "index": i,
+                    "kind": kind,
+                    "cells": len(cells),
+                    "source": "text" if text is not None else "ocr",
+                }
+            )
+            log.info(
+                "Страница %d: %s, ячеек %d%s", i + 1, kind, len(cells), ", текстовый слой" if text else ""
+            )
 
-    def _classify(self, index: int, gray: np.ndarray, cells: list[Cell]) -> str:
-        sem = parse_semester_page(index, cells)
+    def _classify(self, index: int, gray: np.ndarray, cells: list[Cell], text: str | None = None) -> str:
+        # Курс страницы заочной формы: из колонтитула «КУРС N» или по порядку страниц с сессиями
+        m = re.search(r"^\s*КУРС\s+(\d)\b", text or "", re.M)
+        course_hint = int(m.group(1)) if m else sum(1 for sp in self.semester_pages if sp.sessions) + 1
+        sem = parse_semester_page(index, cells, course_hint)
         if sem and sem.rows:
             self.semester_pages.append(sem)
             self.grays[index] = gray
             return "semesters"
+        sessions = parse_session_schedule(cells)
+        if sessions:
+            self.sessions.extend(sessions)
+            kind = "sessions"
+        else:
+            kind = ""
         if any(_week_row(row) for row in cluster_rows(cells)):
             self.calendar_sources.append((index, gray, cells))
             return "calendar"
+        if kind:
+            return kind
         texts = " ".join(c.text for c in cells).upper()
         if "КУРС 1" in texts or "СЧИТАТЬ В ПЛАНЕ" in texts:
             return "plan"
         if len(cells) < 120 and not self.title:
-            page_text = ocr_text(gray)
-            if is_title_page(cells, page_text):
-                self.title = parse_title(cells, page_text)
+            page_text_ = text if text is not None else ocr_text(gray)
+            if is_title_page(cells, page_text_):
+                self.title = parse_title(cells, page_text_)
                 return "title"
         return "other"
 
@@ -179,9 +255,51 @@ class Recognizer:
                 gray = next(g for i, g, _ in self.calendar_sources if i == u["page"])
                 uncertain.append({**u, "crop": _data_url(crop_png(gray, u["box"]))})  # type: ignore[arg-type]
             result.append({"course": course, "startYear": year, "weeks": weeks, "uncertain": uncertain})
+        if self.sessions:
+            self._apply_sessions(result, admission)
         if not result:
             self.warnings.append("Календарный учебный график не найден — даты семестров заданы по умолчанию")
         return result
+
+    def _apply_sessions(self, result: list[dict[str, Any]], admission: int | None) -> None:
+        """Заочная форма: занятия — только в даты сессий, остальное время — межсессионный период «С»
+        (практики, каникулы и праздники из графика сохраняются)."""
+        by_course = {c["course"]: c for c in result}
+        first_year = admission or (
+            self.sessions[0].start.year - (1 if self.sessions[0].start.month < 9 else 0)
+        )
+        for course in sorted({s.course for s in self.sessions}):
+            table = by_course.get(course)
+            if table is None:
+                year = first_year + course - 1
+                monday = _monday_of_first_week(year)
+                table = {
+                    "course": course,
+                    "startYear": year,
+                    "weeks": [
+                        {
+                            "number": w + 1,
+                            "monday": (monday + dt.timedelta(days=7 * w)).isoformat(),
+                            "days": [""] * 6,
+                        }
+                        for w in range(53)
+                    ],
+                    "uncertain": [],
+                }
+                result.append(table)
+            own = [s for s in self.sessions if s.course == course]
+            for week in table["weeks"]:
+                monday = dt.date.fromisoformat(week["monday"])
+                for d in range(6):
+                    day = monday + dt.timedelta(days=d)
+                    code = week["days"][d]
+                    if any(s.start <= day <= s.end for s in own):
+                        week["days"][d] = "*" if code == "*" else ""
+                    elif code not in KEEP_OUTSIDE_SESSIONS:
+                        week["days"][d] = "С"
+            # Коды недель заочной формы определяются графиком сессий — неуверенные ячейки не нужны
+            table["uncertain"] = []
+        result.sort(key=lambda c: c["course"])
 
     # ------------------------------------------------------------------ дисциплины
     def items(self) -> tuple[list[dict[str, Any]], dict[str, int]]:
@@ -205,6 +323,7 @@ class Recognizer:
         items = []
         for code, entry in entries.items():
             entry["kind"] = kind_of(code, entry["name"], codes)
+            entry["required"] = is_required(code, entry["kind"])
             items.append(entry)
         # Родительские модули и циклы
         groups = {i["code"] for i in items if i["kind"] == "GROUP"}
@@ -227,6 +346,7 @@ class Recognizer:
                     "name": f"Профессиональный модуль {parent[3:]}",
                     "kind": "MODULE",
                     "parentCode": None,
+                    "required": True,
                     "cycleCode": "П",
                     "semesters": [],
                     "issues": ["Модуль не найден на скане и добавлен автоматически"],
@@ -250,12 +370,18 @@ class Recognizer:
         eqs = build_equations(
             list(row.values),
             [k for k in sem_keys if k in row.values],
-            ["lecture", "laboratory", "practical", "seminar"],
+            ["lecture", "laboratory", "practical", "seminar", "consultation"],
         )
         check = resolve(nums, eqs)
         entry = entries.setdefault(
             row.code, {"code": row.code, "name": row.name, "semesters": [], "issues": []}
         )
+        if row.guessed_from is not None:
+            note = (
+                f"Индекс не распознан («{row.guessed_from}») и восстановлен по предыдущей строке — проверьте"
+            )
+            if note not in entry["issues"]:
+                entry["issues"].append(note)
         if len(row.name) > len(entry["name"]):
             entry["name"] = row.name
         for key in sem_keys:
@@ -416,6 +542,7 @@ class Recognizer:
                 {
                     "course": course,
                     "code": code,
+                    "title": PERIOD_TITLES.get(code),
                     "type": CODE_TYPES.get(code, "OTHER"),
                     "startDate": start.isoformat(),
                     "endDate": end.isoformat(),
@@ -427,9 +554,12 @@ class Recognizer:
     # ------------------------------------------------------------------ итог
     def result(self, started: float) -> dict[str, Any]:
         self.on_progress(0.88, "Проверка сумм часов")
+        self.title.update(self.header)
         calendar = self.calendar()
         items, stats = self.items()
         semesters, periods = self.semesters(calendar)
+        if self.title.get("specialtyCode"):
+            self.title["educationLevel"] = education_level(str(self.title["specialtyCode"]))
         if not self.title:
             self.warnings.append("Титульный лист не распознан — заполните сведения о специальности вручную")
         if not self.semester_pages:
@@ -452,6 +582,7 @@ class Recognizer:
             "warnings": self.warnings,
             "stats": {
                 "pages": len(self.pages_info),
+                "textPages": self.text_pages,
                 "items": sum(1 for i in items if i["kind"] != "GROUP"),
                 "corrected": stats["corrected"],
                 "uncertain": stats["uncertain"] + sum(len(c["uncertain"]) for c in calendar),

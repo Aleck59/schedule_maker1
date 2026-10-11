@@ -70,7 +70,7 @@ def cmd_solve(_: argparse.Namespace) -> int:
         problem.time_limit_seconds,
     )
     started = time.monotonic()
-    result = solve(problem)
+    result = solve(problem, on_progress=progress)
     log.info(
         "Результат: %s, поставлено %d из %d за %.1f с",
         result.status,

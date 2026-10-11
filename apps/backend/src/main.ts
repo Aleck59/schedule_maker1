@@ -21,9 +21,9 @@ export async function createApp(options: { quiet?: boolean } = {}): Promise<Nest
   app.useBodyParser('json', { limit: '5mb' });
 
   const swagger = new DocumentBuilder()
-    .setTitle('Расписание СПО — API')
+    .setTitle('Расписание СПО и ВО — API')
     .setDescription(
-      'REST API системы автоматизированного составления расписания колледжа СПО: учебные планы, ' +
+      'REST API системы автоматизированного составления расписания СПО и высшего образования: учебные планы, ' +
         'нагрузка, календарный график, генерация расписания (OR-Tools CP-SAT), контроль часов и отчёты.',
     )
     .setVersion(process.env.APP_VERSION ?? 'dev')
@@ -31,7 +31,7 @@ export async function createApp(options: { quiet?: boolean } = {}): Promise<Nest
     .build();
   const document = SwaggerModule.createDocument(app, swagger);
   SwaggerModule.setup('api/docs', app, document, {
-    customSiteTitle: 'Расписание СПО — API',
+    customSiteTitle: 'Расписание СПО и ВО — API',
     swaggerOptions: { persistAuthorization: true, docExpansion: 'none' },
   });
   return app;

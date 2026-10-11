@@ -48,7 +48,7 @@ export class CreateProgramDto {
   @ApiProperty({ example: 8 })
   @IsInt()
   @Min(1)
-  @Max(12)
+  @Max(14)
   totalSemesters: number;
 
   @ApiPropertyOptional({ enum: ProgramStatus })
@@ -101,7 +101,7 @@ export class CreateSemesterDto {
   @ApiProperty({ example: 3 })
   @IsInt()
   @Min(1)
-  @Max(12)
+  @Max(14)
   number: number;
 
   @ApiProperty({ example: 2 })
@@ -175,7 +175,7 @@ export class SemesterHoursDto {
   @ValidateIf((o: SemesterHoursDto) => !o.semesterId)
   @IsInt({ message: 'Укажите семестр' })
   @Min(1)
-  @Max(12)
+  @Max(14)
   semesterNumber?: number;
 
   @ApiPropertyOptional({ description: 'Если не указано — рассчитывается как сумма всех видов часов' })
@@ -220,7 +220,7 @@ export class SemesterHoursDto {
   @Min(0)
   assessmentHours?: number;
 
-  @ApiPropertyOptional({ example: 0, description: 'Часы практики на базе колледжа' })
+  @ApiPropertyOptional({ example: 0, description: 'Часы практики на базе организации' })
   @IsOptional()
   @IsInt()
   @Min(0)

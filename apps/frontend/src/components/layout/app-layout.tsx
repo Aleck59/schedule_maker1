@@ -129,7 +129,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <CalendarDays className="size-5" />
         </div>
         <div>
-          <div className="text-sm leading-tight font-semibold text-white">Расписание СПО</div>
+          <div className="text-sm leading-tight font-semibold text-white">Расписание СПО и ВО</div>
           <div className="text-sidebar-muted text-xs leading-tight">{user?.organization?.shortName ?? 'Колледж'}</div>
         </div>
       </div>

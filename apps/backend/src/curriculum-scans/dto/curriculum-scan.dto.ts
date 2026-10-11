@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { CalendarEventType, ControlForm, StudyForm } from '@prisma/client';
+import { CalendarEventType, ControlForm, EducationLevel, StudyForm } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -51,6 +51,11 @@ export class ScanSpecialtyDto {
   @MaxLength(300)
   qualification: string;
 
+  @ApiPropertyOptional({ enum: EducationLevel, description: 'По умолчанию — по коду специальности' })
+  @IsOptional()
+  @IsEnum(EducationLevel, { message: 'Некорректный уровень образования' })
+  educationLevel?: EducationLevel;
+
   @ApiPropertyOptional({ example: '798' })
   @IsOptional()
   @IsString()
@@ -91,7 +96,7 @@ export class ScanSemesterDto {
   @ApiProperty({ example: 1 })
   @IsInt()
   @Min(1)
-  @Max(12)
+  @Max(14)
   number: number;
 
   @ApiProperty({ example: 1 })
@@ -180,6 +185,7 @@ export class ScanHoursDto {
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) @Max(5000) laboratory?: number;
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) @Max(5000) practical?: number;
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) @Max(5000) seminar?: number;
+  @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) @Max(5000) consultation?: number;
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) @Max(5000) individualProject?: number;
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) @Max(5000) selfStudy?: number;
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) @Max(5000) assessment?: number;
@@ -189,7 +195,7 @@ export class ScanItemSemesterDto {
   @ApiProperty({ example: 3 })
   @IsInt()
   @Min(1)
-  @Max(12)
+  @Max(14)
   number: number;
 
   @ApiProperty({ enum: ControlForm })
@@ -201,7 +207,7 @@ export class ScanItemSemesterDto {
   @Type(() => ScanHoursDto)
   hours: ScanHoursDto;
 
-  @ApiPropertyOptional({ description: 'Практика проводится на базе колледжа (ставится в расписание)' })
+  @ApiPropertyOptional({ description: 'Практика проводится на базе организации (ставится в расписание)' })
   @IsOptional()
   @IsBoolean()
   practiceAtCollege?: boolean;
@@ -243,6 +249,14 @@ export class ScanItemDto {
   @IsOptional()
   @IsBoolean()
   isDifficult?: boolean;
+
+  @ApiPropertyOptional({
+    default: true,
+    description: 'Обязательна для всех групп (false — дисциплина по выбору или факультатив)',
+  })
+  @IsOptional()
+  @IsBoolean()
+  required?: boolean;
 
   @ApiProperty({ type: [ScanItemSemesterDto] })
   @IsArray()

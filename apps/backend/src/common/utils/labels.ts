@@ -140,3 +140,17 @@ export function label(map: Record<string, string>, key: string | null | undefine
 
 /** Краткие названия дней недели (индекс — ISO-номер дня, 1 — понедельник) */
 export const WEEKDAY_SHORT_LABELS = ['', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
+
+export const EDUCATION_LEVEL_LABELS: Record<string, string> = {
+  SPO: 'СПО',
+  BACHELOR: 'Бакалавриат',
+  SPECIALIST: 'Специалитет',
+  MASTER: 'Магистратура',
+  POSTGRADUATE: 'Аспирантура',
+};
+
+export const STUDY_FORM_LABELS: Record<string, string> = {
+  FULL_TIME: 'очная',
+  PART_TIME: 'очно-заочная',
+  EXTRAMURAL: 'заочная',
+};

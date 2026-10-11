@@ -7,7 +7,7 @@ import { AuthUser } from '../common/types/auth-user';
 import { GroupsService } from '../groups/groups.service';
 import { HourControlService } from './hour-control.service';
 
-type AggregateBy = 'group' | 'discipline' | 'teacher' | 'semester' | 'program' | 'college';
+type AggregateBy = 'group' | 'discipline' | 'teacher' | 'semester' | 'program' | 'level' | 'college';
 
 @ApiTags('Контроль часов')
 @ApiBearerAuth()
@@ -20,7 +20,7 @@ export class HourControlController {
 
   @Get('hour-control')
   @Roles(...STAFF_ROLES)
-  @ApiOperation({ summary: 'Выполнение часов по всему колледжу (с фильтрами)' })
+  @ApiOperation({ summary: 'Выполнение часов по всей организации (с фильтрами)' })
   @ApiQuery({ name: 'programId', required: false })
   @ApiQuery({ name: 'semesterId', required: false })
   @ApiQuery({ name: 'groupId', required: false })
@@ -49,9 +49,12 @@ export class HourControlController {
   @Roles(...STAFF_ROLES)
   @ApiOperation({
     summary:
-      'Сводка выполнения часов по разрезам: группа, дисциплина, преподаватель, семестр, программа, колледж',
+      'Сводка выполнения часов по разрезам: группа, дисциплина, преподаватель, семестр, программа, организация',
   })
-  @ApiQuery({ name: 'by', enum: ['group', 'discipline', 'teacher', 'semester', 'program', 'college'] })
+  @ApiQuery({
+    name: 'by',
+    enum: ['group', 'discipline', 'teacher', 'semester', 'program', 'level', 'college'],
+  })
   @ApiQuery({ name: 'programId', required: false })
   @ApiQuery({ name: 'semesterId', required: false })
   summary(

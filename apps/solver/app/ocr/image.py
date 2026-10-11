@@ -5,10 +5,13 @@ from __future__ import annotations
 import logging
 import math
 import os
+from collections.abc import Iterator
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
 
+from .pdftext import MIN_PAGE_GLYPHS, Glyph, is_scanned, page_glyphs
 from .tesseract import detect_rotation
 
 log = logging.getLogger("engine.ocr")
@@ -27,29 +30,56 @@ def _fit(gray: np.ndarray) -> np.ndarray:
     return cv2.resize(gray, (round(w * scale), round(h * scale)), interpolation=interp)
 
 
-def load_pages(paths: list[str]) -> list[np.ndarray]:
-    """Все страницы файлов в оттенках серого, в порядке следования."""
-    pages: list[np.ndarray] = []
+@dataclass
+class PageImage:
+    """Страница в оттенках серого; glyphs — символы текстового слоя PDF (None — его нет)."""
+
+    gray: np.ndarray
+    glyphs: list[Glyph] | None = None
+
+
+def _is_pdf(path: str) -> bool:
+    with open(path, "rb") as fh:
+        head = fh.read(5)
+    return os.path.splitext(path)[1].lower() == ".pdf" or head == b"%PDF-"
+
+
+def count_pages(paths: list[str]) -> int:
+    total = 0
     for path in paths:
-        ext = os.path.splitext(path)[1].lower()
-        with open(path, "rb") as fh:
-            head = fh.read(5)
-        if ext == ".pdf" or head == b"%PDF-":
-            pages.extend(_load_pdf(path))
+        if _is_pdf(path):
+            import pypdfium2 as pdfium
+
+            pdf = pdfium.PdfDocument(path)
+            total += len(pdf)
+            pdf.close()
+        else:
+            total += 1
+    return total
+
+
+def iter_pages(paths: list[str]) -> Iterator[PageImage]:
+    """Страницы файлов по одной (в памяти не держатся все страницы сразу)."""
+    for path in paths:
+        if _is_pdf(path):
+            yield from _iter_pdf(path)
         else:
             data = np.fromfile(path, dtype=np.uint8)
             img = cv2.imdecode(data, cv2.IMREAD_GRAYSCALE)
             if img is None:
                 raise ValueError(f"Не удалось прочитать изображение {os.path.basename(path)}")
-            pages.append(_fit(img))
-    return pages
+            yield PageImage(_fit(img))
 
 
-def _load_pdf(path: str) -> list[np.ndarray]:
+def load_pages(paths: list[str]) -> list[np.ndarray]:
+    """Все страницы файлов в оттенках серого, в порядке следования."""
+    return [p.gray for p in iter_pages(paths)]
+
+
+def _iter_pdf(path: str) -> Iterator[PageImage]:
     import pypdfium2 as pdfium
 
     pdf = pdfium.PdfDocument(path)
-    pages = []
     try:
         for i in range(len(pdf)):
             page = pdf[i]
@@ -61,11 +91,14 @@ def _load_pdf(path: str) -> list[np.ndarray]:
                 arr = cv2.cvtColor(arr[:, :, :3], cv2.COLOR_BGR2GRAY)
             elif arr.ndim == 3:
                 arr = arr[:, :, 0]
-            pages.append(np.ascontiguousarray(arr))
+            gray = np.ascontiguousarray(arr)
+            # Скан с распознанным текстовым слоем обрабатывается как изображение: качество чужого
+            # распознавания неизвестно, а собственное сопровождается проверкой сумм часов
+            glyphs = [] if is_scanned(page) else page_glyphs(page, gray.shape[1], gray.shape[0])
             page.close()
+            yield PageImage(gray, glyphs if len(glyphs) >= MIN_PAGE_GLYPHS else None)
     finally:
         pdf.close()
-    return pages
 
 
 def ink_ratio(gray: np.ndarray) -> float:
@@ -143,4 +176,22 @@ def prepare(gray: np.ndarray) -> np.ndarray:
     if abs(angle) >= 0.05:
         log.debug("Наклон страницы %.2f°", angle)
         gray = rotate(gray, angle)
-    return gray
+    return crop_to_tables(gray)
+
+
+def crop_to_tables(gray: np.ndarray) -> np.ndarray:
+    """Мелкий скан (таблица занимает часть страницы): обрезка полей и увеличение до рабочего размера."""
+    h, w = gray.shape
+    hor, ver = line_masks(gray)
+    ys, xs = np.nonzero(hor | ver)
+    if len(xs) < 2000:
+        return gray
+    x1, x2 = (int(v) for v in np.percentile(xs, [0.2, 99.8]))
+    y1, y2 = (int(v) for v in np.percentile(ys, [0.2, 99.8]))
+    if (x2 - x1) > 0.7 * w or (y2 - y1) > 0.7 * h:
+        return gray
+    # Поле вокруг таблиц: заголовок страницы и подписи над таблицей
+    mx, my = int(0.04 * (x2 - x1)), int(0.08 * (y2 - y1))
+    crop = gray[max(0, y1 - my) : min(h, y2 + my), max(0, x1 - mx) : min(w, x2 + mx)]
+    log.debug("Таблицы занимают часть страницы: обрезка %dx%d и увеличение", crop.shape[1], crop.shape[0])
+    return _fit(crop)

@@ -54,9 +54,9 @@ export default function LoginPage() {
           <div className="bg-primary mb-5 flex size-12 items-center justify-center rounded-xl">
             <CalendarDays className="size-7" />
           </div>
-          <h1 className="text-3xl font-semibold">Расписание СПО</h1>
+          <h1 className="text-3xl font-semibold">Расписание СПО и ВО</h1>
           <p className="mt-3 text-slate-300">
-            Автоматизированное составление расписания колледжа: учебные планы, нагрузка, календарный график, генерация
+            Автоматизированное составление расписания колледжа и вуза: учебные планы, нагрузка, календарный график, генерация
             расписания с оптимизацией (OR-Tools CP-SAT), контроль выполнения часов и учёт проведённых занятий.
           </p>
         </div>

@@ -29,6 +29,7 @@ const HOUR_LABELS: Record<HourField, string> = {
   laboratory: 'Лаб',
   practical: 'Пр',
   seminar: 'Сем',
+  consultation: 'Конс',
   individualProject: 'ИП',
   selfStudy: 'СР',
   assessment: 'Контр.',
@@ -39,6 +40,7 @@ const HOUR_HINTS: Record<HourField, string> = {
   laboratory: 'Лабораторные — ставятся в расписание (часто по подгруппам)',
   practical: 'Практические занятия — ставятся в расписание',
   seminar: 'Семинары — ставятся в расписание как практические занятия',
+  consultation: 'Консультации — ставятся в расписание в конце семестра',
   individualProject: 'Индивидуальный проект — самостоятельная работа',
   selfStudy: 'Самостоятельная работа — в расписание не ставится',
   assessment: 'Часы промежуточной аттестации — в расписание не ставятся',
@@ -211,6 +213,12 @@ export function ReviewItems({ draft, onChange }: { draft: Draft; onChange: (draf
                             : 'Раздел станет циклом учебного плана'}
                         </div>
                       )}
+                      {!aggregate && item.required === false && (
+                        <label className="mt-1 flex items-center gap-1.5 text-[11px]" title="Дисциплина по выбору или факультатив ставится в расписание только группам, которым назначена нагрузка">
+                          <Switch checked={false} onCheckedChange={(v) => updateItem(index, { required: v })} />
+                          по выбору — только для выбравших групп
+                        </label>
+                      )}
                     </TableCell>
                     <TableCell rowSpan={span} className="align-top">
                       <SimpleSelect
@@ -268,7 +276,7 @@ export function ReviewItems({ draft, onChange }: { draft: Draft; onChange: (draf
                                   checked={s.practiceAtCollege ?? false}
                                   onCheckedChange={(v) => updateSemester(index, s.number, { practiceAtCollege: v })}
                                 />
-                                в колледже (в расписание)
+                                на базе организации (в расписание)
                               </label>
                             )}
                           </TableCell>

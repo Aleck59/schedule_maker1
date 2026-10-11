@@ -12,6 +12,7 @@ import {
   Play,
   Square,
   Upload,
+  Users,
   XCircle,
 } from 'lucide-react';
 import { Controller, useForm } from 'react-hook-form';
@@ -19,6 +20,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { z } from 'zod';
 import { Confirm } from '@/components/common/confirm';
 import { Field } from '@/components/common/field';
+import { AllGroupsPlanCard, LEVEL_FILTER_OPTIONS, type LevelFilter, levelsOf } from '@/components/generation/all-groups';
 import { PageHeader } from '@/components/common/page-header';
 import { SimpleSelect } from '@/components/common/simple-select';
 import { EmptyState, ErrorState, LoadingState, Spinner } from '@/components/common/states';
@@ -38,10 +40,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useGroups, usePeriods, useSemesters, useSettings } from '@/hooks/use-reference';
 import { api } from '@/lib/api';
-import { addDays, formatDate, formatDateShort, formatDateTime, formatNumber, isoWeekday, weekStart, weekdayName } from '@/lib/format';
+import { addDays, formatDate, formatDateShort, formatDateTime, formatNumber, isoWeekday, today, weekStart, weekdayName } from '@/lib/format';
 import { LESSON_TYPE_LABELS, LESSON_TYPE_SHORT, SOFT_VIOLATION_LABELS } from '@/lib/labels';
 import { useApi, useApiMutation } from '@/lib/query';
-import type { GenerationJob, GenerationResult, PreviewLesson, SchedulePeriod } from '@/lib/types';
+import type { AllGroupsPlan, GenerationJob, GenerationResult, PreviewLesson, SchedulePeriod } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 const ACTIVE_JOB = ['QUEUED', 'GENERATING', 'VALIDATING'];
@@ -112,6 +114,11 @@ export default function GenerationPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [applyResult, setApplyResult] = useState<ApplyResult | null>(null);
   const [allJobs, setAllJobs] = useState(false);
+  // Охват: один учебный план (период) или все группы организации
+  const scope = params.get('scope') === 'all' ? 'all' : 'period';
+  const [allDate, setAllDate] = useState(today());
+  const [levelFilter, setLevelFilter] = useState<LevelFilter>('ALL');
+  const plan = useApi<AllGroupsPlan>(['all-groups-plan', allDate], scope === 'all' ? `/generation/all/plan?date=${allDate}` : null);
 
   const period: SchedulePeriod | undefined = useMemo(() => {
     const list = (periods.data ?? []).filter((p) => p.status !== 'ARCHIVED');
@@ -125,7 +132,8 @@ export default function GenerationPage() {
   );
 
   const capacity = useApi<CapacityRow[]>(['capacity', period?.semesterId], period ? `/semesters/${period.semesterId}/capacity-forecast` : null);
-  const jobs = useApi<GenerationJob[]>(['generation-jobs', period?.id], period ? `/schedule-periods/${period.id}/generation-jobs` : null, undefined, {
+  const jobsUrl = scope === 'all' ? '/generation-jobs' : period ? `/schedule-periods/${period.id}/generation-jobs` : null;
+  const jobs = useApi<GenerationJob[]>(['generation-jobs', scope, period?.id], jobsUrl, undefined, {
     refetchInterval: (q) => ((q.state.data as GenerationJob[] | undefined)?.some((j) => ACTIVE_JOB.includes(j.status)) ? 3000 : false),
   });
   const currentJobId = jobId ?? jobs.data?.[0]?.id ?? null;
@@ -183,6 +191,27 @@ export default function GenerationPage() {
       setParams({ period: period!.id, job: j.id }, { replace: true });
     },
   });
+  const generateAll = useApiMutation(
+    (values: FormValues) =>
+      api.post<{ job: GenerationJob; createdPeriods: number }>('/generation/all', {
+        ...values,
+        groupIds: undefined,
+        date: allDate,
+        educationLevels: levelsOf(levelFilter),
+      }),
+    {
+      success: (r) => `Генерация для всех групп запущена${r.createdPeriods ? `, создано периодов расписания: ${r.createdPeriods}` : ''}`,
+      invalidate: [['generation-jobs'], ['schedule-periods'], ['all-groups-plan']],
+      onSuccess: (r) => {
+        setApplyResult(null);
+        setParams({ scope: 'all', job: r.job.id }, { replace: true });
+      },
+    },
+  );
+  const setScope = (next: 'all' | 'period') => {
+    setApplyResult(null);
+    setParams(next === 'all' ? { scope: 'all' } : period ? { period: period.id } : {}, { replace: true });
+  };
   const cancel = useApiMutation((id: string) => api.post(`/generation-jobs/${id}/cancel`), {
     success: 'Задание отменено',
     invalidate: [['generation-jobs'], ['generation-job']],
@@ -213,6 +242,26 @@ export default function GenerationPage() {
                 {solver.data.cpSatAvailable ? `OR-Tools CP-SAT ${solver.data.version ?? ''}` : 'CP-SAT недоступен — эвристика'}
               </Badge>
             )}
+            <div className="bg-muted inline-flex h-9 rounded-md p-0.5">
+              {(
+                [
+                  ['period', 'Один учебный план'],
+                  ['all', 'Все группы'],
+                ] as const
+              ).map(([value, text]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setScope(value)}
+                  className={cn(
+                    'rounded px-3 text-sm font-medium transition-colors',
+                    scope === value ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
             <Button variant="outline" onClick={() => setCreateOpen(true)}>
               <CalendarPlus /> Новый период
             </Button>
@@ -220,7 +269,7 @@ export default function GenerationPage() {
         }
       />
 
-      {!period ? (
+      {scope === 'period' && !period ? (
         <EmptyState
           title="Нет периодов расписания"
           description="Создайте период расписания для семестра, затем запустите генерацию"
@@ -234,16 +283,42 @@ export default function GenerationPage() {
                 <CardTitle>Параметры генерации</CardTitle>
               </CardHeader>
               <CardContent>
-                <form className="space-y-4" onSubmit={form.handleSubmit((v) => generate.mutate(v))}>
+                <form className="space-y-4" onSubmit={form.handleSubmit((v) => (scope === 'all' ? generateAll.mutate(v) : generate.mutate(v)))}>
+                  {scope === 'all' ? (
+                    <>
+                      <Alert variant="info">
+                        <Users />
+                        <AlertTitle>Расписание для всех групп</AlertTitle>
+                        <AlertDescription className="text-xs">
+                          Для каждой активной группы берётся её текущий семестр, недостающие периоды расписания создаются автоматически.
+                          Генерация одна на все группы СПО и ВО, поэтому у преподавателей и аудиторий не будет накладок между учебными
+                          планами.
+                        </AlertDescription>
+                      </Alert>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="Семестр групп на дату">
+                          <Input type="date" value={allDate} onChange={(e) => e.target.value && setAllDate(e.target.value)} />
+                        </Field>
+                        <Field label="Уровень образования">
+                          <SimpleSelect value={levelFilter} onChange={(v) => setLevelFilter((v as LevelFilter) ?? 'ALL')} options={LEVEL_FILTER_OPTIONS} />
+                        </Field>
+                      </div>
+                    </>
+                  ) : (
+                  <>
                   <Field label="Период расписания" required>
                     <SimpleSelect
-                      value={period.id}
+                      value={period?.id ?? null}
                       onChange={(v) => v && setParams({ period: v }, { replace: true })}
                       options={(periods.data ?? []).filter((p) => p.status !== 'ARCHIVED').map((p) => ({ value: p.id, label: p.title }))}
                     />
                   </Field>
                   <div className="text-muted-foreground -mt-2 flex items-center gap-2 text-xs">
-                    {formatDate(period.startDate)} — {formatDate(period.endDate)} <PeriodStatusBadge status={period.status} />
+                    {period && (
+                      <>
+                        {formatDate(period.startDate)} — {formatDate(period.endDate)} <PeriodStatusBadge status={period.status} />
+                      </>
+                    )}
                   </div>
                   <Field label="Режим">
                     <Controller
@@ -277,12 +352,14 @@ export default function GenerationPage() {
                       {periodGroups.length === 0 && <span className="text-muted-foreground text-xs">Нет активных групп</span>}
                     </div>
                   </Field>
+                  </>
+                  )}
                   <div className="grid grid-cols-2 gap-3">
                     <Field label="С даты" error={form.formState.errors.dateFrom?.message}>
-                      <Input type="date" min={period.startDate} max={period.endDate} {...form.register('dateFrom', { setValueAs: (v) => v || undefined })} />
+                      <Input type="date" min={period?.startDate} max={period?.endDate} {...form.register('dateFrom', { setValueAs: (v) => v || undefined })} />
                     </Field>
                     <Field label="По дату" error={form.formState.errors.dateTo?.message}>
-                      <Input type="date" min={period.startDate} max={period.endDate} {...form.register('dateTo', { setValueAs: (v) => v || undefined })} />
+                      <Input type="date" min={period?.startDate} max={period?.endDate} {...form.register('dateTo', { setValueAs: (v) => v || undefined })} />
                     </Field>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -348,8 +425,12 @@ export default function GenerationPage() {
                     </AlertDescription>
                   </Alert>
                   <div className="flex gap-2">
-                    <Button type="submit" className="flex-1" disabled={generate.isPending || running}>
-                      {generate.isPending ? <Spinner /> : <Play />} Сгенерировать
+                    <Button
+                      type="submit"
+                      className="flex-1"
+                      disabled={generate.isPending || generateAll.isPending || running || (scope === 'all' && !plan.data?.summary.included)}
+                    >
+                      {generate.isPending || generateAll.isPending ? <Spinner /> : <Play />} {scope === 'all' ? 'Составить для всех групп' : 'Сгенерировать'}
                     </Button>
                     {running && job.data && (
                       <Button type="button" variant="outline" onClick={() => cancel.mutate(job.data!.id)}>
@@ -360,7 +441,11 @@ export default function GenerationPage() {
                 </form>
               </CardContent>
             </Card>
-            <CapacityCard rows={capacity.data} loading={capacity.isLoading} />
+            {scope === 'all' ? (
+              <AllGroupsPlanCard plan={plan.data} filter={levelFilter} loading={plan.isLoading} />
+            ) : (
+              <CapacityCard rows={capacity.data} loading={capacity.isLoading} />
+            )}
           </div>
 
           <div className="min-w-0 space-y-4">
@@ -403,7 +488,7 @@ export default function GenerationPage() {
                         <TableRow
                           key={j.id}
                           className={cn('cursor-pointer', j.id === currentJobId && 'bg-primary/5')}
-                          onClick={() => setParams({ period: period.id, job: j.id }, { replace: true })}
+                          onClick={() => setParams(scope === 'all' ? { scope: 'all', job: j.id } : { period: period!.id, job: j.id }, { replace: true })}
                         >
                           <TableCell>{formatDateTime(j.createdAt)}</TableCell>
                           <TableCell>{j.mode === 'CALENDAR' ? 'Календарный' : 'Шаблон недели'}</TableCell>
@@ -521,6 +606,21 @@ function JobPanel({
           )}
         </CardHeader>
         <CardContent className="space-y-3">
+          {result?.periods && result.periods.length > 1 && (
+            <details className="rounded-md border p-2.5 text-sm">
+              <summary className="cursor-pointer font-medium">
+                Совместная генерация: периодов {result.periods.length}, групп {result.periods.reduce((a, p) => a + p.groupCodes.length, 0)}
+              </summary>
+              <div className="mt-2 space-y-1">
+                {result.periods.map((p) => (
+                  <div key={p.id} className="text-xs">
+                    <span className="font-medium">{p.title}</span>
+                    <span className="text-muted-foreground"> — {p.groupCodes.join(', ')}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
           {running && (
             <div className="space-y-1.5">
               <Progress value={job.progress} />
@@ -541,7 +641,7 @@ function JobPanel({
               <CheckCircle2 />
               <AlertTitle>Результат применён {job.appliedAt ? formatDateTime(job.appliedAt) : ''}</AlertTitle>
               <AlertDescription>
-                <Link className="underline" to={`/schedule?period=${job.schedulePeriodId}`}>
+                <Link className="underline" to={(job.periodIds?.length ?? 0) > 1 ? '/schedule' : `/schedule?period=${job.schedulePeriodId}`}>
                   Открыть расписание
                 </Link>
               </AlertDescription>

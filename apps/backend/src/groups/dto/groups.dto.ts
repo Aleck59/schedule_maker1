@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   ArrayMinSize,
   IsArray,
   IsBoolean,
@@ -38,13 +39,13 @@ export class CreateGroupDto {
   @ApiProperty({ example: 2 })
   @IsInt()
   @Min(1)
-  @Max(6)
+  @Max(7)
   courseNumber: number;
 
   @ApiProperty({ example: 3 })
   @IsInt()
   @Min(1)
-  @Max(12)
+  @Max(14)
   currentSemesterNumber: number;
 
   @ApiProperty({ example: 25 })
@@ -59,6 +60,39 @@ export class CreateGroupDto {
   @Min(1)
   @Max(6)
   subgroupCount?: number;
+
+  @ApiPropertyOptional({
+    type: [Number],
+    example: [1, 2, 3, 4, 5, 6],
+    description: 'Учебные дни группы (1 — пн … 7 — вс); пусто — все учебные дни организации',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(7)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  @Max(7, { each: true })
+  studyDays?: number[];
+
+  @ApiPropertyOptional({
+    nullable: true,
+    example: 5,
+    description: 'Первая допустимая пара (вторая смена, вечерние группы)',
+  })
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  firstLessonNumber?: number | null;
+
+  @ApiPropertyOptional({ nullable: true, example: 7, description: 'Последняя допустимая пара' })
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  lastLessonNumber?: number | null;
 
   @ApiPropertyOptional({ default: true })
   @IsOptional()

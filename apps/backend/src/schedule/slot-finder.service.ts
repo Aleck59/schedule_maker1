@@ -10,6 +10,7 @@ import {
   toDateStr,
   todayInTimezone,
 } from '../common/utils/dates';
+import { groupLessonNumbers } from '../common/utils/groups';
 import { effectiveRoomTypes } from '../common/utils/rooms';
 import { TeacherRules } from '../planning/availability-rules';
 import { ACTIVE_STATUSES } from '../planning/hours-calculator';
@@ -150,6 +151,7 @@ export class SlotFinderService {
         .map((a) => `${a.weekday}#${a.lessonNumber}`),
     );
 
+    const groupLessons = groupLessonNumbers(group, settings.lessonsPerDay);
     const result: FreeSlot[] = [];
     for (const date of eachDay(from, to)) {
       const allowed =
@@ -159,8 +161,11 @@ export class SlotFinderService {
       if (!allowed) continue;
       if (teacher && ctx.teacherBlocks(teacher.id, date).length > 0) continue;
       const weekday = isoWeekday(date);
+      // Режим занятий группы: учебные дни и допустимые пары
+      if (group.studyDays.length > 0 && !group.studyDays.includes(weekday)) continue;
       const dayCount = groupDayCount.get(date) ?? 0;
       for (let lesson = 1; lesson <= settings.lessonsPerDay; lesson++) {
+        if (groupLessons && !groupLessons.includes(lesson)) continue;
         const slot = `${date}#${lesson}`;
         const gs = busyGroup.get(`${req.studentGroupId}#${slot}`);
         if (gs && (req.subgroupNumber === null || gs.has(0) || gs.has(req.subgroupNumber))) continue;

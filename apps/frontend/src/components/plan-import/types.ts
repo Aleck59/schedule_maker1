@@ -1,4 +1,4 @@
-import type { ControlForm, StudyForm } from '@/lib/types';
+import type { ControlForm, EducationLevel, StudyForm } from '@/lib/types';
 
 export type ScanStatus = 'PROCESSING' | 'READY' | 'FAILED' | 'APPLIED';
 
@@ -27,6 +27,7 @@ export const HOUR_FIELDS = [
   'laboratory',
   'practical',
   'seminar',
+  'consultation',
   'individualProject',
   'selfStudy',
   'assessment',
@@ -50,6 +51,8 @@ export interface DraftItem {
   cycleCode: string;
   parentCode: string | null;
   include: boolean;
+  /** false — дисциплина по выбору (кроме первой) или факультатив: ставится только выбравшим группам */
+  required?: boolean;
   isDifficult?: boolean;
   issues?: string[];
   semesters: DraftItemSemester[];
@@ -69,12 +72,20 @@ export interface DraftSemester {
 export interface DraftPeriod {
   course: number;
   type: string;
+  title?: string;
   startDate: string;
   endDate: string;
 }
 
 export interface Draft {
-  specialty: { code: string; name: string; qualification: string; fgosNumber?: string; fgosDate?: string };
+  specialty: {
+    code: string;
+    name: string;
+    qualification: string;
+    educationLevel?: EducationLevel;
+    fgosNumber?: string;
+    fgosDate?: string;
+  };
   program: { title: string; admissionYear: number; studyForm: StudyForm; durationMonths: number };
   semesters: DraftSemester[];
   periods: DraftPeriod[];

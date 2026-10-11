@@ -406,9 +406,16 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     return (st.roomSlot.get(`${room.id}#${day.key}#${lesson}`) ?? 0) === 0;
   };
 
+  const groupLessons = new Map(
+    problem.groups.filter((g) => g.allowedLessons?.length).map((g) => [g.id, new Set(g.allowedLessons)]),
+  );
   const slotAllowed = (ds: DemandState, day: DayRef, lesson: number) => {
     if (lesson > lessonsPerDay) return false;
     if (settings.forbidLateLessons && lesson >= settings.lateLessonNumber) return false;
+    for (const g of ds.d.groupIds) {
+      const allowed = groupLessons.get(g);
+      if (allowed && !allowed.has(lesson)) return false;
+    }
     return ds.allowedDays.has(day.key);
   };
 

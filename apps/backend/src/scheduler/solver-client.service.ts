@@ -44,7 +44,11 @@ export class SolverClientService {
       try {
         onProgress?.(0.05, 'Решение модели CP-SAT');
         const timeoutMs = Math.min(this.config.timeoutMs, (problem.timeLimitSeconds + 120) * 1000);
-        return await this.engine.run<SolverResult>(['solve'], { input: JSON.stringify(problem), timeoutMs });
+        return await this.engine.run<SolverResult>(['solve'], {
+          input: JSON.stringify(problem),
+          timeoutMs,
+          onProgress: (fraction, message) => onProgress?.(0.05 + fraction * 0.95, message),
+        });
       } catch (e) {
         const message = (e as Error).message;
         if (mode === 'cp-sat') {

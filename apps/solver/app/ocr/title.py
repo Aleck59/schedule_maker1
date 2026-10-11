@@ -116,6 +116,43 @@ def parse_title(cells: list[Cell], page_text: str) -> dict[str, object]:
     return result
 
 
+LEVEL_BY_CODE = {
+    "01": "SPO",
+    "02": "SPO",
+    "03": "BACHELOR",
+    "04": "MASTER",
+    "05": "SPECIALIST",
+    "06": "POSTGRADUATE",
+    "07": "POSTGRADUATE",
+    "08": "POSTGRADUATE",
+}
+HEADER_RE = re.compile(
+    r"Учебный план\s+(?P<kind>[^'«\"]{0,60}?)\s*['«\"](?P<file>[^'»\"]{1,80})['»\"]\s*,\s*"
+    r"код\s+(?:специальности|направления)\s+(?P<code>\d{2}\.\d{2}\.\d{2})"
+    r"(?:\s*,\s*направленность\s*\(профиль\)\s*:?\s*(?P<profile>[^,\n]{3,150}?))?"
+    r"\s*,\s*год начала подготовки\s+(?P<year>20\d{2})",
+    re.I,
+)
+
+
+def education_level(code: str | None) -> str | None:
+    """Уровень образования по коду специальности (направления): «38.02.01» — СПО, «38.03.01» — бакалавриат."""
+    m = CODE_RE.search(code or "")
+    return LEVEL_BY_CODE.get(m.group(2)) if m else None
+
+
+def parse_plan_header(text: str) -> dict[str, object]:
+    """Колонтитул страниц цифрового плана: «Учебный план бакалавриата '…plx', код направления 40.03.01,
+    направленность (профиль) : …, год начала подготовки 2026»."""
+    m = HEADER_RE.search(re.sub(r"\s+", " ", text))
+    if not m:
+        return {}
+    result: dict[str, object] = {"specialtyCode": m.group("code"), "admissionYear": int(m.group("year"))}
+    if m.group("profile"):
+        result["profile"] = m.group("profile").strip()
+    return result
+
+
 def is_title_page(cells: list[Cell], page_text: str) -> bool:
     text = page_text.upper()
     return "УЧЕБНЫЙ ПЛАН" in text or ("КВАЛИФИКАЦ" in text and bool(CODE_RE.search(page_text)))

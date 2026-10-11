@@ -319,7 +319,7 @@ function EventsView({ programId, editable }: { programId: string; editable: bool
                           ? `${e.courseNumber} курс`
                           : e.educationalProgramId
                             ? 'Вся программа'
-                            : 'Весь колледж'}
+                            : 'Вся организация'}
                   </TableCell>
                   <TableCell>{e.blocksSchedule ? <Badge variant="warning">Да</Badge> : <Badge variant="muted">Нет</Badge>}</TableCell>
                   <TableCell className="text-right">
@@ -432,7 +432,7 @@ function EventDialog({ open, onOpenChange, programId }: { open: boolean; onOpenC
                     { value: 'program', label: 'Вся программа' },
                     { value: 'course', label: 'Курс' },
                     { value: 'group', label: 'Группа' },
-                    { value: 'college', label: 'Весь колледж (праздник)' },
+                    { value: 'college', label: 'Вся организация (праздник)' },
                     { value: 'teacher', label: 'Преподаватель (отпуск, командировка)' },
                   ]}
                 />

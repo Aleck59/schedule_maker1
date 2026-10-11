@@ -30,6 +30,15 @@ enum ProgramStatus {
   ARCHIVED
 }
 
+/// Уровень образования: СПО и высшее образование в одной организации
+enum EducationLevel {
+  SPO // среднее профессиональное образование
+  BACHELOR // бакалавриат
+  SPECIALIST // специалитет
+  MASTER // магистратура
+  POSTGRADUATE // подготовка кадров высшей квалификации
+}
+
 enum StudyForm {
   FULL_TIME // очная
   PART_TIME // очно-заочная
@@ -305,18 +314,20 @@ model User {
 // Учебные планы
 // ============================================================================
 
+/// Специальность СПО или направление подготовки (специальность) высшего образования
 model Specialty {
-  id             String    @id @default(uuid())
+  id             String         @id @default(uuid())
   code           String
   name           String
   qualification  String
-  /// Номер приказа ФГОС СПО
+  educationLevel EducationLevel @default(SPO)
+  /// Номер приказа ФГОС
   fgosNumber     String?
-  /// Дата приказа ФГОС СПО
-  fgosDate       DateTime? @db.Date
+  /// Дата приказа ФГОС
+  fgosDate       DateTime?      @db.Date
   durationMonths Int
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
   programs EducationalProgram[]
 
@@ -407,6 +418,11 @@ model StudentGroup {
   currentSemesterNumber Int
   studentCount          Int
   subgroupCount         Int      @default(1)
+  /// Учебные дни группы (1 — пн ... 7 — вс); пусто — все учебные дни организации
+  studyDays             Int[]    @default([])
+  /// Допустимые пары группы (вторая смена, вечерние и очно-заочные группы); null — без ограничения
+  firstLessonNumber     Int?
+  lastLessonNumber      Int?
   isActive              Boolean  @default(true)
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
@@ -934,7 +950,10 @@ model MakeupTask {
 /// Задание на генерацию расписания (выполняется в фоне через очередь)
 model ScheduleGenerationJob {
   id               String              @id @default(uuid())
+  /// Основной период; при совместной генерации для всех групп — первый из periodIds
   schedulePeriodId String
+  /// Все периоды совместной генерации (пусто — только schedulePeriodId)
+  periodIds        String[]            @default([])
   createdByUserId  String?
   status           GenerationJobStatus @default(QUEUED)
   mode             GenerationMode

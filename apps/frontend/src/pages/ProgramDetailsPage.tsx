@@ -572,7 +572,7 @@ function ItemDialog({ itemId, programId, onClose, semesters }: { itemId: string 
                           disabled={!canEdit}
                           onCheckedChange={(v) => setDraft({ ...draft, practiceAtCollege: v })}
                         />
-                        Практика проводится в колледже (ставится в расписание)
+                        Практика проводится на базе организации (ставится в расписание)
                       </label>
                       <label className="flex items-center gap-2">
                         <Switch

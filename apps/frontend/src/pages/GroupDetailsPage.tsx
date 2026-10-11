@@ -25,7 +25,7 @@ import { formatNumber } from '@/lib/format';
 import { LESSON_TYPE_LABELS } from '@/lib/labels';
 import { useApi, useApiMutation } from '@/lib/query';
 import type { Assignment, Group, HourControlResponse, Student } from '@/lib/types';
-import { GroupDialog } from './GroupsPage';
+import { GroupDialog, studyModeText } from './GroupsPage';
 
 export default function GroupDetailsPage() {
   const { id } = useParams<{ id: string }>();
@@ -91,7 +91,7 @@ export default function GroupDetailsPage() {
         }
       />
       <div className="grid gap-3 sm:grid-cols-4">
-        <StatCard title="Студентов" value={g.studentCount} />
+        <StatCard title="Студентов" value={g.studentCount} hint={studyModeText(g) ? `Режим занятий: ${studyModeText(g)}` : undefined} />
         <StatCard title="Подгрупп" value={g.subgroups.length} hint={g.subgroups.map((s) => `${s.name}: ${s.studentCount}`).join(' · ')} />
         <StatCard title="Назначений нагрузки" value={g._count?.assignments ?? 0} />
         <StatCard title="Занятий в расписании" value={g._count?.lessons ?? 0} />

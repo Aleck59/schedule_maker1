@@ -14,6 +14,7 @@ import {
 } from '../planning/hours-calculator';
 import { PlanningService } from '../planning/planning.service';
 import { DemandStream, StreamFilter } from '../planning/planning.types';
+import { EDUCATION_LEVEL_LABELS } from '../common/utils/labels';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 
@@ -170,10 +171,10 @@ export class HourControlService {
     };
   }
 
-  /** Агрегация строк по разрезам: группа, дисциплина, преподаватель, семестр, программа, колледж */
+  /** Агрегация строк по разрезам: группа, дисциплина, преподаватель, семестр, программа, организация */
   async aggregate(
     filter: StreamFilter,
-    by: 'group' | 'discipline' | 'teacher' | 'semester' | 'program' | 'college',
+    by: 'group' | 'discipline' | 'teacher' | 'semester' | 'program' | 'level' | 'college',
   ) {
     const { rows, today } = await this.rows(filter);
     const groups = new Map<string, { key: string; label: string; rows: HourControlRow[] }>();
@@ -183,12 +184,14 @@ export class HourControlService {
       groups.set(key, g);
     };
     let programTitles = new Map<string, string>();
-    if (by === 'program') {
+    let programLevels = new Map<string, string>();
+    if (by === 'program' || by === 'level') {
       const programs = await this.prisma.educationalProgram.findMany({
         where: { id: { in: Array.from(new Set(rows.map((r) => r.programId))) } },
-        select: { id: true, title: true },
+        select: { id: true, title: true, specialty: { select: { educationLevel: true } } },
       });
       programTitles = new Map(programs.map((p) => [p.id, p.title]));
+      programLevels = new Map(programs.map((p) => [p.id, p.specialty.educationLevel]));
     }
     for (const r of rows) {
       switch (by) {
@@ -204,8 +207,13 @@ export class HourControlService {
         case 'program':
           push(r.programId, programTitles.get(r.programId) ?? r.programId, r);
           break;
+        case 'level': {
+          const level = programLevels.get(r.programId) ?? 'SPO';
+          push(level, EDUCATION_LEVEL_LABELS[level] ?? level, r);
+          break;
+        }
         case 'college':
-          push('college', 'Колледж в целом', r);
+          push('college', 'Организация в целом', r);
           break;
         case 'teacher': {
           const seen = new Set<string>();

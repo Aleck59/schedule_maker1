@@ -25,6 +25,8 @@ class Group(CamelModel):
     subgroups: list[int] = Field(default_factory=list)
     allowed_dates: list[str] = Field(default_factory=list)
     max_lessons_per_day: int = 4
+    # Допустимые номера пар группы (вторая смена, вечерние группы); None — все пары
+    allowed_lessons: list[int] | None = None
 
 
 class Teacher(CamelModel):

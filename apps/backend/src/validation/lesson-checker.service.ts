@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { CalendarEventType, ClassroomType, LessonType, Severity } from '@prisma/client';
 import { addDaysStr, formatDateRu, isoWeekday, parseDate, toDateStr, weekStart } from '../common/utils/dates';
-import { CALENDAR_EVENT_LABELS, CLASSROOM_TYPE_LABELS } from '../common/utils/labels';
+import { groupLessonNumbers } from '../common/utils/groups';
+import { CALENDAR_EVENT_LABELS, CLASSROOM_TYPE_LABELS, WEEKDAY_SHORT_LABELS } from '../common/utils/labels';
 import { effectiveRoomTypes } from '../common/utils/rooms';
 import { describeRule, SlotVerdict, TeacherRules } from '../planning/availability-rules';
 import { PRACTICE_EVENT_TYPES, practiceEventTypeFor } from '../planning/calendar-context';
@@ -117,6 +118,26 @@ export class LessonCheckerService {
     }
     if (c.lessonNumber >= settings.lateLessonNumber) {
       issues.push(issue(Severity.WARNING, 'LATE_LESSONS', `Поздняя пара (№${c.lessonNumber})`));
+    }
+    // --- Режим занятий группы (вторая смена, вечерние и очно-заочные группы)
+    if (group.studyDays.length > 0 && !group.studyDays.includes(weekday)) {
+      issues.push(
+        issue(
+          Severity.WARNING,
+          'GROUP_STUDY_MODE',
+          `${WEEKDAY_SHORT_LABELS[weekday]} — не учебный день группы ${group.code} по её режиму занятий`,
+        ),
+      );
+    }
+    const groupLessons = groupLessonNumbers(group, Math.max(settings.lessonsPerDay, c.lessonNumber));
+    if (groupLessons && !groupLessons.includes(c.lessonNumber)) {
+      issues.push(
+        issue(
+          Severity.WARNING,
+          'GROUP_STUDY_MODE',
+          `Пара №${c.lessonNumber} вне режима занятий группы ${group.code} (пары ${groupLessons[0]}–${groupLessons.at(-1)})`,
+        ),
+      );
     }
 
     // --- Календарный график

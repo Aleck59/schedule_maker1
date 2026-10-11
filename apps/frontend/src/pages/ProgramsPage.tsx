@@ -18,9 +18,10 @@ import { Switch } from '@/components/ui/switch';
 import { usePrograms } from '@/hooks/use-reference';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { PROGRAM_STATUS_LABELS, STUDY_FORM_LABELS } from '@/lib/labels';
+import { EDUCATION_LEVEL_LABELS, educationLevelByCode, PROGRAM_STATUS_LABELS, STUDY_FORM_LABELS } from '@/lib/labels';
 import { useApi, useApiMutation } from '@/lib/query';
 import type { Program, Specialty } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 export default function ProgramsPage() {
   const { canEdit } = useAuth();
@@ -28,6 +29,11 @@ export default function ProgramsPage() {
   const programs = usePrograms();
   const [open, setOpen] = useState(false);
   const [specialtyOpen, setSpecialtyOpen] = useState(false);
+  const [level, setLevel] = useState<'ALL' | 'SPO' | 'HIGHER'>('ALL');
+  const filtered = (programs.data ?? []).filter((p) =>
+    level === 'ALL' ? true : level === 'SPO' ? p.specialty.educationLevel === 'SPO' : p.specialty.educationLevel !== 'SPO',
+  );
+  const hasHigher = (programs.data ?? []).some((p) => p.specialty.educationLevel !== 'SPO');
 
   const columns: ColumnDef<Program>[] = [
     {
@@ -40,6 +46,16 @@ export default function ProgramsPage() {
             {row.original.specialty.code} {row.original.specialty.name} · {row.original.specialty.qualification}
           </div>
         </div>
+      ),
+    },
+    {
+      id: 'level',
+      header: 'Уровень',
+      accessorFn: (p) => EDUCATION_LEVEL_LABELS[p.specialty.educationLevel],
+      cell: ({ row }) => (
+        <Badge variant={row.original.specialty.educationLevel === 'SPO' ? 'secondary' : 'violet'}>
+          {EDUCATION_LEVEL_LABELS[row.original.specialty.educationLevel]}
+        </Badge>
       ),
     },
     { accessorKey: 'admissionYear', header: 'Год набора' },
@@ -79,7 +95,7 @@ export default function ProgramsPage() {
     <div className="space-y-5">
       <PageHeader
         title="Учебные планы"
-        description="Образовательные программы СПО: специальность, семестры, дисциплины и часы"
+        description="Образовательные программы СПО и высшего образования: специальность (направление), семестры, дисциплины и часы"
         actions={
           canEdit && (
             <>
@@ -103,7 +119,32 @@ export default function ProgramsPage() {
       ) : programs.error ? (
         <ErrorState error={programs.error} onRetry={() => programs.refetch()} />
       ) : (
-        <DataTable data={programs.data ?? []} columns={columns} onRowClick={(p) => navigate(`/programs/${p.id}`)} emptyText="Учебные планы не созданы" />
+        <>
+          {hasHigher && (
+            <div className="bg-muted inline-flex h-9 rounded-md p-0.5">
+              {(
+                [
+                  ['ALL', 'Все'],
+                  ['SPO', 'СПО'],
+                  ['HIGHER', 'Высшее образование'],
+                ] as const
+              ).map(([value, text]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setLevel(value)}
+                  className={cn(
+                    'rounded px-3 text-sm font-medium transition-colors',
+                    level === value ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
+          )}
+          <DataTable data={filtered} columns={columns} onRowClick={(p) => navigate(`/programs/${p.id}`)} emptyText="Учебные планы не созданы" />
+        </>
       )}
       <CreateProgramDialog open={open} onOpenChange={setOpen} onCreated={(id) => navigate(`/programs/${id}`)} />
       <CreateSpecialtyDialog open={specialtyOpen} onOpenChange={setSpecialtyOpen} />
@@ -117,7 +158,7 @@ const programSchema = z.object({
   admissionYear: z.number({ invalid_type_error: 'Введите год' }).int().min(2000, 'Некорректный год').max(2100, 'Некорректный год'),
   studyForm: z.enum(['FULL_TIME', 'PART_TIME', 'EXTRAMURAL']),
   durationMonths: z.number({ invalid_type_error: 'Введите число' }).int().min(1, 'Не менее 1 месяца'),
-  totalSemesters: z.number({ invalid_type_error: 'Введите число' }).int().min(1, 'Не менее 1').max(12, 'Не более 12'),
+  totalSemesters: z.number({ invalid_type_error: 'Введите число' }).int().min(1, 'Не менее 1').max(14, 'Не более 14'),
   generateStructure: z.boolean(),
 });
 type ProgramForm = z.infer<typeof programSchema>;
@@ -224,6 +265,7 @@ function CreateProgramDialog({ open, onOpenChange, onCreated }: { open: boolean;
 
 const specialtySchema = z.object({
   code: z.string().trim().regex(/^\d{2}\.\d{2}\.\d{2}$/, 'Код в формате 09.02.07'),
+  educationLevel: z.enum(['SPO', 'BACHELOR', 'SPECIALIST', 'MASTER', 'POSTGRADUATE']),
   name: z.string().trim().min(1, 'Укажите наименование'),
   qualification: z.string().trim().min(1, 'Укажите квалификацию'),
   fgosNumber: z.string().optional(),
@@ -234,7 +276,7 @@ type SpecialtyForm = z.infer<typeof specialtySchema>;
 function CreateSpecialtyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const form = useForm<SpecialtyForm>({
     resolver: zodResolver(specialtySchema),
-    defaultValues: { code: '', name: '', qualification: '', durationMonths: 46 },
+    defaultValues: { code: '', educationLevel: 'SPO', name: '', qualification: '', durationMonths: 46 },
   });
   const create = useApiMutation((v: SpecialtyForm) => api.post('/specialties', { ...v, fgosNumber: v.fgosNumber || undefined }), {
     success: 'Специальность добавлена',
@@ -249,12 +291,36 @@ function CreateSpecialtyDialog({ open, onOpenChange }: { open: boolean; onOpenCh
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Новая специальность</DialogTitle>
+          <DialogTitle>Новая специальность (направление подготовки)</DialogTitle>
         </DialogHeader>
         <form id="specialty-form" className="grid gap-3" onSubmit={form.handleSubmit((v) => create.mutate(v))}>
-          <Field label="Код" required error={e.code?.message}>
-            <Input placeholder="09.02.07" {...form.register('code')} />
-          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Код" required error={e.code?.message} hint="00.02.00 — СПО, 00.03.00 — бакалавриат">
+              <Input
+                placeholder="09.02.07"
+                {...form.register('code', {
+                  onChange: (ev) => {
+                    if (/^\d{2}\.\d{2}\.\d{2}$/.test(ev.target.value.trim())) {
+                      form.setValue('educationLevel', educationLevelByCode(ev.target.value) as SpecialtyForm['educationLevel']);
+                    }
+                  },
+                })}
+              />
+            </Field>
+            <Field label="Уровень образования">
+              <Controller
+                control={form.control}
+                name="educationLevel"
+                render={({ field }) => (
+                  <SimpleSelect
+                    value={field.value}
+                    onChange={(v) => field.onChange(v ?? 'SPO')}
+                    options={Object.entries(EDUCATION_LEVEL_LABELS).map(([value, label]) => ({ value, label }))}
+                  />
+                )}
+              />
+            </Field>
+          </div>
           <Field label="Наименование" required error={e.name?.message}>
             <Input {...form.register('name')} />
           </Field>

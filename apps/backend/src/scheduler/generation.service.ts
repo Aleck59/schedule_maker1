@@ -9,12 +9,12 @@ import {
 } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types/auth-user';
-import { parseDate } from '../common/utils/dates';
+import { diffDays, formatDateRu, parseDate, toDateStr } from '../common/utils/dates';
 import { JOB_STATUS_LABELS } from '../common/utils/labels';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ScheduleValidatorService } from '../validation/schedule-validator.service';
-import { GenerateScheduleDto } from './dto/generation.dto';
+import { GenerateAllDto, GenerateScheduleDto } from './dto/generation.dto';
 import { GenerationQueueService } from './generation-queue.service';
 import { GenerationParams, GenerationResultJson, PreviewLesson } from './generation.types';
 import { ACTIVE_LESSON_STATUSES } from './problem-builder.service';
@@ -54,17 +54,7 @@ export class GenerationService {
         throw new BadRequestException('Некоторые группы не относятся к учебному плану семестра');
       }
     }
-    const running = await this.prisma.scheduleGenerationJob.findFirst({
-      where: {
-        schedulePeriodId: periodId,
-        status: {
-          in: [GenerationJobStatus.QUEUED, GenerationJobStatus.GENERATING, GenerationJobStatus.VALIDATING],
-        },
-      },
-    });
-    if (running) {
-      throw new ConflictException('Для этого периода уже выполняется генерация — дождитесь её завершения');
-    }
+    await this.ensureNotRunning([periodId]);
     const params: GenerationParams = { ...dto, mode: dto.mode ?? 'CALENDAR' };
     const job = await this.prisma.scheduleGenerationJob.create({
       data: {
@@ -81,6 +71,209 @@ export class GenerationService {
     return this.present(job, false);
   }
 
+  /** Для периодов не должно выполняться других генераций (в том числе совместных) */
+  private async ensureNotRunning(periodIds: string[]) {
+    const running = await this.prisma.scheduleGenerationJob.findFirst({
+      where: {
+        OR: [{ schedulePeriodId: { in: periodIds } }, { periodIds: { hasSome: periodIds } }],
+        status: {
+          in: [GenerationJobStatus.QUEUED, GenerationJobStatus.GENERATING, GenerationJobStatus.VALIDATING],
+        },
+      },
+      include: { schedulePeriod: { select: { title: true } } },
+    });
+    if (running) {
+      throw new ConflictException(
+        `Уже выполняется генерация («${running.schedulePeriod.title}»${running.periodIds.length > 1 ? ' и другие периоды' : ''}) — дождитесь её завершения`,
+      );
+    }
+  }
+
+  /**
+   * План составления расписания для всех групп: текущий семестр каждой активной группы на дату
+   * и период расписания, в который попадут занятия (существующий или будет создан).
+   */
+  async planAll(actor: AuthUser, dto: Pick<GenerateAllDto, 'date' | 'educationLevels' | 'programIds'> = {}) {
+    const date = dto.date ?? toDateStr(new Date());
+    const groups = await this.prisma.studentGroup.findMany({
+      where: {
+        isActive: true,
+        program: {
+          organizationId: actor.organizationId,
+          id: dto.programIds?.length ? { in: dto.programIds } : undefined,
+          specialty: dto.educationLevels?.length
+            ? { educationLevel: { in: dto.educationLevels } }
+            : undefined,
+        },
+      },
+      include: {
+        program: {
+          include: {
+            specialty: { select: { code: true, name: true, educationLevel: true } },
+            semesters: { orderBy: { number: 'asc' }, include: { academicYear: { select: { title: true } } } },
+          },
+        },
+      },
+      orderBy: { code: 'asc' },
+    });
+    const semesterIds = groups.flatMap((g) => g.program.semesters.map((s) => s.id));
+    const periods = await this.prisma.schedulePeriod.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        semesterId: { in: semesterIds },
+        status: { not: SchedulePeriodStatus.ARCHIVED },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const rows = groups.map((g) => {
+      const semesters = g.program.semesters;
+      const current = semesters.find((s) => toDateStr(s.startDate) <= date && date <= toDateStr(s.endDate));
+      // На каникулах перед семестром — ближайший семестр, если он начинается в течение 45 дней
+      const upcoming = semesters.find(
+        (s) => toDateStr(s.startDate) > date && diffDays(toDateStr(s.startDate), date) <= 45,
+      );
+      const semester = current ?? upcoming ?? null;
+      const period = semester ? (periods.find((p) => p.semesterId === semester.id) ?? null) : null;
+      const base = {
+        groupId: g.id,
+        groupCode: g.code,
+        programId: g.educationalProgramId,
+        programTitle: g.program.title,
+        specialty: `${g.program.specialty.code} ${g.program.specialty.name}`,
+        educationLevel: g.program.specialty.educationLevel,
+        studyForm: g.program.studyForm,
+      };
+      if (!semester) {
+        const finished = semesters.length > 0 && toDateStr(semesters[semesters.length - 1].endDate) < date;
+        return {
+          ...base,
+          included: false,
+          semesterId: null,
+          semesterNumber: null,
+          periodId: null,
+          periodTitle: null,
+          createPeriod: false,
+          reason: finished
+            ? 'Обучение по учебному плану завершено'
+            : semesters.length === 0
+              ? 'В учебном плане нет семестров'
+              : `На ${formatDateRu(date)} у группы нет семестра (каникулы или практика между семестрами)`,
+        };
+      }
+      return {
+        ...base,
+        included: true,
+        semesterId: semester.id,
+        semesterNumber: semester.number,
+        semesterStart: toDateStr(semester.startDate),
+        semesterEnd: toDateStr(semester.endDate),
+        periodId: period?.id ?? null,
+        periodTitle:
+          period?.title ?? `${g.program.title}: ${semester.number} семестр (${semester.academicYear.title})`,
+        createPeriod: !period,
+        reason:
+          semester.number !== g.currentSemesterNumber
+            ? `В карточке группы указан ${g.currentSemesterNumber} семестр, по датам учебного плана — ${semester.number}`
+            : null,
+      };
+    });
+    const included = rows.filter((r) => r.included);
+    return {
+      date,
+      groups: rows,
+      summary: {
+        groups: rows.length,
+        included: included.length,
+        skipped: rows.length - included.length,
+        periods: new Set(included.map((r) => r.semesterId)).size,
+        newPeriods: new Set(included.filter((r) => r.createPeriod).map((r) => r.semesterId)).size,
+      },
+    };
+  }
+
+  /** Совместная генерация расписания всех групп (одно задание: общие преподаватели и аудитории) */
+  async createForAll(dto: GenerateAllDto, actor: AuthUser) {
+    const plan = await this.planAll(actor, dto);
+    const included = plan.groups.filter((g) => g.included && g.semesterId);
+    if (included.length === 0) {
+      throw new BadRequestException(
+        `На ${formatDateRu(plan.date)} нет активных групп с текущим семестром — проверьте даты семестров учебных планов`,
+      );
+    }
+    if (dto.dateFrom && dto.dateTo && dto.dateFrom > dto.dateTo) {
+      throw new BadRequestException('Дата окончания генерации раньше даты начала');
+    }
+    // Периоды расписания: существующие или новые на даты семестров
+    const periodBySemester = new Map<string, string>();
+    const created: string[] = [];
+    for (const g of included) {
+      const semesterId = g.semesterId!;
+      if (periodBySemester.has(semesterId)) continue;
+      if (g.periodId) {
+        periodBySemester.set(semesterId, g.periodId);
+        continue;
+      }
+      const semester = await this.prisma.semester.findUniqueOrThrow({ where: { id: semesterId } });
+      const period = await this.prisma.schedulePeriod.create({
+        data: {
+          organizationId: actor.organizationId,
+          academicYearId: semester.academicYearId,
+          semesterId,
+          title: g.periodTitle!,
+          startDate: semester.startDate,
+          endDate: semester.endDate,
+          status: SchedulePeriodStatus.DRAFT,
+          notes: 'Создан при составлении расписания для всех групп',
+        },
+      });
+      periodBySemester.set(semesterId, period.id);
+      created.push(period.id);
+      await this.audit.log(actor.id, 'CREATE', 'SchedulePeriod', period.id, null, period);
+    }
+    const periodIds = [...new Set(periodBySemester.values())];
+    await this.ensureNotRunning(periodIds);
+    const { date: _date, educationLevels: _levels, programIds: _programs, ...rest } = dto;
+    const params: GenerationParams = {
+      ...rest,
+      mode: dto.mode ?? 'CALENDAR',
+      groupIds: included.map((g) => g.groupId),
+      periodIds,
+    };
+    const job = await this.prisma.scheduleGenerationJob.create({
+      data: {
+        schedulePeriodId: periodIds[0],
+        periodIds,
+        createdByUserId: actor.id,
+        mode: params.mode === 'WEEKLY_TEMPLATE' ? GenerationMode.WEEKLY_TEMPLATE : GenerationMode.CALENDAR,
+        paramsJson: params as unknown as Prisma.InputJsonValue,
+        status: GenerationJobStatus.QUEUED,
+        message: `Ожидание: расписание для ${included.length} групп(ы), периодов: ${periodIds.length}`,
+      },
+    });
+    await this.queue.enqueue(job.id);
+    await this.audit.log(actor.id, 'GENERATE', 'SchedulePeriod', periodIds[0], null, {
+      jobId: job.id,
+      joint: true,
+      periodIds,
+      groups: included.length,
+    });
+    return { job: this.present(job, false), plan, createdPeriods: created.length };
+  }
+
+  /** Совместные генерации (для всех групп) */
+  async listJoint(actor: AuthUser) {
+    const jobs = await this.prisma.scheduleGenerationJob.findMany({
+      where: {
+        schedulePeriod: { organizationId: actor.organizationId },
+        NOT: { periodIds: { isEmpty: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      include: { createdBy: { select: { id: true, fullName: true } } },
+    });
+    return jobs.map((j) => this.present(j, false));
+  }
+
   async get(jobId: string, actor: AuthUser, includeResult = true) {
     const job = await this.prisma.scheduleGenerationJob.findFirst({
       where: { id: jobId, schedulePeriod: { organizationId: actor.organizationId } },
@@ -92,7 +285,10 @@ export class GenerationService {
 
   async list(periodId: string, actor: AuthUser) {
     const jobs = await this.prisma.scheduleGenerationJob.findMany({
-      where: { schedulePeriodId: periodId, schedulePeriod: { organizationId: actor.organizationId } },
+      where: {
+        OR: [{ schedulePeriodId: periodId }, { periodIds: { has: periodId } }],
+        schedulePeriod: { organizationId: actor.organizationId },
+      },
       orderBy: { createdAt: 'desc' },
       take: 20,
       include: { createdBy: { select: { id: true, fullName: true } } },
@@ -140,8 +336,17 @@ export class GenerationService {
     if (job.schedulePeriod.status === SchedulePeriodStatus.ARCHIVED) {
       throw new ConflictException('Период находится в архиве');
     }
+    const periodIds = job.periodIds.length ? job.periodIds : [job.schedulePeriodId];
+    const archived = await this.prisma.schedulePeriod.count({
+      where: { id: { in: periodIds }, status: SchedulePeriodStatus.ARCHIVED },
+    });
+    if (archived > 0) throw new ConflictException('Один из периодов генерации находится в архиве');
     const newer = await this.prisma.scheduleGenerationJob.findFirst({
-      where: { schedulePeriodId: job.schedulePeriodId, appliedAt: { gt: job.createdAt } },
+      where: {
+        id: { not: job.id },
+        OR: [{ schedulePeriodId: { in: periodIds } }, { periodIds: { hasSome: periodIds } }],
+        appliedAt: { gt: job.createdAt },
+      },
     });
     if (newer) {
       throw new ConflictException(
@@ -214,7 +419,7 @@ export class GenerationService {
             gs.add(l.subgroupNumber ?? 0);
             groupBusy.set(`${g}#${s}`, gs);
             rows.push({
-              schedulePeriodId: job.schedulePeriodId,
+              schedulePeriodId: l.periodId ?? job.schedulePeriodId,
               date: parseDate(l.date),
               weekday: l.weekday,
               lessonNumber: l.lessonNumber,
@@ -243,18 +448,22 @@ export class GenerationService {
             message: `Применено: создано ${rows.length} занятий${skipped.length ? `, пропущено ${skipped.length}` : ''}`,
           },
         });
-        if (job.schedulePeriod.status === SchedulePeriodStatus.DRAFT) {
-          await tx.schedulePeriod.update({
-            where: { id: job.schedulePeriodId },
-            data: { status: SchedulePeriodStatus.GENERATED },
-          });
-        }
+        await tx.schedulePeriod.updateMany({
+          where: { id: { in: periodIds }, status: SchedulePeriodStatus.DRAFT },
+          data: { status: SchedulePeriodStatus.GENERATED },
+        });
         return { created: rows.length, deleted: del.count };
       },
       { timeout: 120_000, maxWait: 20_000 },
     );
 
-    const validation = await this.validator.validatePeriod(job.schedulePeriodId, actor.organizationId, true);
+    const validation = { errors: 0, warnings: 0, canPublish: true };
+    for (const id of periodIds) {
+      const v = await this.validator.validatePeriod(id, actor.organizationId, true);
+      validation.errors += v.errors;
+      validation.warnings += v.warnings;
+      validation.canPublish = validation.canPublish && v.canPublish;
+    }
     if (job.schedulePeriod.status === SchedulePeriodStatus.PUBLISHED) {
       const groupIds = Array.from(new Set(result.lessons.flatMap((l) => l.groupIds)));
       await this.notifications.notify({
@@ -292,6 +501,7 @@ export class GenerationService {
     job: {
       id: string;
       schedulePeriodId: string;
+      periodIds: string[];
       status: GenerationJobStatus;
       mode: GenerationMode;
       progress: number;
@@ -312,6 +522,7 @@ export class GenerationService {
     return {
       id: job.id,
       schedulePeriodId: job.schedulePeriodId,
+      periodIds: job.periodIds,
       status: job.status,
       statusLabel: JOB_STATUS_LABELS[job.status],
       mode: job.mode,

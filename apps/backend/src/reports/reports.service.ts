@@ -600,7 +600,7 @@ export class ReportsService {
           code: item.curriculumItem.code,
           name: item.curriculumItem.name,
           kind: ITEM_TYPE_LABELS[item.curriculumItem.itemType],
-          place: item.practiceAtCollege ? 'На базе колледжа' : 'На предприятии',
+          place: item.practiceAtCollege ? 'На базе организации' : 'На предприятии',
           hours: item.practiceAtCollege ? item.practiceHours : item.totalHours,
           period:
             ev.map((e) => `${formatDateRu(e.startDate)}—${formatDateRu(e.endDate)}`).join('; ') || 'не задан',

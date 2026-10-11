@@ -15,6 +15,7 @@ export type CurriculumItemType =
   | 'ELECTIVE';
 export type ControlForm = 'NONE' | 'EXAM' | 'CREDIT' | 'DIFFERENTIATED_CREDIT' | 'OTHER' | 'COURSE_PROJECT' | 'QUALIFICATION_EXAM';
 export type StudyForm = 'FULL_TIME' | 'PART_TIME' | 'EXTRAMURAL';
+export type EducationLevel = 'SPO' | 'BACHELOR' | 'SPECIALIST' | 'MASTER' | 'POSTGRADUATE';
 export type CalendarEventType =
   | 'THEORETICAL_TRAINING'
   | 'EXAM_SESSION'
@@ -104,6 +105,7 @@ export interface Specialty {
   code: string;
   name: string;
   qualification: string;
+  educationLevel: EducationLevel;
   fgosNumber: string | null;
   fgosDate: string | null;
   durationMonths: number;
@@ -241,9 +243,20 @@ export interface Group {
   currentSemesterNumber: number;
   studentCount: number;
   subgroupCount: number;
+  /** Режим занятий: учебные дни (пусто — все) и допустимые пары */
+  studyDays: number[];
+  firstLessonNumber: number | null;
+  lastLessonNumber: number | null;
   isActive: boolean;
   subgroups: Subgroup[];
-  program?: { id: string; title: string; admissionYear: number; specialty?: { code: string; name: string }; semesters?: Semester[] };
+  program?: {
+    id: string;
+    title: string;
+    admissionYear: number;
+    studyForm?: StudyForm;
+    specialty?: { code: string; name: string; educationLevel?: EducationLevel };
+    semesters?: Semester[];
+  };
   _count?: { students: number; assignments: number; lessons?: number };
 }
 
@@ -438,6 +451,8 @@ export interface FreeSlot {
 export interface GenerationJob {
   id: string;
   schedulePeriodId: string;
+  /** Периоды совместной генерации (для всех групп) */
+  periodIds?: string[];
   status: JobStatus;
   statusLabel?: string;
   mode: 'CALENDAR' | 'WEEKLY_TEMPLATE';
@@ -457,6 +472,7 @@ export interface GenerationJob {
 
 export interface PreviewLesson {
   demandId: string;
+  periodId?: string;
   date: string;
   weekday: number;
   lessonNumber: number;
@@ -490,6 +506,7 @@ export interface UnplacedItem {
 
 export interface GenerationResult {
   period: { id: string; title: string };
+  periods?: Array<{ id: string; title: string; groupCodes: string[] }>;
   range: { from: string; to: string };
   mode: string;
   solver: string;
@@ -606,4 +623,30 @@ export interface MakeupTask {
   teacher: { id: string; fullName: string } | null;
   sourceLesson: { id: string; date: string; lessonNumber: number; schedulePeriodId: string; status: LessonStatus } | null;
   resolvedLesson: { id: string; date: string; lessonNumber: number; status: LessonStatus } | null;
+}
+
+/** План составления расписания для всех групп */
+export interface AllGroupsPlanRow {
+  groupId: string;
+  groupCode: string;
+  programId: string;
+  programTitle: string;
+  specialty: string;
+  educationLevel: EducationLevel;
+  studyForm: StudyForm;
+  included: boolean;
+  semesterId: string | null;
+  semesterNumber: number | null;
+  semesterStart?: string;
+  semesterEnd?: string;
+  periodId: string | null;
+  periodTitle: string | null;
+  createPeriod: boolean;
+  reason: string | null;
+}
+
+export interface AllGroupsPlan {
+  date: string;
+  groups: AllGroupsPlanRow[];
+  summary: { groups: number; included: number; skipped: number; periods: number; newPeriods: number };
 }

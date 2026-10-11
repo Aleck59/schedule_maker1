@@ -19,6 +19,8 @@ export interface GenerationParams {
   respectTeacherPreferences?: boolean;
   weights?: Record<string, number>;
   seed?: number;
+  /** Совместная генерация нескольких периодов (все группы организации) */
+  periodIds?: string[];
 }
 
 /** Сведения о потоке спроса, нужные для сохранения результата */
@@ -38,6 +40,8 @@ export interface DemandMetaStream {
 
 export interface DemandMeta {
   demandId: string;
+  /** Период расписания, в который попадут занятия (совместная генерация) */
+  periodId?: string;
   title: string;
   itemCode: string;
   itemName: string;
@@ -52,6 +56,8 @@ export interface DemandMeta {
 
 export interface PreviewLesson {
   demandId: string;
+  /** Период расписания занятия (при совместной генерации нескольких периодов) */
+  periodId?: string;
   date: string;
   weekday: number;
   lessonNumber: number;
@@ -77,6 +83,8 @@ export interface PreviewLesson {
 
 export interface GenerationResultJson {
   period: { id: string; title: string };
+  /** Все периоды совместной генерации */
+  periods?: Array<{ id: string; title: string; groupCodes: string[] }>;
   range: { from: string; to: string };
   mode: SolverMode;
   solver: string;

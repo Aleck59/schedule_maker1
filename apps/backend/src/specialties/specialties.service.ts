@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service';
 import { parseDate } from '../common/utils/dates';
+import { educationLevelByCode } from '../common/utils/education';
 import { AuthUser } from '../common/types/auth-user';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSpecialtyDto, UpdateSpecialtyDto } from './dto/specialty.dto';
@@ -27,7 +28,11 @@ export class SpecialtiesService {
 
   async create(dto: CreateSpecialtyDto, actor: AuthUser) {
     const created = await this.prisma.specialty.create({
-      data: { ...dto, fgosDate: dto.fgosDate ? parseDate(dto.fgosDate) : null },
+      data: {
+        ...dto,
+        educationLevel: dto.educationLevel ?? educationLevelByCode(dto.code),
+        fgosDate: dto.fgosDate ? parseDate(dto.fgosDate) : null,
+      },
     });
     await this.audit.log(actor.id, 'CREATE', 'Specialty', created.id, null, created);
     return created;

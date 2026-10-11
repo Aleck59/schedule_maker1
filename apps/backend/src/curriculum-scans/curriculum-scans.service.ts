@@ -7,13 +7,21 @@ import {
   OnModuleInit,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { ControlForm, CurriculumItemType, CurriculumScanStatus, Prisma, StudyForm } from '@prisma/client';
+import {
+  ControlForm,
+  CurriculumItemType,
+  CurriculumScanStatus,
+  EducationLevel,
+  Prisma,
+  StudyForm,
+} from '@prisma/client';
 import { mkdir, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { extname, join } from 'path';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types/auth-user';
 import { parseDate, toDateStr } from '../common/utils/dates';
+import { educationLevelByCode } from '../common/utils/education';
 import { computePlannedLessons } from '../common/utils/hours';
 import { CALENDAR_EVENT_LABELS } from '../common/utils/labels';
 import { EngineService } from '../engine/engine.service';
@@ -51,7 +59,7 @@ export interface RecognizedPlan {
     endDate: string;
     weeks: Record<string, number>;
   }>;
-  periods: Array<{ course: number; type: string; startDate: string; endDate: string }>;
+  periods: Array<{ course: number; type: string; title?: string | null; startDate: string; endDate: string }>;
   cycles: Array<{ code: string; name: string }>;
   items: Array<{
     code: string;
@@ -59,6 +67,7 @@ export interface RecognizedPlan {
     kind: ScanItemKind;
     cycleCode: string;
     parentCode: string | null;
+    required?: boolean;
     issues: string[];
     semesters: Array<{ number: number; controlForm: string; hours: Record<string, number>; cells: unknown }>;
   }>;
@@ -74,11 +83,13 @@ export function toDraft(plan: RecognizedPlan) {
     (plan.semesters[0] ? Number(plan.semesters[0].startDate.slice(0, 4)) : new Date().getFullYear());
   const code = str(t.specialtyCode);
   const name = str(t.specialtyName);
+  const level = (str(t.educationLevel) as EducationLevel) || educationLevelByCode(code);
   const semesterNumbers = plan.semesters.map((s) => s.number);
   return {
     specialty: {
       code,
       name,
+      educationLevel: level,
       qualification: str(t.qualification),
       fgosNumber: str(t.fgosNumber) || undefined,
       fgosDate: str(t.fgosDate) || undefined,
@@ -87,7 +98,10 @@ export function toDraft(plan: RecognizedPlan) {
       title: code || name ? `${code} ${name}, набор ${admissionYear}`.trim() : '',
       admissionYear,
       studyForm: (str(t.studyForm) || StudyForm.FULL_TIME) as StudyForm,
-      durationMonths: Number(t.durationMonths) || Math.max(10, semesterNumbers.length * 5),
+      // 6 семестров СПО — 2 г. 10 мес., 8 семестров бакалавриата — 4 года
+      durationMonths:
+        Number(t.durationMonths) ||
+        Math.max(10, semesterNumbers.length * 6 - (level === EducationLevel.SPO ? 2 : 0)),
     },
     semesters: plan.semesters.map((s) => ({
       number: s.number,
@@ -101,7 +115,13 @@ export function toDraft(plan: RecognizedPlan) {
     })),
     periods: plan.periods
       .filter((p) => p.type in CALENDAR_EVENT_LABELS)
-      .map((p) => ({ course: p.course, type: p.type, startDate: p.startDate, endDate: p.endDate })),
+      .map((p) => ({
+        course: p.course,
+        type: p.type,
+        title: p.title ?? undefined,
+        startDate: p.startDate,
+        endDate: p.endDate,
+      })),
     cycles: plan.cycles,
     items: plan.items.map((i) => ({
       code: i.code,
@@ -109,6 +129,7 @@ export function toDraft(plan: RecognizedPlan) {
       kind: i.kind,
       cycleCode: i.cycleCode,
       parentCode: i.parentCode,
+      required: i.required ?? true,
       include: i.kind !== 'GROUP',
       issues: i.issues,
       semesters: i.semesters
@@ -150,26 +171,33 @@ export function semesterHours(
   let lectureHours = n(h.lecture);
   let practicalHours = n(h.practical) + n(h.seminar);
   let laboratoryHours = n(h.laboratory);
+  let consultationHours = n(h.consultation);
   let selfStudyHours = n(h.selfStudy) + n(h.individualProject);
   const assessmentHours = n(h.assessment);
   let practiceHours = 0;
   let atCollege = false;
   if (PRACTICE_KINDS.includes(kind)) {
-    // Практика: часы — по неделям календарного графика; на базе колледжа ставится в расписание
+    // Практика: часы — по неделям календарного графика; на базе организации ставится в расписание
     atCollege = practiceAtCollege ?? kind === 'EDUCATIONAL_PRACTICE';
     practiceHours = atCollege ? n(h.total) : 0;
-    lectureHours = practicalHours = laboratoryHours = selfStudyHours = 0;
+    lectureHours = practicalHours = laboratoryHours = consultationHours = selfStudyHours = 0;
   } else if (kind === 'MODULE_EXAM' || kind === 'FINAL_ATTESTATION' || kind === 'MODULE') {
-    lectureHours = practicalHours = laboratoryHours = 0;
+    lectureHours = practicalHours = laboratoryHours = consultationHours = 0;
   }
   const parts =
-    lectureHours + practicalHours + laboratoryHours + selfStudyHours + assessmentHours + practiceHours;
+    lectureHours +
+    practicalHours +
+    laboratoryHours +
+    consultationHours +
+    selfStudyHours +
+    assessmentHours +
+    practiceHours;
   const hours = {
     totalHours: Math.max(n(h.total), parts),
     lectureHours,
     practicalHours,
     laboratoryHours,
-    consultationHours: 0,
+    consultationHours,
     selfStudyHours,
     assessmentHours,
     practiceHours,
@@ -401,6 +429,7 @@ export class CurriculumScansService implements OnModuleInit {
             code: dto.specialty.code,
             name: dto.specialty.name.trim(),
             qualification: dto.specialty.qualification.trim(),
+            educationLevel: dto.specialty.educationLevel ?? educationLevelByCode(dto.specialty.code),
             fgosNumber: dto.specialty.fgosNumber || null,
             fgosDate: dto.specialty.fgosDate ? parseDate(dto.specialty.fgosDate) : null,
             durationMonths: dto.program.durationMonths,
@@ -508,6 +537,7 @@ export class CurriculumScansService implements OnModuleInit {
               code: item.code.trim(),
               name: item.name.trim(),
               itemType: type,
+              isRequired: item.required ?? true,
               isDifficult: item.isDifficult ?? false,
               sortOrder,
             },

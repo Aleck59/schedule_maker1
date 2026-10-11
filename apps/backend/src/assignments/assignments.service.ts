@@ -151,7 +151,8 @@ export class AssignmentsService {
         item.laboratoryHours +
         item.consultationHours +
         (item.practiceAtCollege ? item.practiceHours : 0);
-      if (schedulable === 0 || item.assignments.length > 0) continue;
+      // Дисциплины по выбору (кроме выбранной по умолчанию) и факультативы назначаются вручную
+      if (schedulable === 0 || item.assignments.length > 0 || !item.curriculumItem.isRequired) continue;
       await this.prisma.groupCurriculumAssignment.create({
         data: { studentGroupId: group.id, semesterCurriculumItemId: item.id },
       });

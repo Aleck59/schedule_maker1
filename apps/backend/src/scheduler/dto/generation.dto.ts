@@ -1,7 +1,9 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { EducationLevel } from '@prisma/client';
 import {
   IsArray,
   IsBoolean,
+  IsEnum,
   IsIn,
   IsInt,
   IsObject,
@@ -112,4 +114,38 @@ export class GenerateScheduleDto {
   @IsOptional()
   @IsInt()
   seed?: number;
+}
+
+/** Составление расписания для всех групп организации одним заданием */
+export class GenerateAllDto extends GenerateScheduleDto {
+  @ApiPropertyOptional({
+    example: '2026-10-12',
+    description: 'Дата, на которую определяется текущий семестр каждой группы (по умолчанию — сегодня)',
+  })
+  @IsOptional()
+  @Matches(DATE_REGEX, { message: DATE_MESSAGE })
+  date?: string;
+
+  @ApiPropertyOptional({
+    enum: EducationLevel,
+    isArray: true,
+    description: 'Только указанные уровни образования (по умолчанию — все: СПО и ВО)',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsEnum(EducationLevel, { each: true, message: 'Некорректный уровень образования' })
+  educationLevels?: EducationLevel[];
+
+  @ApiPropertyOptional({ type: [String], description: 'Только указанные учебные планы' })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  programIds?: string[];
+}
+
+export class GenerateAllQueryDto {
+  @ApiPropertyOptional({ example: '2026-10-12' })
+  @IsOptional()
+  @Matches(DATE_REGEX, { message: DATE_MESSAGE })
+  date?: string;
 }

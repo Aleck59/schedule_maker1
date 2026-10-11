@@ -17,7 +17,9 @@ import { Input } from '@/components/ui/input';
 import { useGroups, usePrograms } from '@/hooks/use-reference';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { EDUCATION_LEVEL_LABELS, STUDY_FORM_LABELS } from '@/lib/labels';
 import { useApiMutation } from '@/lib/query';
+import { cn } from '@/lib/utils';
 import type { Group } from '@/lib/types';
 
 export default function GroupsPage() {
@@ -46,6 +48,22 @@ export default function GroupsPage() {
             {row.original.program?.specialty?.code} {row.original.program?.specialty?.name}
           </div>
           <div className="text-muted-foreground truncate text-xs">{row.original.program?.title}</div>
+        </div>
+      ),
+    },
+    {
+      id: 'level',
+      header: 'Уровень, форма',
+      accessorFn: (g) => EDUCATION_LEVEL_LABELS[g.program?.specialty?.educationLevel ?? 'SPO'],
+      cell: ({ row }) => (
+        <div className="text-xs">
+          <Badge variant={row.original.program?.specialty?.educationLevel === 'SPO' || !row.original.program?.specialty?.educationLevel ? 'secondary' : 'violet'}>
+            {EDUCATION_LEVEL_LABELS[row.original.program?.specialty?.educationLevel ?? 'SPO']}
+          </Badge>
+          <div className="text-muted-foreground mt-0.5">
+            {STUDY_FORM_LABELS[row.original.program?.studyForm ?? 'FULL_TIME']?.toLowerCase()}
+            {studyModeText(row.original) && ` · ${studyModeText(row.original)}`}
+          </div>
         </div>
       ),
     },
@@ -89,15 +107,35 @@ export default function GroupsPage() {
   );
 }
 
-const groupSchema = z.object({
-  educationalProgramId: z.string().min(1, 'Выберите учебный план'),
-  code: z.string().trim().min(1, 'Укажите шифр группы'),
-  title: z.string().optional(),
-  courseNumber: z.number({ invalid_type_error: 'Введите число' }).int().min(1, 'От 1').max(6, 'До 6'),
-  currentSemesterNumber: z.number({ invalid_type_error: 'Введите число' }).int().min(1, 'От 1').max(12, 'До 12'),
-  studentCount: z.number({ invalid_type_error: 'Введите число' }).int().min(1, 'Не менее 1 студента').max(60, 'Не более 60'),
-  subgroupCount: z.number({ invalid_type_error: 'Введите число' }).int().min(1, 'От 1').max(4, 'До 4'),
-});
+const WEEKDAYS = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
+
+/** Режим занятий группы для таблицы: «пары 5–7, пн–сб» */
+export function studyModeText(g: Pick<Group, 'studyDays' | 'firstLessonNumber' | 'lastLessonNumber'>): string {
+  const parts: string[] = [];
+  if (g.firstLessonNumber || g.lastLessonNumber) parts.push(`пары ${g.firstLessonNumber ?? 1}–${g.lastLessonNumber ?? '…'}`);
+  if (g.studyDays?.length) parts.push(g.studyDays.map((d) => WEEKDAYS[d - 1]).join(', '));
+  return parts.join(', ');
+}
+
+const lessonNumber = z.number({ invalid_type_error: 'Введите число' }).int().min(1, 'От 1').max(12, 'До 12').nullable();
+
+const groupSchema = z
+  .object({
+    educationalProgramId: z.string().min(1, 'Выберите учебный план'),
+    code: z.string().trim().min(1, 'Укажите шифр группы'),
+    title: z.string().optional(),
+    courseNumber: z.number({ invalid_type_error: 'Введите число' }).int().min(1, 'От 1').max(7, 'До 7'),
+    currentSemesterNumber: z.number({ invalid_type_error: 'Введите число' }).int().min(1, 'От 1').max(14, 'До 14'),
+    studentCount: z.number({ invalid_type_error: 'Введите число' }).int().min(1, 'Не менее 1 студента').max(60, 'Не более 60'),
+    subgroupCount: z.number({ invalid_type_error: 'Введите число' }).int().min(1, 'От 1').max(4, 'До 4'),
+    studyDays: z.array(z.number()),
+    firstLessonNumber: lessonNumber,
+    lastLessonNumber: lessonNumber,
+  })
+  .refine((v) => !v.firstLessonNumber || !v.lastLessonNumber || v.firstLessonNumber <= v.lastLessonNumber, {
+    message: 'Первая пара не может быть позже последней',
+    path: ['lastLessonNumber'],
+  });
 export type GroupForm = z.infer<typeof groupSchema>;
 
 export function GroupDialog({
@@ -123,8 +161,22 @@ export function GroupDialog({
           currentSemesterNumber: group.currentSemesterNumber,
           studentCount: group.studentCount,
           subgroupCount: group.subgroupCount,
+          studyDays: group.studyDays ?? [],
+          firstLessonNumber: group.firstLessonNumber,
+          lastLessonNumber: group.lastLessonNumber,
         }
-      : { educationalProgramId: '', code: '', title: '', courseNumber: 1, currentSemesterNumber: 1, studentCount: 25, subgroupCount: 2 },
+      : {
+          educationalProgramId: '',
+          code: '',
+          title: '',
+          courseNumber: 1,
+          currentSemesterNumber: 1,
+          studentCount: 25,
+          subgroupCount: 2,
+          studyDays: [],
+          firstLessonNumber: null,
+          lastLessonNumber: null,
+        },
   });
   const save = useApiMutation(
     (v: GroupForm) => (group ? api.patch<Group>(`/groups/${group.id}`, v) : api.post<Group>('/groups', { ...v, title: v.title || v.code })),
@@ -177,6 +229,45 @@ export function GroupDialog({
           <Field label="Подгрупп" required error={e.subgroupCount?.message} hint="Для лабораторных и иностранного языка">
             <Input type="number" {...form.register('subgroupCount', { valueAsNumber: true })} />
           </Field>
+          <div className="space-y-2 rounded-md border p-3 sm:col-span-2">
+            <div className="text-sm font-medium">Режим занятий</div>
+            <div className="text-muted-foreground text-xs">
+              Для второй смены, вечерних и очно-заочных групп. Пусто — все учебные дни и все пары.
+            </div>
+            <Controller
+              control={form.control}
+              name="studyDays"
+              render={({ field }) => (
+                <div className="flex flex-wrap gap-1.5">
+                  {WEEKDAYS.map((d, i) => {
+                    const day = i + 1;
+                    const on = field.value.includes(day);
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => field.onChange(on ? field.value.filter((x) => x !== day) : [...field.value, day].sort())}
+                        className={cn(
+                          'h-8 w-10 rounded-md border text-sm',
+                          on ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted',
+                        )}
+                      >
+                        {d}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="С пары" error={e.firstLessonNumber?.message}>
+                <Input type="number" placeholder="1" {...form.register('firstLessonNumber', { setValueAs: (v) => (v === '' ? null : Number(v)) })} />
+              </Field>
+              <Field label="По пару" error={e.lastLessonNumber?.message}>
+                <Input type="number" placeholder="все" {...form.register('lastLessonNumber', { setValueAs: (v) => (v === '' ? null : Number(v)) })} />
+              </Field>
+            </div>
+          </div>
         </form>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

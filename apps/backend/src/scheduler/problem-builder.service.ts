@@ -10,6 +10,7 @@ import {
   toDateStr,
   weekStart,
 } from '../common/utils/dates';
+import { groupLessonNumbers } from '../common/utils/groups';
 import { LESSON_TYPE_SHORT } from '../common/utils/labels';
 import { TeacherRules } from '../planning/availability-rules';
 import { streamKeyOf } from '../planning/planning.service';
@@ -40,6 +41,8 @@ export interface BuiltProblem {
   problem: SolverProblem;
   settings: EffectiveSettings;
   period: { id: string; title: string; organizationId: string; semesterId: string };
+  /** Периоды совместной генерации (для одного периода — он сам) */
+  periods: Array<{ id: string; title: string; groupCodes: string[] }>;
   range: { from: string; to: string };
   groupIds: string[];
   demandMeta: Record<string, DemandMeta>;
@@ -66,46 +69,86 @@ export class ProblemBuilderService {
   ) {}
 
   async build(periodId: string, organizationId: string, params: GenerationParams): Promise<BuiltProblem> {
-    const period = await this.prisma.schedulePeriod.findFirst({
-      where: { id: periodId, organizationId },
+    const ids = [...new Set([periodId, ...(params.periodIds ?? [])])];
+    const periodsDb = await this.prisma.schedulePeriod.findMany({
+      where: { id: { in: ids }, organizationId },
       include: { semester: true },
     });
-    if (!period) throw new NotFoundException('Период расписания не найден');
+    const period = periodsDb.find((p) => p.id === periodId);
+    if (!period || periodsDb.length !== ids.length)
+      throw new NotFoundException('Период расписания не найден');
+    const joint = periodsDb.length > 1;
     const settings = await this.settingsService.getEffective(organizationId);
     const h = settings.academicHoursPerLesson;
     const warnings: string[] = [];
 
-    const semesterStart = toDateStr(period.semester.startDate);
-    const semesterEnd = toDateStr(period.semester.endDate);
-    const from = maxDate(
-      maxDate(params.dateFrom ?? toDateStr(period.startDate), toDateStr(period.startDate)),
-      semesterStart,
-    );
-    const to = minDate(
-      minDate(params.dateTo ?? toDateStr(period.endDate), toDateStr(period.endDate)),
-      semesterEnd,
-    );
-    if (from > to) {
+    // Интервал генерации каждого периода: пересечение дат периода, семестра и параметров
+    const windows = new Map<string, { from: string; to: string }>();
+    for (const p of periodsDb) {
+      const pFrom = maxDate(
+        maxDate(params.dateFrom ?? toDateStr(p.startDate), toDateStr(p.startDate)),
+        toDateStr(p.semester.startDate),
+      );
+      const pTo = minDate(
+        minDate(params.dateTo ?? toDateStr(p.endDate), toDateStr(p.endDate)),
+        toDateStr(p.semester.endDate),
+      );
+      if (pFrom <= pTo) windows.set(p.id, { from: pFrom, to: pTo });
+      else if (joint)
+        warnings.push(`Период «${p.title}»: интервал генерации не пересекается с датами семестра`);
+    }
+    if (windows.size === 0) {
       throw new BadRequestException('Интервал генерации не пересекается с датами периода и семестра');
     }
+    const activePeriods = periodsDb.filter((p) => windows.has(p.id));
+    const periodByProgram = new Map<string, (typeof periodsDb)[number]>();
+    for (const p of activePeriods) {
+      if (periodByProgram.has(p.semester.educationalProgramId)) {
+        throw new BadRequestException(
+          `В совместной генерации у учебного плана может быть только один семестр («${p.title}»)`,
+        );
+      }
+      periodByProgram.set(p.semester.educationalProgramId, p);
+    }
+    const from = [...windows.values()].map((w) => w.from).sort()[0];
+    const to = [...windows.values()]
+      .map((w) => w.to)
+      .sort()
+      .at(-1)!;
+    const semesterStart = activePeriods.map((p) => toDateStr(p.semester.startDate)).sort()[0];
+    const semesterEnd = activePeriods
+      .map((p) => toDateStr(p.semester.endDate))
+      .sort()
+      .at(-1)!;
+    const semesterIds = activePeriods.map((p) => p.semesterId);
 
     let groupIds = params.groupIds?.filter(Boolean) ?? [];
     if (groupIds.length === 0) {
       const groups = await this.prisma.studentGroup.findMany({
-        where: { educationalProgramId: period.semester.educationalProgramId, isActive: true },
+        where: { educationalProgramId: { in: [...periodByProgram.keys()] }, isActive: true },
         select: { id: true },
       });
       groupIds = groups.map((g) => g.id);
     }
+    const groupsDb = await this.prisma.studentGroup.findMany({
+      where: { id: { in: groupIds } },
+      include: { subgroups: true },
+      orderBy: { code: 'asc' },
+    });
+    // Группа относится к периоду своего учебного плана
+    const periodOfGroup = new Map<string, (typeof periodsDb)[number]>();
+    for (const g of groupsDb) {
+      const p = periodByProgram.get(g.educationalProgramId);
+      if (p) periodOfGroup.set(g.id, p);
+      else warnings.push(`Группа ${g.code}: нет периода расписания для её учебного плана — группа пропущена`);
+    }
+    groupIds = groupsDb.filter((g) => periodOfGroup.has(g.id)).map((g) => g.id);
     if (groupIds.length === 0) {
       throw new BadRequestException('Нет активных групп для генерации расписания');
     }
+    const groupWindow = (gId: string) => windows.get(periodOfGroup.get(gId)!.id)!;
 
-    const streams = await this.planning.getStreams({
-      organizationId,
-      semesterIds: [period.semesterId],
-      groupIds,
-    });
+    const streams = await this.planning.getStreams({ organizationId, semesterIds, groupIds });
     const ctx = await this.planning.buildCalendarContext(
       organizationId,
       semesterStart,
@@ -136,7 +179,7 @@ export class ProblemBuilderService {
         .filter(
           (l) =>
             replaceExisting &&
-            l.schedulePeriodId === periodId &&
+            windows.has(l.schedulePeriodId) &&
             groupIds.includes(l.studentGroupId) &&
             l.status === LessonStatus.PLANNED &&
             !l.isManual &&
@@ -148,7 +191,7 @@ export class ProblemBuilderService {
     const semesterLessons = await this.prisma.scheduleLesson.findMany({
       where: {
         studentGroupId: { in: groupIds },
-        semesterItem: { semesterId: period.semesterId },
+        semesterItem: { semesterId: { in: semesterIds } },
         status: { in: ACTIVE_LESSON_STATUSES },
       },
       select: {
@@ -206,17 +249,33 @@ export class ProblemBuilderService {
     const preUnplaced: UnplacedItem[] = [];
     const demandMeta: Record<string, DemandMeta> = {};
     const demands: SolverDemand[] = [];
+    const groupById = new Map(groupsDb.map((g) => [g.id, g]));
     const groupAllowed = new Map<string, string[]>();
+    const inWindow = (gId: string, date: string) => {
+      const w = groupWindow(gId);
+      return date >= w.from && date <= w.to;
+    };
     for (const gId of groupIds) {
+      const studyDays = groupById.get(gId)?.studyDays ?? [];
       groupAllowed.set(
         gId,
-        days.filter((d) => ctx.isRegularAllowed(gId, d.date)).map((d) => d.date),
+        days
+          .filter(
+            (d) =>
+              inWindow(gId, d.date) &&
+              (studyDays.length === 0 || studyDays.includes(d.weekday)) &&
+              ctx.isRegularAllowed(gId, d.date),
+          )
+          .map((d) => d.date),
       );
     }
     // Даты консультаций: последние N недель теоретического обучения группы в семестре
     const consultationDates = new Map<string, string[]>();
     for (const gId of groupIds) {
-      const allSemesterDays = eachDay(semesterStart, semesterEnd).filter((d) => ctx.isRegularAllowed(gId, d));
+      const semester = periodOfGroup.get(gId)!.semester;
+      const allSemesterDays = eachDay(toDateStr(semester.startDate), toDateStr(semester.endDate)).filter(
+        (d) => ctx.isRegularAllowed(gId, d),
+      );
       const last = allSemesterDays[allSemesterDays.length - 1];
       if (!last) {
         consultationDates.set(gId, []);
@@ -225,7 +284,7 @@ export class ProblemBuilderService {
       const border = addDaysStr(weekStart(last), -7 * (settings.consultationWeeksBeforeEnd - 1));
       consultationDates.set(
         gId,
-        allSemesterDays.filter((d) => d >= border && dayDates.has(d)),
+        allSemesterDays.filter((d) => d >= border && dayDates.has(d) && inWindow(gId, d)),
       );
     }
 
@@ -294,7 +353,7 @@ export class ProblemBuilderService {
       let allowedDates: string[] | null = null;
       if (s.lessonType === LessonType.PRACTICE) {
         allowedDates = days
-          .filter((d) => ctx.isPracticeAllowed(s.groupId, d.date, s.itemType))
+          .filter((d) => inWindow(s.groupId, d.date) && ctx.isPracticeAllowed(s.groupId, d.date, s.itemType))
           .map((d) => d.date);
         if (allowedDates.length === 0) {
           pushUnplaced(
@@ -362,6 +421,7 @@ export class ProblemBuilderService {
       }
       demandMeta[id] = {
         demandId: id,
+        periodId: periodOfGroup.get(s.groupId)?.id,
         title,
         itemCode: s.itemCode,
         itemName: s.itemName,
@@ -486,10 +546,6 @@ export class ProblemBuilderService {
         disciplineKey: `${l.studentGroupId}|${l.semesterCurriculumItemId}`,
       }));
 
-    const groupsDb = await this.prisma.studentGroup.findMany({
-      where: { id: { in: groupIds } },
-      include: { subgroups: true },
-    });
     const maxGroupLessonsPerDay = params.maxGroupLessonsPerDay ?? settings.maxGroupLessonsPerDay;
     const problem: SolverProblem = {
       version: 1,
@@ -505,6 +561,7 @@ export class ProblemBuilderService {
         subgroups: g.subgroups.map((s) => s.number).sort((a, b) => a - b),
         allowedDates: groupAllowed.get(g.id) ?? [],
         maxLessonsPerDay: maxGroupLessonsPerDay,
+        allowedLessons: groupLessonNumbers(g, lessonsPerDay),
       })),
       teachers,
       rooms,
@@ -532,6 +589,11 @@ export class ProblemBuilderService {
       problem,
       settings,
       period: { id: period.id, title: period.title, organizationId, semesterId: period.semesterId },
+      periods: activePeriods.map((p) => ({
+        id: p.id,
+        title: p.title,
+        groupCodes: groupsDb.filter((g) => periodOfGroup.get(g.id)?.id === p.id).map((g) => g.code),
+      })),
       range: { from, to },
       groupIds,
       demandMeta,

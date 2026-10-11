@@ -50,7 +50,7 @@ export class ExcelService {
 
   private newWorkbook() {
     const wb = new ExcelJS.Workbook();
-    wb.creator = 'Расписание СПО';
+    wb.creator = 'Расписание СПО и ВО';
     wb.created = new Date();
     return wb;
   }
