@@ -1,6 +1,6 @@
 # 2. Схема базы данных
 
-PostgreSQL 16, схема описана в `apps/backend/prisma/schema.prisma` (30 моделей, 17 перечислений), изменения
+PostgreSQL 16, схема описана в `apps/backend/prisma/schema.prisma` (32 модели, 21 перечисление), изменения
 применяются миграциями Prisma (`apps/backend/prisma/migrations`). В CI проверяется, что схема совпадает с миграциями.
 
 ## Диаграмма связей
@@ -56,7 +56,7 @@ erDiagram
 
 | Модель | Назначение | Ключевые поля |
 | --- | --- | --- |
-| `Organization` | Колледж | `name`, `shortName`, `timezone` |
+| `Organization` | Образовательная организация (колледж, вуз, филиал — СПО и ВО вместе) | `name`, `shortName`, `timezone` |
 | `OrganizationSettings` | Правила расписания | `academicHoursPerLesson` (2), `lessonsPerDay`, `maxGroupLessonsPerDay`, `maxSameDisciplinePerDay/Week`, `lateLessonNumber`, `workingDays`, лимиты окон и экзаменов, `scheduleConsultations`, `solverTimeLimitSeconds`, `solverWeightsJson` |
 | `LessonTime` | Расписание звонков | `lessonNumber`, `startTime`, `endTime` |
 | `User` | Учётная запись | `email`, `passwordHash`, `role`, `teacherId` (для преподавателя), `studentGroupId` (для студента), `refreshTokenHash` |
@@ -67,12 +67,12 @@ erDiagram
 
 | Модель | Назначение | Ключевые поля |
 | --- | --- | --- |
-| `Specialty` | Специальность ФГОС СПО | `code` (09.02.07), `name`, `qualification`, `durationMonths` |
-| `EducationalProgram` | Учебный план набора | `admissionYear`, `studyForm`, `durationMonths`, `totalSemesters`, `status` |
+| `Specialty` | Специальность СПО или направление подготовки ВО | `code` (09.02.07, 40.03.01), `name`, `qualification`, `educationLevel` (SPO, BACHELOR, SPECIALIST, MASTER, POSTGRADUATE — по умолчанию по второму сегменту кода), `durationMonths` |
+| `EducationalProgram` | Учебный план набора | `admissionYear`, `studyForm` (очная, очно-заочная, заочная), `durationMonths`, `totalSemesters` (до 14), `status` |
 | `AcademicYear` | Учебный год (курс) | `title`, `courseNumber`, `startDate`, `endDate` |
 | `Semester` | Семестр | `number`, `courseNumber`, даты, недели теории/аттестации/практики/каникул |
-| `CurriculumCycle` | Цикл (ОГСЭ, ЕН, ОП, ПМ…) | `code`, `name`, `sortOrder` |
-| `CurriculumItem` | Дисциплина, ПМ, МДК, практика, ГИА | `code`, `name`, `itemType`, `parentItemId` (иерархия ПМ → МДК), `isDifficult` |
+| `CurriculumCycle` | Цикл СПО (СГ, ОП, ПМ…) или блок/модуль ВО (Б1, Б1.О.05, Б2, ФТД…) | `code`, `name`, `sortOrder` |
+| `CurriculumItem` | Дисциплина, ПМ, МДК, практика, ГИА | `code`, `name`, `itemType`, `parentItemId` (иерархия ПМ → МДК), `isRequired` (false — дисциплина по выбору или факультатив: ставится в расписание только группам с назначенной нагрузкой), `isDifficult` |
 | `CurriculumScan` | Скан учебного плана | `fileNames[]`, `status` (PROCESSING, READY, FAILED, APPLIED), `progress`, `message`, `error`, `resultJson` (распознанные данные), `programId` (созданный план) |
 | `SemesterCurriculumItem` | Часы элемента в семестре | `lectureHours`, `practicalHours`, `laboratoryHours`, `consultationHours`, `selfStudyHours`, `assessmentHours`, `practiceHours`, рассчитанные `planned*Lessons`, `controlForm`, `practiceAtCollege`, `scheduleConsultations`, допустимые типы аудиторий по видам занятий |
 
@@ -80,7 +80,7 @@ erDiagram
 
 | Модель | Назначение | Ключевые поля |
 | --- | --- | --- |
-| `StudentGroup` | Учебная группа | `code`, `courseNumber`, `currentSemesterNumber`, `studentCount`, `subgroupCount` |
+| `StudentGroup` | Учебная группа | `code`, `courseNumber`, `currentSemesterNumber`, `studentCount`, `subgroupCount`, режим занятий: `studyDays[]` (учебные дни, пусто — все), `firstLessonNumber`/`lastLessonNumber` (допустимые пары: вторая смена, вечерние и очно-заочные группы) |
 | `Subgroup` | Подгруппа | `number`, `name`, `studentCount` |
 | `Student` | Студент | `fullName`, `recordBookNumber`, `subgroupId` |
 | `Teacher` | Преподаватель | `department`, `maxWeeklyLessons`, `maxDailyLessons`, `preferredStartLesson/EndLesson` |
@@ -94,7 +94,7 @@ erDiagram
 
 | Модель | Назначение | Ключевые поля |
 | --- | --- | --- |
-| `CalendarEvent` | Период графика | `eventType` (теория, аттестация, каникулы, практики, ГИА, праздник…), даты, область действия (`educationalProgramId`, `courseNumber`, `studentGroupId`, `teacherId`; без них — весь колледж), `blocksSchedule` |
+| `CalendarEvent` | Период графика | `eventType` (теория, аттестация, каникулы, практики, ГИА, праздник…), даты, область действия (`educationalProgramId`, `courseNumber`, `studentGroupId`, `teacherId`; без них — вся организация), `blocksSchedule`; у заочной формы межсессионные периоды — блокирующие события «Прочее» |
 | `AssessmentEvent` | Экзамен, зачёт | `controlForm`, `date`, `lessonNumber`, `teacherId`, `classroomId` |
 
 ### Расписание и факт
@@ -106,7 +106,7 @@ erDiagram
 | `ConductedLesson` | Отметка о проведении | `status` (проведено, отменено, перенесено, замена), `actualHours`, `actualTeacherId`, `actualClassroomId`, `cancellationReason`, `replacementLessonId` |
 | `TeacherSubstitution` | Замена преподавателя | исходный и заменяющий преподаватель, причина, кто утвердил |
 | `MakeupTask` | «Требуется отработка» | исходное занятие, группа, подгруппа, дисциплина, вид, часы, статус, занятие-отработка |
-| `ScheduleGenerationJob` | Задание генерации | `status`, `mode`, параметры, прогресс, решатель, результат (предпросмотр), статистика, ошибки |
+| `ScheduleGenerationJob` | Задание генерации | `status`, `mode`, параметры, прогресс, решатель, результат (предпросмотр), статистика, ошибки; `periodIds[]` — все периоды совместной генерации для всех групп (`schedulePeriodId` — первый из них) |
 | `ValidationResult` | Результат проверки | `severity` (ошибка, предупреждение, информация), `validationType`, объект, сообщение, детали |
 
 ## Правила целостности
