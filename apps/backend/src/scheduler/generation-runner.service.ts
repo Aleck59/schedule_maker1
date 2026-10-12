@@ -6,6 +6,7 @@ import { SettingsService } from '../settings/settings.service';
 import { diagnoseDemand, suggestionsFor } from './diagnostics';
 import { GenerationParams, GenerationResultJson, PreviewLesson } from './generation.types';
 import { BuiltProblem, ProblemBuilderService } from './problem-builder.service';
+import { lateLessonCheck } from './quality';
 import { SolverClientService } from './solver-client.service';
 import { SolverResult, UnplacedItem } from './solver.types';
 
@@ -254,14 +255,14 @@ export class GenerationRunnerService {
 
   /** Подсчёт нарушений мягких ограничений в результате */
   private softViolations(lessons: PreviewLesson[], built: BuiltProblem): Record<string, number> {
-    const settings = built.problem.settings;
     const byGroupDay = new Map<string, Set<number>>();
     const byTeacherDay = new Map<string, Set<number>>();
     const buildings = new Map<string, Set<string>>();
     const rooms = new Map(built.problem.rooms.map((r) => [r.id, r]));
+    const isLate = lateLessonCheck(built.problem);
     let lateLessons = 0;
     for (const l of lessons) {
-      if (l.lessonNumber >= settings.lateLessonNumber) lateLessons++;
+      if (isLate(l.groupIds, l.lessonNumber)) lateLessons++;
       for (const g of l.groupIds) {
         const key = `${g}#${l.subgroupNumber ?? 0}#${l.date}`;
         const set = byGroupDay.get(key) ?? new Set<number>();
@@ -289,9 +290,10 @@ export class GenerationRunnerService {
       }
       return total;
     };
-    const maxPerDay = built.problem.groups[0]?.maxLessonsPerDay ?? 4;
+    const maxPerDay = new Map(built.problem.groups.map((g) => [g.id, g.maxLessonsPerDay]));
     let overloadedDays = 0;
-    for (const set of byGroupDay.values()) if (set.size > maxPerDay) overloadedDays++;
+    for (const [key, set] of byGroupDay)
+      if (set.size > (maxPerDay.get(key.split('#')[0]) ?? 4)) overloadedDays++;
     let buildingChanges = 0;
     for (const set of buildings.values()) if (set.size > 1) buildingChanges += set.size - 1;
     return {

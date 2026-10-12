@@ -204,6 +204,7 @@ class CpSatScheduler:
         self.day_ref = {d.date: DayRef(d.date, d.weekday, d.week) for d in problem.days}
         self.statuses: list[int] = []
         self.objective = 0.0
+        self.hint_weeks = 0
 
     # ------------------------------------------------------------------ подготовка
 
@@ -527,7 +528,7 @@ class CpSatScheduler:
         status = solver.solve(model)
         self.statuses.append(status)
         if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            return 0
+            return self._commit_hints(st, active, days, targets)
         self.objective += solver.objective_value
         placed = 0
         for (i, dk, lesson, room_id), var in x.items():
@@ -538,6 +539,37 @@ class CpSatScheduler:
                 placed += 1
         if aggregate:
             placed += self._commit_with_rooms(st, active, days, y, candidates, solver)
+        return placed
+
+    def _commit_hints(
+        self, st: State, active: list[DemandState], days: list[DayRef], targets: dict[DemandState, int]
+    ) -> int:
+        """Решатель не нашёл решение недели за отведённое время: ставятся подсказки (решение эвристики),
+        не противоречащие уже поставленным занятиям, — неделя не остаётся пустой."""
+        if not self.hints:
+            return 0
+        self.hint_weeks += 1
+        placed = 0
+        for ds in active:
+            left = min(targets.get(ds, 0), ds.d.lessons_required - ds.placed)
+            for day in days:
+                for lesson in range(1, self.L + 1):
+                    if left <= 0:
+                        break
+                    key = (ds.d.id, day.key, lesson)
+                    if key not in self.hints or not self._slot_ok(st, ds, day, lesson):
+                        continue
+                    t = ds.teacher
+                    if st.teacher_week.get((t.id, day.week), 0) >= t.max_weekly_lessons:
+                        continue
+                    hinted = self.hints[key]
+                    rooms = [r for r in self._rooms_for(ds, day, lesson) if self._room_ok(st, r, day, lesson)]
+                    room_id = hinted if hinted in rooms else (rooms[0] if rooms else None)
+                    if room_id is None:
+                        continue
+                    self._commit(st, ds, day, lesson, room_id)
+                    placed += 1
+                    left -= 1
         return placed
 
     def _room_capacity_constraints(
@@ -663,10 +695,13 @@ class CpSatScheduler:
                 0.5, main_budget / max(1, len(weeks)) / (3 if self.p.mode == "WEEKLY_TEMPLATE" else 1)
             )
             required = sum(max(0, d.lessons_required) for d in self.p.demands)
+            out_of_time = False
             for i, w in enumerate(weeks):
-                if time.monotonic() > self.deadline:
+                if not out_of_time and time.monotonic() > self.deadline:
+                    out_of_time = True
                     self.log.append("Достигнут лимит времени — возвращён лучший найденный вариант")
-                    break
+                    if not self.hints:
+                        break
                 self.on_progress(
                     0.85 * i / max(1, len(weeks)),
                     f"Неделя {i + 1} из {len(weeks)}: поставлено {len(self.placements)} из {required} пар",
@@ -678,7 +713,13 @@ class CpSatScheduler:
                     t = ds.target_through(w) - ds.placed
                     if t > 0:
                         targets[ds] = t
-                self._solve_week(st, self.days_by_week[w], targets, per_week)
+                if out_of_time:
+                    # Время вышло: оставшиеся недели — по решению эвристики, без пустых недель в конце
+                    self._commit_hints(
+                        st, [ds for ds in targets if targets[ds] > 0], self.days_by_week[w], targets
+                    )
+                else:
+                    self._solve_week(st, self.days_by_week[w], targets, per_week)
 
         # Компенсация: сначала равномерно по оставшимся неделям, затем в любые свободные слоты
         for spread in (True, False):
@@ -720,6 +761,11 @@ class CpSatScheduler:
             if d.id not in known and d.lessons_required > 0:
                 unplaced.append(Unplaced(demand_id=d.id, count=d.lessons_required))
         self.placements.sort(key=lambda p: (p.date, p.lesson_number))
+        if self.hint_weeks:
+            self.log.append(
+                f"Не хватило времени на {self.hint_weeks} недель(и) — для них взято решение эвристики; "
+                "увеличьте лимит времени, чтобы CP-SAT улучшил их"
+            )
         if required > 0 and not self.placements:
             status = "EMPTY"
         elif unplaced:

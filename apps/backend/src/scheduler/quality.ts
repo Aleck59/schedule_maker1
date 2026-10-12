@@ -26,17 +26,33 @@ function windows(map: Map<string, Set<number>>): number {
   return total;
 }
 
+/**
+ * Поздняя ли пара: номер не меньше «поздней» у группы без особого режима занятий.
+ * Если режим группы сам включает поздние пары (вечерние и очно-заочные группы), они не нарушение.
+ */
+export function lateLessonCheck(problem: Pick<SolverProblem, 'groups' | 'settings'>) {
+  const late = problem.settings.lateLessonNumber;
+  const evening = new Set(
+    problem.groups
+      .filter((g) => g.allowedLessons?.length && Math.max(...g.allowedLessons) >= late)
+      .map((g) => g.id),
+  );
+  return (groupIds: string[], lessonNumber: number) =>
+    lessonNumber >= late && groupIds.some((g) => !evening.has(g));
+}
+
 /** Оценка результата решателя для выбора лучшего из нескольких вариантов */
 export function qualityOf(problem: SolverProblem, result: SolverResult): QualitySummary {
   const demands = new Map(problem.demands.map((d) => [d.id, d]));
   const groups = new Map(problem.groups.map((g) => [g.id, g]));
   const byGroupDay = new Map<string, Set<number>>();
   const byTeacherDay = new Map<string, Set<number>>();
+  const isLate = lateLessonCheck(problem);
   let lateLessons = 0;
   for (const p of result.placements) {
     const d = demands.get(p.demandId);
     if (!d) continue;
-    if (p.lessonNumber >= problem.settings.lateLessonNumber) lateLessons++;
+    if (isLate(d.groupIds, p.lessonNumber)) lateLessons++;
     for (const g of d.groupIds) {
       const key = `${g}#${d.subgroupNumber ?? 0}#${p.date}`;
       const set = byGroupDay.get(key) ?? new Set<number>();

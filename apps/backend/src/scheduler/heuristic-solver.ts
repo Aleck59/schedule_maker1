@@ -243,6 +243,11 @@ export interface HeuristicOptions {
   onProgress?: (fraction: number, message: string) => void;
   /** Ограничение на число попыток ремонта в неделе */
   repairLimit?: number;
+  /**
+   * Доработка готового решения (например, CP-SAT): занятия берутся как есть, затем недопоставленные
+   * пары досаживаются по оставшимся неделям и выполняется доводка окон
+   */
+  initial?: SolverPlacement[];
 }
 
 export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions = {}): SolverResult {
@@ -624,10 +629,193 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     }
   };
 
+  /** Окна групп и преподавателя в этот день (для доводки) */
+  const dayWindowsCost = (st: ScheduleState, ds: DemandState, day: DayRef): number => {
+    let cost = 0;
+    for (const g of ds.d.groupIds) {
+      for (const persp of st.perspectivesFor(g, ds.d.subgroupNumber)) {
+        cost += gaps(st.perspectiveDay.get(`${g}#${persp}#${day.key}`)) * weights.groupWindows;
+      }
+    }
+    return cost + gaps(st.teacherDay.get(`${ds.d.teacherId}#${day.key}`)) * weights.teacherWindows;
+  };
+  /** Стоимость самой пары: поздние пары, пожелания преподавателя, сложные дисциплины в конце дня */
+  const lessonPointCost = (ds: DemandState, day: DayRef, lesson: number): number => {
+    let cost = lesson * 0.3;
+    if (lesson >= settings.lateLessonNumber)
+      cost += weights.lateLessons * (lesson - settings.lateLessonNumber + 1);
+    if (settings.respectTeacherPreferences) {
+      const t = ds.teacher;
+      if (lesson < t.preferredStartLesson || lesson > t.preferredEndLesson) cost += weights.teacherPreference;
+      const pref =
+        (preferenceTeacher.get(t.id)?.get(`${day.weekday}#${lesson}`) ?? 0) +
+        (slotPrefTeacher.get(t.id)?.get(`${day.key}#${lesson}`) ?? 0);
+      cost -= pref * (weights.teacherPreference / 5);
+    }
+    if (ds.d.isDifficult && lesson >= Math.max(4, settings.lateLessonNumber - 1))
+      cost += weights.difficultLate;
+    return cost;
+  };
+  /** Свободная аудитория для пары: та же, затем в том же корпусе, затем любая подходящая */
+  const roomForMove = (
+    st: ScheduleState,
+    ds: DemandState,
+    day: DayRef,
+    lesson: number,
+    current: string | null,
+  ) => {
+    const options = roomIdsFor(ds, day, lesson)
+      .map((id) => roomsById.get(id))
+      .filter((r): r is SolverRoom => !!r && roomFree(st, r, day, lesson));
+    const building = current ? roomsById.get(current)?.building : undefined;
+    return (
+      options.find((r) => r.id === current) ??
+      options.find((r) => building && r.building === building) ??
+      options[0] ??
+      null
+    );
+  };
+  const compact = (st: ScheduleState, until: number): number => {
+    let moved = 0;
+    for (let round = 0; round < 4; round++) {
+      let changed = 0;
+      for (const p of [...st.placements]) {
+        if (Date.now() > until) return moved + changed;
+        if (p.fixed) continue;
+        const ds = p.demand;
+        const before = dayWindowsCost(st, ds, p.day) + lessonPointCost(ds, p.day, p.lesson);
+        st.remove(p);
+        let best: { lesson: number; roomId: string; cost: number } | null = null;
+        for (let lesson = 1; lesson <= lessonsPerDay; lesson++) {
+          if (lesson === p.lesson || !slotAllowed(ds, p.day, lesson)) continue;
+          if (!teacherFree(st, ds, p.day, lesson) || !groupFree(st, ds, p.day, lesson)) continue;
+          if (!disciplineOk(st, ds, p.day, lesson)) continue;
+          const room = roomForMove(st, ds, p.day, lesson, p.roomId);
+          if (!room) continue;
+          const trial = st.apply({ demand: ds, day: p.day, lesson, roomId: room.id, fixed: false });
+          const cost = dayWindowsCost(st, ds, p.day) + lessonPointCost(ds, p.day, lesson);
+          st.remove(trial);
+          if (cost < before - 0.5 && (!best || cost < best.cost)) best = { lesson, roomId: room.id, cost };
+        }
+        if (best) {
+          st.apply({ demand: ds, day: p.day, lesson: best.lesson, roomId: best.roomId, fixed: false });
+          changed++;
+        } else {
+          st.apply({ demand: ds, day: p.day, lesson: p.lesson, roomId: p.roomId, fixed: false });
+        }
+      }
+      moved += changed;
+      if (changed === 0) break;
+    }
+    return moved;
+  };
+  /** Стоимость дня для переноса между днями: окна, перегрузка групп, разрывы одной дисциплины */
+  const dayFullCost = (st: ScheduleState, ds: DemandState, day: DayRef): number => {
+    let cost = dayWindowsCost(st, ds, day);
+    for (const g of ds.d.groupIds) {
+      const group = groupsById.get(g);
+      for (const persp of st.perspectivesFor(g, ds.d.subgroupNumber)) {
+        const size = st.perspectiveDay.get(`${g}#${persp}#${day.key}`)?.size ?? 0;
+        if (group && size > group.maxLessonsPerDay)
+          cost += weights.groupDailyOverload * (size - group.maxLessonsPerDay);
+      }
+    }
+    for (const dk of ds.d.disciplineKeys) {
+      const set = st.disciplineDay.get(`${dk}#${day.key}`);
+      if (set && set.size > 1) cost += (gaps(set) > 0 ? 2 : 1) * weights.sameDayDiscipline * (set.size - 1);
+    }
+    return cost;
+  };
+  /** Занятие участвует в окне группы или преподавателя */
+  const inWindow = (st: ScheduleState, p: Placed): boolean => {
+    if (gaps(st.teacherDay.get(`${p.demand.d.teacherId}#${p.day.key}`)) > 0) return true;
+    return p.demand.d.groupIds.some((g) =>
+      st
+        .perspectivesFor(g, p.demand.d.subgroupNumber)
+        .some((persp) => gaps(st.perspectiveDay.get(`${g}#${persp}#${p.day.key}`)) > 0),
+    );
+  };
+  /** Перенос занятия, участвующего в окне, на другой день той же недели */
+  const shiftDays = (st: ScheduleState, until: number): number => {
+    let moved = 0;
+    for (const p of [...st.placements]) {
+      if (Date.now() > until) break;
+      if (p.fixed || !inWindow(st, p)) continue;
+      const ds = p.demand;
+      const days = (daysByWeek.get(p.day.week) ?? []).filter(
+        (d) => d.key !== p.day.key && ds.allowedDays.has(d.key),
+      );
+      if (days.length === 0) continue;
+      const baseOld = dayFullCost(st, ds, p.day) + lessonPointCost(ds, p.day, p.lesson);
+      st.remove(p);
+      const oldAfter = dayFullCost(st, ds, p.day);
+      let best: { day: DayRef; lesson: number; roomId: string; gain: number } | null = null;
+      for (const day of days) {
+        const newBefore = dayFullCost(st, ds, day);
+        for (let lesson = 1; lesson <= lessonsPerDay; lesson++) {
+          if (
+            !slotAllowed(ds, day, lesson) ||
+            !teacherFree(st, ds, day, lesson) ||
+            !groupFree(st, ds, day, lesson)
+          )
+            continue;
+          if (!disciplineOk(st, ds, day, lesson)) continue;
+          const room = roomForMove(st, ds, day, lesson, p.roomId);
+          if (!room) continue;
+          const trial = st.apply({ demand: ds, day, lesson, roomId: room.id, fixed: false });
+          const gain =
+            baseOld + newBefore - (oldAfter + dayFullCost(st, ds, day) + lessonPointCost(ds, day, lesson));
+          st.remove(trial);
+          if (gain > 0.5 && (!best || gain > best.gain)) best = { day, lesson, roomId: room.id, gain };
+        }
+      }
+      if (best) {
+        st.apply({ demand: ds, day: best.day, lesson: best.lesson, roomId: best.roomId, fixed: false });
+        moved++;
+      } else {
+        st.apply({ demand: ds, day: p.day, lesson: p.lesson, roomId: p.roomId, fixed: false });
+      }
+    }
+    return moved;
+  };
+  const countWindows = (st: ScheduleState) => {
+    let groups = 0;
+    for (const set of st.perspectiveDay.values()) groups += gaps(set);
+    let teachers = 0;
+    for (const set of st.teacherDay.values()) teachers += gaps(set);
+    return { groups, teachers };
+  };
+
   const repairLimit = options.repairLimit ?? 60;
   let timeExceeded = false;
 
-  if (problem.mode === 'WEEKLY_TEMPLATE') {
+  if (options.initial) {
+    // --- Доработка готового решения: занятия переносятся в состояние с проверкой ограничений
+    const byId = new Map(demands.map((ds) => [ds.d.id, ds]));
+    let rejected = 0;
+    for (const p of options.initial) {
+      const ds = byId.get(p.demandId);
+      const day = dayRefByDate.get(p.date);
+      const room = p.roomId ? roomsById.get(p.roomId) : undefined;
+      const ok =
+        !!ds &&
+        !!day &&
+        ds.placed < ds.d.lessonsRequired &&
+        slotAllowed(ds, day, p.lessonNumber) &&
+        teacherFree(state, ds, day, p.lessonNumber) &&
+        groupFree(state, ds, day, p.lessonNumber) &&
+        disciplineOk(state, ds, day, p.lessonNumber) &&
+        (!room || roomFree(state, room, day, p.lessonNumber));
+      if (!ok) {
+        rejected++;
+        continue;
+      }
+      state.apply({ demand: ds, day, lesson: p.lessonNumber, roomId: p.roomId, fixed: false });
+      ds.placed++;
+    }
+    if (rejected)
+      log.push(`Доработка: ${rejected} занятий исходного решения не прошли проверку и поставлены заново`);
+  } else if (problem.mode === 'WEEKLY_TEMPLATE') {
     // --- 1. Шаблон недели
     const templateDays: DayRef[] = problem.workingDays.map((w) => ({ key: `T${w}`, weekday: w, week: -1 }));
     const templateState = makeState();
@@ -728,8 +916,11 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     }
   }
   // --- Календарный проход: весь спрос (календарный режим) или практика/консультации (режим шаблона)
-  const calendarDemands =
-    problem.mode === 'WEEKLY_TEMPLATE' ? demands.filter((ds) => ds.d.allowedDates !== null) : demands;
+  const calendarDemands = options.initial
+    ? []
+    : problem.mode === 'WEEKLY_TEMPLATE'
+      ? demands.filter((ds) => ds.d.allowedDates !== null)
+      : demands;
   if (calendarDemands.length > 0) {
     weeks.forEach((w, idx) => {
       if (Date.now() > deadline) {
@@ -774,6 +965,27 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     catchUp(false);
   }
   if (timeExceeded) log.push('Достигнут лимит времени — возвращён лучший найденный вариант');
+
+  // --- Доводка: перестановка занятий внутри дня, если это убирает окна групп и преподавателей.
+  // Дата не меняется, поэтому темп, недельные лимиты и календарь не нарушаются. В режиме шаблона
+  // недели не выполняется: занятия должны повторяться одинаково каждую неделю.
+  if (problem.mode !== 'WEEKLY_TEMPLATE' && settings.avoidWindows) {
+    const polishDeadline = Date.now() + Math.min(30, Math.max(5, problem.timeLimitSeconds / 4)) * 1000;
+    const windowsBefore = countWindows(state);
+    let moved = compact(state, polishDeadline);
+    for (let round = 0; round < 3 && Date.now() < polishDeadline; round++) {
+      const shifted = shiftDays(state, polishDeadline);
+      if (shifted === 0) break;
+      moved += shifted + compact(state, polishDeadline);
+    }
+    if (moved > 0) {
+      const after = countWindows(state);
+      log.push(
+        `Доводка: переставлено ${moved} занятий внутри дня и недели; окна у групп ${windowsBefore.groups} → ${after.groups}, ` +
+          `у преподавателей ${windowsBefore.teachers} → ${after.teachers}`,
+      );
+    }
+  }
 
   const placements: SolverPlacement[] = state.placements.map((p) => ({
     demandId: p.demand.d.id,

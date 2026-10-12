@@ -260,6 +260,30 @@ export const PROGRAM_STATUS_LABELS: Record<string, string> = {
   ARCHIVED: 'Архив',
 };
 
+export const SOLVER_LABELS: Record<string, string> = {
+  auto: 'автоматически',
+  'cp-sat': 'CP-SAT',
+  heuristic: 'эвристика',
+};
+
+/** Причины, по которым занятия не поставлены (коды генератора) */
+export const UNPLACED_REASON_LABELS: Record<string, string> = {
+  NO_TEACHER: 'Не назначен преподаватель',
+  TEACHER_INACTIVE: 'Преподаватель неактивен',
+  TEACHER_LEVEL: 'Преподаватель не может вести у этого уровня',
+  TEACHER_NOT_EMPLOYED: 'Преподаватель не работает в эти даты',
+  NO_SUITABLE_ROOM: 'Нет подходящей аудитории',
+  NO_AVAILABLE_DAYS: 'Нет учебных дней',
+  NO_PRACTICE_PERIOD: 'Нет периода практики в графике',
+  TEACHER_UNAVAILABLE: 'Преподаватель недоступен',
+  TEACHER_BUSY: 'Преподаватель занят',
+  TEACHER_LIMIT: 'Лимит нагрузки преподавателя',
+  GROUP_BUSY: 'У группы нет свободных пар',
+  ROOM_SHORTAGE: 'Не хватает аудиторий',
+  DAILY_LIMITS: 'Ограничения на день',
+  NOT_ENOUGH_TIME: 'Не хватило свободного времени',
+};
+
 export const SOFT_VIOLATION_LABELS: Record<string, string> = {
   groupWindows: 'Окна у групп',
   teacherWindows: 'Окна у преподавателей',

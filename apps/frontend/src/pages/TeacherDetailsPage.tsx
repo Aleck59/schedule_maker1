@@ -147,7 +147,7 @@ export default function TeacherDetailsPage() {
         </div>
       )}
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
+        <TabsList className="h-auto flex-wrap">
           <TabsTrigger value="disciplines">Дисциплины</TabsTrigger>
           <TabsTrigger value="schedule">Расписание</TabsTrigger>
           <TabsTrigger value="restrictions">Ограничения</TabsTrigger>

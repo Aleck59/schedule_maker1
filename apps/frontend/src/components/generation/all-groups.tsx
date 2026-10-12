@@ -1,18 +1,20 @@
-import { useMemo } from 'react';
-import { CalendarPlus, CircleSlash, Users } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { CalendarPlus, ChevronRight, CircleSlash, Users } from 'lucide-react';
 import { LoadingState } from '@/components/common/states';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatDate } from '@/lib/format';
 import { EDUCATION_LEVEL_LABELS, STUDY_FORM_LABELS } from '@/lib/labels';
 import type { AllGroupsPlan, AllGroupsPlanRow } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 export type LevelFilter = 'ALL' | 'SPO' | 'HIGHER';
 
 export const LEVEL_FILTER_OPTIONS: Array<{ value: LevelFilter; label: string }> = [
-  { value: 'ALL', label: 'Все группы: СПО и ВО' },
+  { value: 'ALL', label: 'СПО и ВО' },
   { value: 'SPO', label: 'Только СПО' },
-  { value: 'HIGHER', label: 'Только высшее образование' },
+  { value: 'HIGHER', label: 'Только ВО' },
 ];
 
 export function levelsOf(filter: LevelFilter): string[] | undefined {
@@ -28,6 +30,7 @@ export function filterPlan(rows: AllGroupsPlanRow[], filter: LevelFilter): AllGr
 
 /** Что войдёт в расписание для всех групп: периоды (семестры учебных планов) и группы, а также пропущенные группы */
 export function AllGroupsPlanCard({ plan, filter, loading }: { plan?: AllGroupsPlan; filter: LevelFilter; loading: boolean }) {
+  const [open, setOpen] = useState(false);
   const rows = useMemo(() => filterPlan(plan?.groups ?? [], filter), [plan, filter]);
   const byPeriod = useMemo(() => {
     const map = new Map<string, AllGroupsPlanRow[]>();
@@ -47,8 +50,8 @@ export function AllGroupsPlanCard({ plan, filter, loading }: { plan?: AllGroupsP
           <Users className="size-4" /> Что будет составлено
         </CardTitle>
         <CardDescription>
-          Текущий семестр каждой активной группы{plan ? ` на ${formatDate(plan.date)}` : ''}. Преподаватели и аудитории общие для всех групп —
-          накладки между учебными планами исключаются сразу.
+          Текущий семестр каждой активной группы{plan ? ` на ${formatDate(plan.date)}` : ''}; преподаватели и аудитории без накладок между
+          планами
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -61,6 +64,13 @@ export function AllGroupsPlanCard({ plan, filter, loading }: { plan?: AllGroupsP
             {skipped.length > 0 && <Badge variant="muted">Пропущено групп: {skipped.length}</Badge>}
           </div>
         )}
+        {byPeriod.length > 0 && (
+          <Button variant="ghost" size="sm" className="-ml-2" onClick={() => setOpen(!open)}>
+            <ChevronRight className={cn('transition-transform', open && 'rotate-90')} />
+            {open ? 'Скрыть состав' : `Показать состав: ${byPeriod.length} учебных планов`}
+          </Button>
+        )}
+        {open && (
         <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1 scrollbar-thin">
           {byPeriod.map((list) => {
             const r = list[0];
@@ -105,8 +115,9 @@ export function AllGroupsPlanCard({ plan, filter, loading }: { plan?: AllGroupsP
               ))}
             </div>
           )}
-          {plan && rows.length === 0 && <div className="text-muted-foreground text-sm">Нет активных групп</div>}
         </div>
+        )}
+        {plan && rows.length === 0 && <div className="text-muted-foreground text-sm">Нет активных групп</div>}
       </CardContent>
     </Card>
   );

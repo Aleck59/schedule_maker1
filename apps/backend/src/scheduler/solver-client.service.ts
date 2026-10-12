@@ -52,18 +52,33 @@ export class SolverClientService {
           timeoutMs,
           onProgress: (fraction, message) => onProgress?.(0.05 + fraction * 0.95, message),
         });
-        if (mode === 'cp-sat') return exact;
-        // Режим auto: из двух вариантов выбирается лучший по числу пар и мягким ограничениям
-        const a = qualityOf(problem, exact);
-        const b = qualityOf(problem, quick);
-        if (a.score >= b.score) {
-          return { ...exact, log: [...exact.log, `Выбран результат CP-SAT (${describeQuality(a)})`] };
-        }
+        // Доработка решения CP-SAT: недопоставленные пары по оставшимся неделям и доводка окон
+        onProgress?.(0.97, 'Доводка расписания: окна и недопоставленные пары');
+        const polished = solveHeuristic(problem, { initial: exact.placements });
+        const refined: SolverResult = {
+          ...polished,
+          solver: exact.solver,
+          stats: {
+            ...polished.stats,
+            durationMs: exact.stats.durationMs + polished.stats.durationMs,
+            objective: exact.stats.objective,
+          },
+          log: [...exact.log, ...polished.log],
+        };
+        // Выбирается лучший вариант по числу пар и мягким ограничениям — и в режиме CP-SAT:
+        // при нехватке времени он может поставить меньше, чем быстрая эвристика
+        const options = [
+          { result: refined, q: qualityOf(problem, refined), name: 'CP-SAT с доводкой' },
+          { result: exact, q: qualityOf(problem, exact), name: 'CP-SAT' },
+          { result: quick, q: qualityOf(problem, quick), name: 'эвристика' },
+        ];
+        const best = options.reduce((a, b) => (b.q.score > a.q.score ? b : a));
+        const others = options.filter((o) => o !== best).map((o) => `${o.name} — ${describeQuality(o.q)}`);
         return {
-          ...quick,
+          ...best.result,
           log: [
-            ...quick.log,
-            `Результат эвристики лучше результата CP-SAT: ${describeQuality(b)}; CP-SAT — ${describeQuality(a)}`,
+            ...best.result.log,
+            `Выбран вариант «${best.name}»: ${describeQuality(best.q)}; ${others.join('; ')}`,
           ],
         };
       } catch (e) {

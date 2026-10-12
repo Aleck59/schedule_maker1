@@ -377,3 +377,25 @@ def test_match_rooms_uses_augmenting_paths():
     # Жадный выбор отдал бы «a» аудиторию r1, и «b» осталась бы без аудитории
     chosen = match_rooms({0: ["r1", "r2"], 1: ["r1"], 2: ["online"]}, {"online"})
     assert chosen == {0: "r2", 1: "r1", 2: "online"}
+
+
+def test_week_without_solution_in_time_uses_hints(monkeypatch):
+    """CP-SAT не успел решить неделю: ставятся подсказки (решение эвристики), а не пустая неделя."""
+    import app.cpsat as cpsat
+
+    raw = base_problem(
+        demands=[
+            demand("math_lec", ["g1"], "t1", 6, ["r_lec", "r_gen"], key="math"),
+            demand("prog_lec", ["g1"], "t2", 6, ["r_lec"], key="prog"),
+            demand("math_g2", ["g2"], "t3", 6, ["r_gen", "r_lec"], key="math2", size=20),
+        ]
+    )
+    first = solve(Problem.model_validate(raw))
+    assert first.stats.placed_lessons == 18
+    raw["hints"] = [p.model_dump(by_alias=True) for p in first.placements]
+    monkeypatch.setattr(cpsat.cp_model.CpSolver, "solve", lambda self, model: cpsat.cp_model.UNKNOWN)
+    problem = Problem.model_validate(raw)
+    result = solve(problem)
+    assert result.stats.placed_lessons == 18
+    check_hard_constraints(problem, result)
+    assert any("решение эвристики" in line for line in result.log)
