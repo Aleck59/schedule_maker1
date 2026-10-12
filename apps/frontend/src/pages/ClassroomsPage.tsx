@@ -31,6 +31,15 @@ function equipmentText(e: Record<string, unknown> | null): string {
     .join(', ');
 }
 
+/** Для таблицы: примечание («note») — без служебного ключа */
+function equipmentDisplay(e: Record<string, unknown> | null): string {
+  if (!e) return '';
+  return Object.entries(e)
+    .map(([k, v]) => (k === 'note' ? String(v) : typeof v === 'boolean' ? (v ? k : '') : `${k}: ${String(v)}`))
+    .filter(Boolean)
+    .join(', ');
+}
+
 export default function ClassroomsPage() {
   const { canEdit } = useAuth();
   const navigate = useNavigate();
@@ -55,11 +64,16 @@ export default function ClassroomsPage() {
       header: 'Корпус / этаж',
       cell: ({ row }) => [row.original.building, row.original.floor ? `${row.original.floor} эт.` : null].filter(Boolean).join(', ') || '—',
     },
-    { id: 'equipment', header: 'Оборудование', cell: ({ row }) => <span className="text-xs">{equipmentText(row.original.equipmentJson) || '—'}</span> },
+    {
+      id: 'equipment',
+      header: 'Оборудование',
+      cell: ({ row }) => <span className="text-muted-foreground text-xs">{equipmentDisplay(row.original.equipmentJson) || '—'}</span>,
+    },
     {
       accessorKey: 'isActive',
       header: 'Статус',
-      cell: ({ getValue }) => (getValue<boolean>() ? <Badge variant="success">Доступна</Badge> : <Badge variant="muted">Не используется</Badge>),
+      cell: ({ getValue }) =>
+        getValue<boolean>() ? <span className="text-muted-foreground text-xs">доступна</span> : <Badge variant="muted">Не используется</Badge>,
     },
   ];
   const data = (classrooms.data ?? []).filter((c) => !type || c.classroomType === type);

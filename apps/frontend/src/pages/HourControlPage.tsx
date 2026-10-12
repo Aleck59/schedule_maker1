@@ -6,7 +6,6 @@ import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAx
 import { PageHeader } from '@/components/common/page-header';
 import { SimpleSelect } from '@/components/common/simple-select';
 import { ErrorState, LoadingState } from '@/components/common/states';
-import { StatCard } from '@/components/common/stat-card';
 import { HourStatusBadge } from '@/components/common/status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -59,7 +58,7 @@ export default function HourControlPage() {
   const semesterId = params.get('semesterId');
   const groupId = params.get('groupId');
   const teacherId = params.get('teacherId');
-  const [status, setStatus] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(params.get('status'));
   const [search, setSearch] = useState('');
   const [by, setBy] = useState<AggregateBy>('group');
 
@@ -163,24 +162,27 @@ export default function HourControlPage() {
       ) : (
         sum && (
           <>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-              <StatCard title="По плану" value={`${sum.total.planned} ч`} hint={`Строк: ${sum.rows}`} />
-              <StatCard title="В расписании" value={`${sum.total.scheduled} ч`} tone="info" />
-              <StatCard
-                title="Проведено"
-                value={`${sum.total.conducted} ч`}
-                hint={`${formatNumber(sum.completionPercent, 1)}% от плана`}
-                tone="success"
-              />
-              <StatCard title="Осталось провести" value={`${sum.total.remaining} ч`} />
-              <StatCard
-                title="Дефицит в расписании"
-                value={`${sum.total.scheduleDeficit} ч`}
-                hint={`Прогноз выполнения: ${formatNumber(sum.forecastPercent, 1)}%`}
-                tone={sum.total.scheduleDeficit ? 'danger' : 'success'}
-              />
-              <StatCard title="Превышение" value={`${sum.total.excess} ч`} tone={sum.total.excess ? 'warning' : 'success'} />
-            </div>
+            <Card className="py-4">
+              <CardContent className="space-y-2 px-5">
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <span className="text-2xl font-semibold tabular-nums">
+                    {sum.total.conducted} <span className="text-muted-foreground text-base font-normal">из {sum.total.planned} ч проведено</span>
+                  </span>
+                  <span className="text-sm font-medium tabular-nums">{formatNumber(sum.completionPercent, 1)}%</span>
+                  <span className="text-muted-foreground ml-auto text-sm">прогноз к концу семестра {formatNumber(sum.forecastPercent, 1)}%</span>
+                </div>
+                <Progress value={sum.completionPercent} />
+                <div className="text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                  <span>В расписании: {sum.total.scheduled} ч</span>
+                  <span>Осталось провести: {sum.total.remaining} ч</span>
+                  <span className={cn(sum.total.scheduleDeficit > 0 && 'font-medium text-red-600')}>
+                    Не хватает в расписании: {sum.total.scheduleDeficit} ч
+                  </span>
+                  {sum.total.excess > 0 && <span className="font-medium text-violet-600">Превышение: {sum.total.excess} ч</span>}
+                  <span>Строк: {sum.rows}</span>
+                </div>
+              </CardContent>
+            </Card>
             <div className="flex flex-wrap gap-2">
               {(Object.entries(sum.byStatus) as Array<[HourStatus, number]>).map(([k, v]) => (
                 <button key={k} type="button" onClick={() => setStatus(status === k ? null : k)}>
@@ -239,10 +241,10 @@ function HoursTable({ rows }: { rows: HourControlRow[] }) {
             <TableHead className="text-right">План</TableHead>
             <TableHead className="text-right">В расп.</TableHead>
             <TableHead className="text-right">Проведено</TableHead>
-            <TableHead className="text-right">Осталось</TableHead>
-            <TableHead className="text-right">Дефицит</TableHead>
-            <TableHead className="text-right">Превыш.</TableHead>
-            <TableHead className="w-36">Выполнение</TableHead>
+            <TableHead className="text-right" title="Не хватает в расписании (красным) или превышение плана (фиолетовым)">
+              Разница
+            </TableHead>
+            <TableHead className="w-32">Выполнение</TableHead>
             <TableHead>Статус</TableHead>
           </TableRow>
         </TableHeader>
@@ -269,30 +271,34 @@ function HoursTable({ rows }: { rows: HourControlRow[] }) {
                   </TableCell>
                   <TableCell>{r.semesterNumber}</TableCell>
                   <TableCell className="max-w-80">
-                    <div className="truncate">
-                      {r.itemCode} {r.itemName}
+                    <div className="flex items-center gap-1.5">
+                      {r.unassigned && (
+                        <span title="Не назначен преподаватель" className="shrink-0 text-amber-600">
+                          <TriangleAlert className="size-3.5" aria-label="Не назначен преподаватель" />
+                        </span>
+                      )}
+                      <span className="truncate" title={`${r.itemCode} ${r.itemName}`}>
+                        <span className="text-muted-foreground">{r.itemCode}</span> {r.itemName}
+                      </span>
                     </div>
-                    {r.unassigned && (
-                      <div className="flex items-center gap-1 text-xs text-amber-600">
-                        <TriangleAlert className="size-3" /> не назначен преподаватель
-                      </div>
-                    )}
                   </TableCell>
                   <TableCell className="text-xs">{CONTROL_FORM_LABELS[r.controlForm]}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.total.planned}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.total.scheduled}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.total.conducted}</TableCell>
-                  <TableCell className="text-right tabular-nums">{r.total.remaining}</TableCell>
-                  <TableCell className={cn('text-right tabular-nums', r.total.scheduleDeficit > 0 && 'font-semibold text-red-600')}>
-                    {r.total.scheduleDeficit}
+                  <TableCell className="text-right tabular-nums">
+                    {r.total.scheduleDeficit > 0 ? (
+                      <span className="font-semibold text-red-600">−{r.total.scheduleDeficit}</span>
+                    ) : r.total.excess > 0 ? (
+                      <span className="font-semibold text-violet-600">+{r.total.excess}</span>
+                    ) : (
+                      <span className="text-muted-foreground">0</span>
+                    )}
                   </TableCell>
-                  <TableCell className={cn('text-right tabular-nums', r.total.excess > 0 && 'font-semibold text-violet-600')}>
-                    {r.total.excess}
-                  </TableCell>
-                  <TableCell>
-                    <Progress value={r.completionPercent} className="h-1.5" />
-                    <div className="text-muted-foreground mt-0.5 text-[11px]">
-                      {formatNumber(r.completionPercent, 1)}% · ожидается {r.expectedByNow} ч
+                  <TableCell title={`К сегодняшнему дню ожидается ${r.expectedByNow} ч`}>
+                    <div className="flex items-center gap-2">
+                      <Progress value={r.completionPercent} className="h-1.5 w-16" />
+                      <span className="text-muted-foreground text-xs tabular-nums">{formatNumber(r.completionPercent, 0)}%</span>
                     </div>
                   </TableCell>
                   <TableCell>
@@ -302,7 +308,7 @@ function HoursTable({ rows }: { rows: HourControlRow[] }) {
                 {expanded && (
                   <TableRow className="bg-muted/30 hover:bg-muted/30">
                     <TableCell />
-                    <TableCell colSpan={12}>
+                    <TableCell colSpan={10}>
                       <TypeBreakdown row={r} />
                     </TableCell>
                   </TableRow>

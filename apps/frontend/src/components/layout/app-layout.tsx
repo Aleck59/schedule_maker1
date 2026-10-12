@@ -60,15 +60,16 @@ const EDITORS: UserRole[] = ['ADMIN', 'DISPATCHER'];
 
 const NAV: Array<{ section: string; items: NavItem[] }> = [
   {
-    section: 'Расписание',
+    section: 'Работа',
     items: [
       { to: '/setup', label: 'Мастер настройки', icon: Compass, roles: EDITORS },
       { to: '/', label: 'Главная', icon: LayoutDashboard, roles: ['ADMIN', 'DISPATCHER', 'MANAGER', 'TEACHER', 'STUDENT'] },
       { to: '/my', label: 'Моё расписание', icon: CalendarCheck2, roles: ['TEACHER', 'STUDENT'] },
       { to: '/schedule', label: 'Расписание', icon: CalendarDays, roles: [...STAFF, 'TEACHER'] },
-      { to: '/generation', label: 'Автосоставление', icon: Sparkles, roles: EDITORS },
+      { to: '/generation', label: 'Составление', icon: Sparkles, roles: EDITORS },
       { to: '/hour-control', label: 'Выполнение часов', icon: ClipboardCheck, roles: STAFF },
       { to: '/makeup', label: 'Отработки', icon: RotateCcw, roles: [...EDITORS, 'TEACHER'] },
+      { to: '/reports', label: 'Отчёты', icon: BarChart3, roles: [...STAFF, 'TEACHER'] },
     ],
   },
   {
@@ -86,10 +87,6 @@ const NAV: Array<{ section: string; items: NavItem[] }> = [
       { to: '/teachers', label: 'Преподаватели', icon: Users, roles: STAFF },
       { to: '/classrooms', label: 'Аудитории', icon: Building2, roles: STAFF },
     ],
-  },
-  {
-    section: 'Аналитика',
-    items: [{ to: '/reports', label: 'Отчёты', icon: BarChart3, roles: [...STAFF, 'TEACHER'] }],
   },
   {
     section: 'Администрирование',
@@ -122,26 +119,39 @@ function useTheme() {
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { user } = useAuth();
   const setup = useSetupStatus();
+  // Мастер настройки — наверху, пока есть незавершённые шаги; когда всё готово, он уходит в «Администрирование»
+  const setupDone = !!setup.data && !setup.data.next;
+  const sections = NAV.map((group) => {
+    let items = group.items.filter((i) => user && i.roles.includes(user.role));
+    if (setupDone) items = items.filter((i) => i.to !== '/setup');
+    if (setupDone && group.section === 'Администрирование') {
+      const wizard = NAV[0].items.find((i) => i.to === '/setup')!;
+      if (user && wizard.roles.includes(user.role)) items = [...items, wizard];
+    }
+    return { ...group, items };
+  });
+  const org = user?.organization?.shortName ?? 'Колледж';
   return (
     <nav className="flex h-full flex-col">
-      <div className="flex items-center gap-2.5 px-5 py-5">
-        <div className="bg-primary flex size-9 items-center justify-center rounded-lg text-white">
-          <CalendarDays className="size-5" />
+      <div className="flex items-center gap-2.5 px-4 py-4">
+        <div className="bg-primary flex size-8 shrink-0 items-center justify-center rounded-lg text-white">
+          <CalendarDays className="size-4" />
         </div>
-        <div>
-          <div className="text-sm leading-tight font-semibold text-white">Расписание СПО и ВО</div>
-          <div className="text-sidebar-muted text-xs leading-tight">{user?.organization?.shortName ?? 'Колледж'}</div>
+        <div className="min-w-0">
+          <div className="text-sm leading-tight font-semibold text-white">Расписание</div>
+          <div className="text-sidebar-muted truncate text-xs leading-tight" title={org}>
+            {org}
+          </div>
         </div>
       </div>
-      <div className="flex-1 space-y-5 overflow-y-auto px-3 pb-6 scrollbar-thin">
-        {NAV.map((group) => {
-          const items = group.items.filter((i) => user && i.roles.includes(user.role));
-          if (items.length === 0) return null;
+      <div className="flex-1 space-y-4 overflow-y-auto px-3 pb-4 scrollbar-thin">
+        {sections.map((group) => {
+          if (group.items.length === 0) return null;
           return (
             <div key={group.section}>
-              <div className="text-sidebar-muted px-2 pb-1.5 text-[11px] font-semibold tracking-wider uppercase">{group.section}</div>
-              <div className="space-y-0.5">
-                {items.map((item) => (
+              <div className="text-sidebar-muted px-2 pb-1 text-[11px] font-semibold tracking-wider uppercase">{group.section}</div>
+              <div className="space-y-px">
+                {group.items.map((item) => (
                   <NavLink
                     key={item.to}
                     to={item.to}
@@ -149,20 +159,15 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                     onClick={onNavigate}
                     className={({ isActive }) =>
                       cn(
-                        'text-sidebar-foreground hover:bg-sidebar-accent flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors',
+                        'text-sidebar-foreground hover:bg-sidebar-accent flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors',
                         isActive && 'bg-sidebar-accent font-medium text-white',
                       )
                     }
                   >
-                    <item.icon className="size-4 opacity-80" />
-                    {item.label}
-                    {item.to === '/setup' && setup.data && (
-                      <span
-                        className={cn(
-                          'ml-auto rounded px-1.5 text-[10px] font-semibold',
-                          setup.data.next ? 'bg-amber-400/20 text-amber-200' : 'bg-emerald-400/20 text-emerald-200',
-                        )}
-                      >
+                    <item.icon className="size-4 shrink-0 opacity-80" />
+                    <span className="truncate">{item.label}</span>
+                    {item.to === '/setup' && setup.data?.next && (
+                      <span className="ml-auto rounded bg-amber-400/20 px-1.5 text-[10px] font-semibold text-amber-200 tabular-nums">
                         {setup.data.completed}/{setup.data.total}
                       </span>
                     )}
@@ -173,7 +178,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           );
         })}
       </div>
-      <div className="text-sidebar-muted px-5 py-3 text-[11px]">Версия {APP_VERSION}</div>
+      <div className="text-sidebar-muted px-5 py-2.5 text-[11px]">Версия {APP_VERSION}</div>
     </nav>
   );
 }
@@ -251,6 +256,7 @@ export function AppLayout() {
               size="icon"
               className="absolute top-4 right-2 text-white hover:bg-white/10"
               onClick={() => setMobileOpen(false)}
+              aria-label="Закрыть меню"
             >
               <X />
             </Button>

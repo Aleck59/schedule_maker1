@@ -19,18 +19,25 @@ export function Confirm({
   confirmText = 'Подтвердить',
   destructive,
   onConfirm,
+  open: controlledOpen,
+  onOpenChange,
 }: {
-  trigger: ReactNode;
+  /** Кнопка, открывающая подтверждение; без неё окно открывается через open/onOpenChange (например, из меню) */
+  trigger?: ReactNode;
   title: string;
   description?: ReactNode;
   confirmText?: string;
   destructive?: boolean;
   onConfirm: () => void | Promise<unknown>;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [innerOpen, setInnerOpen] = useState(false);
+  const open = controlledOpen ?? innerOpen;
+  const setOpen = onOpenChange ?? setInnerOpen;
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
-      <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>
+      {trigger && <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>}
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>

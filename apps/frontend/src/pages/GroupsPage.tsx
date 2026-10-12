@@ -32,9 +32,9 @@ export default function GroupsPage() {
       accessorKey: 'code',
       header: 'Группа',
       cell: ({ row }) => (
-        <div>
+        <div className="whitespace-nowrap">
           <div className="font-semibold">{row.original.code}</div>
-          <div className="text-muted-foreground text-xs">{row.original.title}</div>
+          <div className="text-muted-foreground text-xs">набор {row.original.admissionYear}</div>
         </div>
       ),
     },
@@ -42,33 +42,30 @@ export default function GroupsPage() {
       id: 'program',
       header: 'Специальность',
       accessorFn: (g) => `${g.program?.specialty?.code ?? ''} ${g.program?.specialty?.name ?? ''}`,
-      cell: ({ row }) => (
-        <div className="max-w-80">
-          <div className="truncate">
-            {row.original.program?.specialty?.code} {row.original.program?.specialty?.name}
+      cell: ({ row }) => {
+        const g = row.original;
+        const level = g.program?.specialty?.educationLevel ?? 'SPO';
+        const mode = studyModeText(g);
+        return (
+          <div className="max-w-96 min-w-56">
+            <div className="truncate" title={g.program?.title}>
+              {g.program?.specialty?.code} {g.program?.specialty?.name}
+            </div>
+            <div className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-xs">
+              <Badge variant={level === 'SPO' ? 'secondary' : 'violet'} className="px-1.5 py-0 text-[11px]">
+                {EDUCATION_LEVEL_LABELS[level]}
+              </Badge>
+              <span className="truncate">
+                {STUDY_FORM_LABELS[g.program?.studyForm ?? 'FULL_TIME']?.toLowerCase()}
+                {mode && ` · ${mode}`}
+              </span>
+            </div>
           </div>
-          <div className="text-muted-foreground truncate text-xs">{row.original.program?.title}</div>
-        </div>
-      ),
-    },
-    {
-      id: 'level',
-      header: 'Уровень, форма',
-      accessorFn: (g) => EDUCATION_LEVEL_LABELS[g.program?.specialty?.educationLevel ?? 'SPO'],
-      cell: ({ row }) => (
-        <div className="text-xs">
-          <Badge variant={row.original.program?.specialty?.educationLevel === 'SPO' || !row.original.program?.specialty?.educationLevel ? 'secondary' : 'violet'}>
-            {EDUCATION_LEVEL_LABELS[row.original.program?.specialty?.educationLevel ?? 'SPO']}
-          </Badge>
-          <div className="text-muted-foreground mt-0.5">
-            {STUDY_FORM_LABELS[row.original.program?.studyForm ?? 'FULL_TIME']?.toLowerCase()}
-            {studyModeText(row.original) && ` · ${studyModeText(row.original)}`}
-          </div>
-        </div>
-      ),
+        );
+      },
     },
     { accessorKey: 'courseNumber', header: 'Курс' },
-    { accessorKey: 'currentSemesterNumber', header: 'Семестр' },
+    { accessorKey: 'currentSemesterNumber', header: 'Сем.' },
     { accessorKey: 'studentCount', header: 'Студентов' },
     {
       id: 'subgroups',
@@ -79,7 +76,8 @@ export default function GroupsPage() {
     {
       accessorKey: 'isActive',
       header: 'Статус',
-      cell: ({ getValue }) => (getValue<boolean>() ? <Badge variant="success">Обучается</Badge> : <Badge variant="muted">Выпуск / архив</Badge>),
+      cell: ({ getValue }) =>
+        getValue<boolean>() ? <span className="text-muted-foreground text-xs">обучается</span> : <Badge variant="muted">Выпуск / архив</Badge>,
     },
   ];
   return (

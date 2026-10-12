@@ -5,6 +5,8 @@ import {
   Building2,
   CalendarClock,
   CalendarX2,
+  CheckCircle2,
+  ChevronRight,
   ClipboardCheck,
   Compass,
   GraduationCap,
@@ -13,7 +15,7 @@ import {
   Users,
   Wand2,
 } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { PageHeader } from '@/components/common/page-header';
 import { EmptyState, ErrorState, LoadingState } from '@/components/common/states';
@@ -132,7 +134,6 @@ export default function DashboardPage() {
 }
 
 function StaffView({ data }: { data: StaffDashboard }) {
-  const navigate = useNavigate();
   const { canEdit } = useAuth();
   const c = data.counters;
   const pie = data.planCompletion
@@ -156,45 +157,36 @@ function StaffView({ data }: { data: StaffDashboard }) {
         }
       />
       <SetupBanner />
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard title="Активные группы" value={c.activeGroups} icon={GraduationCap} onClick={() => navigate('/groups')} />
-        <StatCard title="Преподаватели" value={c.teachers} icon={Users} onClick={() => navigate('/teachers')} />
-        <StatCard title="Аудитории" value={c.classrooms} icon={Building2} onClick={() => navigate('/classrooms')} />
-        <StatCard title="Занятий сегодня" value={c.lessonsToday} icon={CalendarClock} tone="info" onClick={() => navigate('/schedule?view=day')} />
-        <StatCard
-          title="Отменённые занятия"
-          value={c.cancelledLessons}
-          hint="±30 дней от сегодня"
-          icon={CalendarX2}
-          tone={c.cancelledLessons ? 'warning' : 'success'}
-        />
-        <StatCard
-          title="Часы к отработке"
-          value={c.hoursToMakeUp}
-          hint={`Открытых задач: ${c.openMakeupTasks}`}
-          icon={RotateCcw}
-          tone={c.hoursToMakeUp ? 'warning' : 'success'}
-          onClick={() => navigate('/makeup')}
-        />
-        <StatCard
-          title="Дисциплины с дефицитом часов"
-          value={c.deficitDisciplines}
-          hint={`В зоне риска: ${c.riskDisciplines}`}
-          icon={ClipboardCheck}
-          tone={c.deficitDisciplines ? 'danger' : c.riskDisciplines ? 'warning' : 'success'}
-          onClick={() => navigate('/hour-control')}
-        />
-        <StatCard
-          title="Конфликты в расписании"
-          value={c.validationErrors}
-          hint={`Предупреждений: ${c.validationWarnings} · перегрузка преподавателей: ${c.workloadWarnings}`}
-          icon={ShieldAlert}
-          tone={c.validationErrors ? 'danger' : c.validationWarnings || c.workloadWarnings ? 'warning' : 'success'}
-          onClick={() => navigate('/schedule')}
-        />
-      </div>
+      <Card className="py-0">
+        <CardContent className="grid grid-cols-2 divide-y px-0 sm:grid-cols-4 sm:divide-x sm:divide-y-0">
+          {(
+            [
+              ['Занятий сегодня', c.lessonsToday, CalendarClock, '/schedule?view=day'],
+              ['Активных групп', c.activeGroups, GraduationCap, '/groups'],
+              ['Преподавателей', c.teachers, Users, '/teachers'],
+              ['Аудиторий', c.classrooms, Building2, '/classrooms'],
+            ] as const
+          ).map(([title, value, Icon, to], i) => (
+            <Link
+              key={title}
+              to={to}
+              className={cn(
+                'hover:bg-muted/40 flex items-center gap-3 px-3 py-3.5 transition-colors sm:px-5 sm:py-4',
+                i % 2 === 1 && 'border-l sm:border-l-0',
+              )}
+            >
+              <Icon className="text-muted-foreground size-5 shrink-0" />
+              <div className="min-w-0">
+                <div className="text-2xl leading-tight font-semibold tabular-nums">{value}</div>
+                <div className="text-muted-foreground text-xs leading-tight">{title}</div>
+              </div>
+            </Link>
+          ))}
+        </CardContent>
+      </Card>
+      <Attention counters={c} />
 
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className="grid gap-4 xl:grid-cols-3 [&>*]:min-w-0">
         <Card>
           <CardHeader>
             <CardTitle>Выполнение учебного плана</CardTitle>
@@ -301,7 +293,7 @@ function StaffView({ data }: { data: StaffDashboard }) {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
+        <Card className="min-w-0 xl:col-span-2">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <AlertTriangle className="size-4 text-amber-500" /> Дисциплины с отставанием
@@ -327,7 +319,7 @@ function StaffView({ data }: { data: StaffDashboard }) {
                 <TableBody>
                   {data.deficits.map((d, i) => (
                     <TableRow key={i}>
-                      <TableCell className="font-medium">
+                      <TableCell className="font-medium whitespace-nowrap">
                         {d.groupCode}
                         {d.subgroupNumber ? ` (п/г ${d.subgroupNumber})` : ''}
                       </TableCell>
@@ -346,7 +338,7 @@ function StaffView({ data }: { data: StaffDashboard }) {
             )}
           </CardContent>
         </Card>
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>Перегрузка преподавателей</CardTitle>
@@ -389,6 +381,70 @@ function StaffView({ data }: { data: StaffDashboard }) {
           </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Что требует внимания диспетчера: только ненулевые показатели, иначе — короткое «всё в порядке» */
+function Attention({ counters: c }: { counters: StaffDashboard['counters'] }) {
+  const items = [
+    c.validationErrors > 0 && {
+      to: '/schedule',
+      icon: ShieldAlert,
+      tone: 'text-red-600',
+      text: `Конфликтов в расписании: ${c.validationErrors}`,
+      hint: 'исправить в «Расписании» → «Проверить»',
+    },
+    c.deficitDisciplines > 0 && {
+      to: '/hour-control?status=DEFICIT',
+      icon: ClipboardCheck,
+      tone: 'text-red-600',
+      text: `Дисциплин с дефицитом часов: ${c.deficitDisciplines}`,
+      hint: c.riskDisciplines ? `ещё в зоне риска: ${c.riskDisciplines}` : null,
+    },
+    c.hoursToMakeUp > 0 && {
+      to: '/makeup',
+      icon: RotateCcw,
+      tone: 'text-amber-600',
+      text: `Часов к отработке: ${c.hoursToMakeUp}`,
+      hint: `открытых задач: ${c.openMakeupTasks}`,
+    },
+    c.cancelledLessons > 0 && {
+      to: '/reports',
+      icon: CalendarX2,
+      tone: 'text-amber-600',
+      text: `Отменённых занятий: ${c.cancelledLessons}`,
+      hint: '±30 дней от сегодня',
+    },
+    c.workloadWarnings > 0 && {
+      to: '/hour-control',
+      icon: Users,
+      tone: 'text-amber-600',
+      text: `Перегружены преподаватели: ${c.workloadWarnings}`,
+      hint: 'текущая неделя',
+    },
+  ].filter(Boolean) as Array<{ to: string; icon: typeof Users; tone: string; text: string; hint: string | null }>;
+  if (items.length === 0) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+        <CheckCircle2 className="size-4" /> Конфликтов, отмен, отработок и перегрузок нет
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap gap-2">
+      {items.map((it) => (
+        <Link
+          key={it.text}
+          to={it.to}
+          className="bg-card hover:bg-muted/40 flex min-w-0 items-center gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm transition-colors"
+        >
+          <it.icon className={cn('size-4 shrink-0', it.tone)} />
+          <span className="font-medium">{it.text}</span>
+          {it.hint && <span className="text-muted-foreground hidden truncate sm:inline">· {it.hint}</span>}
+          <ChevronRight className="text-muted-foreground size-4 shrink-0" />
+        </Link>
+      ))}
     </div>
   );
 }

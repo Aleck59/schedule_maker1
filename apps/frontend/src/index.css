@@ -100,9 +100,32 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: 'tnum' 1;
+  }
+  /* Заголовки — ровные строки, подписи и описания — без «висящих» слов */
+  h1,
+  h2,
+  h3,
+  [data-slot='card-title'] {
+    text-wrap: balance;
+  }
+  p,
+  [data-slot='card-description'] {
+    text-wrap: pretty;
+  }
+  /* Фото на светлом и тёмном фоне не сливаются с карточкой */
+  img {
+    outline: 1px solid rgb(0 0 0 / 0.1);
+    outline-offset: -1px;
+  }
+  .dark img {
+    outline-color: rgb(255 255 255 / 0.1);
   }
 }
 

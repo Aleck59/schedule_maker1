@@ -152,7 +152,7 @@ python -m app info                                      # версии OR-Tools 
 
 В `.claude/skills` подключены скиллы Claude Code из [affaan-m/ECC](https://github.com/affaan-m/ECC) (MIT), отобранные
 под стек проекта: интерфейс (`make-interfaces-feel-better`, `frontend-design-direction`, `react-patterns`,
-`frontend-a11y`, `click-path-audit`), backend (`nestjs-patterns`, `prisma-patterns`, `postgres-patterns`), тесты и
+`frontend-a11y`, `accessibility`, `design-system`, `click-path-audit`), backend (`nestjs-patterns`, `prisma-patterns`, `postgres-patterns`), тесты и
 проверка (`python-testing`, `tdd-workflow`, `verification-loop`) и измеримые улучшения генерации
 (`benchmark-optimization-loop`). Список и назначение — в `.claude/skills/README.md`; хуки и агенты ECC не подключены.
 

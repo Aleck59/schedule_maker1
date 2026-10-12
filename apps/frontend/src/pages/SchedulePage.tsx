@@ -4,10 +4,10 @@ import {
   CalendarPlus,
   ChevronLeft,
   ChevronRight,
-  Download,
   FileSpreadsheet,
   FileText,
   ListChecks,
+  MoreHorizontal,
   Lock,
   Send,
   ShieldCheck,
@@ -77,6 +77,7 @@ export default function SchedulePage() {
   const [pendingMove, setPendingMove] = useState<{ lesson: Lesson; date: string; lessonNumber: number; issues: ValidationIssue[] } | null>(null);
   const [showValidation, setShowValidation] = useState(false);
   const [showFixes, setShowFixes] = useState(false);
+  const [unpublishOpen, setUnpublishOpen] = useState(false);
 
   const setParam = (updates: Record<string, string | null>) => {
     const next = new URLSearchParams(params);
@@ -263,7 +264,7 @@ export default function SchedulePage() {
     return (
       <EmptyState
         title="Периоды расписания не созданы"
-        description="Создайте период и сгенерируйте расписание в разделе «Автосоставление»"
+        description="Составьте расписание в разделе «Составление» — периоды создадутся автоматически"
       />
     );
   }
@@ -275,10 +276,10 @@ export default function SchedulePage() {
     <div className="space-y-4">
       <PageHeader
         title="Расписание"
-        description={`${period.title} · ${formatDate(period.startDate)} — ${formatDate(period.endDate)}`}
+        description={`${formatDate(period.startDate)} — ${formatDate(period.endDate)}`}
         actions={
           <>
-            <div className="w-72">
+            <div className="w-full sm:w-72">
               <SimpleSelect
                 value={period.id}
                 onChange={(v) => setParam({ period: v, week: null, day: null, groupId: null })}
@@ -291,18 +292,7 @@ export default function SchedulePage() {
                 <Button variant="outline" onClick={() => validate.mutate(undefined)} disabled={validate.isPending}>
                   {validate.isPending ? <Spinner /> : <ShieldCheck />} Проверить
                 </Button>
-                {period.status === 'PUBLISHED' ? (
-                  <Confirm
-                    trigger={
-                      <Button variant="outline">
-                        <Undo2 /> Снять с публикации
-                      </Button>
-                    }
-                    title="Снять расписание с публикации?"
-                    description="Студенты и преподаватели перестанут видеть это расписание."
-                    onConfirm={() => unpublish.mutate(undefined)}
-                  />
-                ) : (
+                {period.status !== 'PUBLISHED' && (
                   <Button onClick={() => publish.mutate(undefined)} disabled={publish.isPending}>
                     {publish.isPending ? <Spinner /> : <Send />} Опубликовать
                   </Button>
@@ -311,12 +301,12 @@ export default function SchedulePage() {
             )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline">
-                  <Download /> Экспорт
+                <Button variant="outline" aria-label="Ещё">
+                  <MoreHorizontal /> <span className="hidden sm:inline">Ещё</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuLabel>PDF</DropdownMenuLabel>
+                <DropdownMenuLabel>Экспорт в PDF</DropdownMenuLabel>
                 <DropdownMenuItem onClick={() => exportPdf(false)}>
                   <FileText /> Текущая неделя
                 </DropdownMenuItem>
@@ -326,7 +316,7 @@ export default function SchedulePage() {
                 {user?.role !== 'TEACHER' && (
                   <>
                     <DropdownMenuSeparator />
-                    <DropdownMenuLabel>Excel</DropdownMenuLabel>
+                    <DropdownMenuLabel>Экспорт в Excel</DropdownMenuLabel>
                     <DropdownMenuItem
                       onClick={() =>
                         downloadFile(`/schedule-periods/${period.id}/export/excel`, undefined, 'Расписание.xlsx').catch((e) =>
@@ -338,10 +328,26 @@ export default function SchedulePage() {
                     </DropdownMenuItem>
                   </>
                 )}
+                {canEdit && period.status === 'PUBLISHED' && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onSelect={() => setUnpublishOpen(true)}>
+                      <Undo2 /> Снять с публикации
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </>
         }
+      />
+
+      <Confirm
+        open={unpublishOpen}
+        onOpenChange={setUnpublishOpen}
+        title="Снять расписание с публикации?"
+        description="Студенты и преподаватели перестанут видеть это расписание."
+        onConfirm={() => unpublish.mutate(undefined)}
       />
 
       {canEdit && (showValidation || errorsCount > 0) && validation.data && (
@@ -358,7 +364,7 @@ export default function SchedulePage() {
                   <Wand2 /> Как исправить
                 </Button>
               )}
-              <Button variant="ghost" size="icon-sm" onClick={() => setShowValidation(false)}>
+              <Button variant="ghost" size="icon-sm" onClick={() => setShowValidation(false)} aria-label="Скрыть результаты проверки">
                 <X />
               </Button>
             </span>
@@ -382,7 +388,7 @@ export default function SchedulePage() {
       <Card className="py-3">
         <CardContent className="flex flex-wrap items-center gap-2 px-3">
           <Tabs value={view} onValueChange={(v) => setParam({ view: v })}>
-            <TabsList>
+            <TabsList className="h-auto flex-wrap">
               <TabsTrigger value="group">Группа</TabsTrigger>
               {user?.role !== 'STUDENT' && <TabsTrigger value="teacher">Преподаватель</TabsTrigger>}
               {canEdit || user?.role === 'MANAGER' ? <TabsTrigger value="classroom">Аудитория</TabsTrigger> : null}
@@ -391,7 +397,7 @@ export default function SchedulePage() {
             </TabsList>
           </Tabs>
           {(view === 'group' || view === 'teacher' || view === 'classroom' || view === 'month') && (
-            <div className="w-64">
+            <div className="w-full sm:w-64">
               <SimpleSelect
                 value={view === 'month' ? params.get('groupId') : entityId}
                 onChange={(v) =>
@@ -436,7 +442,7 @@ export default function SchedulePage() {
           <div className="ml-auto flex items-center gap-2">
             {editable && view !== 'month' && (
               <Button variant={bulkMode ? 'secondary' : 'ghost'} onClick={() => { setBulkMode(!bulkMode); setSelected(new Set()); }}>
-                <ListChecks /> Массовое редактирование
+                <ListChecks /> <span className="hidden md:inline">Массовое редактирование</span>
               </Button>
             )}
             {editable && (
@@ -446,7 +452,7 @@ export default function SchedulePage() {
                   setCreateOpen(true);
                 }}
               >
-                <CalendarPlus /> Добавить занятие
+                <CalendarPlus /> <span className="hidden sm:inline">Добавить занятие</span>
               </Button>
             )}
           </div>

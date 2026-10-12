@@ -1,9 +1,11 @@
 import { lazy, Suspense, type ReactNode } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { ShieldOff } from 'lucide-react';
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AppLayout } from '@/components/layout/app-layout';
 import { LoadingState } from '@/components/common/states';
+import { Button } from '@/components/ui/button';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { queryClient } from '@/lib/query';
@@ -54,10 +56,17 @@ function RequireAuth({ children }: { children: ReactNode }) {
 function RequireRole({ roles, children }: { roles: UserRole[]; children: ReactNode }) {
   const { user } = useAuth();
   if (!user || !roles.includes(user.role)) {
+    const home = user && (user.role === 'TEACHER' || user.role === 'STUDENT') ? '/my' : '/';
     return (
-      <div className="text-muted-foreground mt-10 text-center">
-        <div className="text-lg font-medium">Недостаточно прав</div>
-        <div className="text-sm">Раздел недоступен для вашей роли</div>
+      <div className="text-muted-foreground mx-auto mt-16 flex max-w-sm flex-col items-center gap-2 text-center">
+        <ShieldOff className="size-8 opacity-60" />
+        <div className="text-foreground text-lg font-medium">Недостаточно прав</div>
+        <div className="text-sm text-pretty">
+          Раздел недоступен для вашей роли. Если доступ нужен, обратитесь к администратору расписания.
+        </div>
+        <Button asChild variant="outline" className="mt-2">
+          <Link to={home}>{home === '/my' ? 'Моё расписание' : 'На главную'}</Link>
+        </Button>
       </div>
     );
   }

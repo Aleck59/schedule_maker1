@@ -143,10 +143,10 @@ export function DataTable<T>({
             {table.getPageCount()}
           </span>
           <div className="flex gap-1">
-            <Button variant="outline" size="icon-sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+            <Button variant="outline" size="icon-sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()} aria-label="Предыдущая страница">
               <ChevronLeft />
             </Button>
-            <Button variant="outline" size="icon-sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+            <Button variant="outline" size="icon-sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()} aria-label="Следующая страница">
               <ChevronRight />
             </Button>
           </div>

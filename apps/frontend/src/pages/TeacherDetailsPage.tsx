@@ -57,7 +57,8 @@ export default function TeacherDetailsPage() {
     onSuccess: () => navigate('/teachers'),
   });
   if (teacher.isLoading) return <LoadingState rows={8} />;
-  if (teacher.error) return <ErrorState error={teacher.error} onRetry={() => teacher.refetch()} />;
+  if (teacher.error)
+    return <ErrorState error={teacher.error} onRetry={() => teacher.refetch()} back={{ to: '/teachers', label: 'К преподавателям' }} />;
   const t = teacher.data!;
   const w = workload.data;
   const period = (periods.data ?? []).find((p) => p.status !== 'ARCHIVED');

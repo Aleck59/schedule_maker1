@@ -18,10 +18,26 @@ import { Switch } from '@/components/ui/switch';
 import { usePrograms } from '@/hooks/use-reference';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { pluralize } from '@/lib/format';
 import { EDUCATION_LEVEL_LABELS, educationLevelByCode, PROGRAM_STATUS_LABELS, STUDY_FORM_LABELS } from '@/lib/labels';
 import { useApi, useApiMutation } from '@/lib/query';
 import type { Program, Specialty } from '@/lib/types';
 import { cn } from '@/lib/utils';
+
+/** «на базе основного общего образования, очная форма, набор 2026» → «на базе 9 классов»: форма и набор — в своих колонках */
+function programSubtitle(title: string): string {
+  const parts = title.split(', ').slice(1);
+  return parts
+    .filter((x) => !/форма|набор/.test(x))
+    .map((x) => x.replace('на базе основного общего образования', 'на базе 9 классов').replace('на базе среднего общего образования', 'на базе 11 классов'))
+    .join(', ');
+}
+
+function durationText(months: number): string {
+  const y = Math.floor(months / 12);
+  const m = months % 12;
+  return [y ? `${y} ${pluralize(y, 'год', 'года', 'лет')}` : '', m ? `${m} мес.` : ''].filter(Boolean).join(' ');
+}
 
 export default function ProgramsPage() {
   const { canEdit } = useAuth();
@@ -39,14 +55,18 @@ export default function ProgramsPage() {
     {
       accessorKey: 'title',
       header: 'Учебный план',
-      cell: ({ row }) => (
-        <div>
-          <div className="font-medium">{row.original.title}</div>
-          <div className="text-muted-foreground text-xs">
-            {row.original.specialty.code} {row.original.specialty.name} · {row.original.specialty.qualification}
+      cell: ({ row }) => {
+        const p = row.original;
+        const extra = programSubtitle(p.title);
+        return (
+          <div className="max-w-md min-w-60" title={p.title}>
+            <div className="font-medium">
+              {p.specialty.code} {p.specialty.name}
+            </div>
+            {extra && <div className="text-muted-foreground text-xs">{extra}</div>}
           </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       id: 'level',
@@ -58,19 +78,22 @@ export default function ProgramsPage() {
         </Badge>
       ),
     },
-    { accessorKey: 'admissionYear', header: 'Год набора' },
-    { accessorKey: 'studyForm', header: 'Форма', cell: ({ getValue }) => STUDY_FORM_LABELS[getValue<string>()] },
+    { accessorKey: 'admissionYear', header: 'Набор' },
+    {
+      accessorKey: 'studyForm',
+      header: 'Форма',
+      cell: ({ getValue }) => <span className="whitespace-nowrap">{STUDY_FORM_LABELS[getValue<string>()]?.toLowerCase()}</span>,
+    },
     {
       id: 'duration',
       header: 'Срок',
-      cell: ({ row }) => `${Math.floor(row.original.durationMonths / 12)} г. ${row.original.durationMonths % 12} мес.`,
+      cell: ({ row }) => <span className="whitespace-nowrap">{durationText(row.original.durationMonths)}</span>,
     },
-    { id: 'semesters', header: 'Семестров', cell: ({ row }) => row.original.totalSemesters },
-    { id: 'items', header: 'Элементов', cell: ({ row }) => row.original._count?.items ?? 0 },
+    { id: 'semesters', header: 'Сем.', cell: ({ row }) => row.original.totalSemesters },
     { id: 'groups', header: 'Групп', cell: ({ row }) => row.original._count?.groups ?? 0 },
     {
       id: 'hours',
-      header: 'Аудиторных часов',
+      header: 'Ауд. часов',
       cell: ({ row }) => {
         const h = row.original.hours;
         return (
