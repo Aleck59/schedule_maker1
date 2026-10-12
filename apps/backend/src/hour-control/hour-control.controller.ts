@@ -139,8 +139,17 @@ export class HourControlController {
   @Roles(UserRole.ADMIN, UserRole.DISPATCHER, UserRole.MANAGER)
   @ApiOperation({ summary: 'Сводная нагрузка всех преподавателей' })
   @ApiQuery({ name: 'semesterId', required: false })
-  allTeachers(@CurrentUser() user: AuthUser, @Query('semesterId') semesterId?: string) {
-    return this.hours.allTeachersWorkload(user.organizationId, semesterId || undefined);
+  @ApiQuery({
+    name: 'current',
+    required: false,
+    description: 'true — все текущие семестры организации (СПО и ВО)',
+  })
+  allTeachers(
+    @CurrentUser() user: AuthUser,
+    @Query('semesterId') semesterId?: string,
+    @Query('current') current?: string,
+  ) {
+    return this.hours.allTeachersWorkload(user.organizationId, semesterId || undefined, current === 'true');
   }
 
   private ownTeacherId(user: AuthUser): string {

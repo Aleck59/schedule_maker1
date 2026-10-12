@@ -54,6 +54,20 @@ export interface HourControlSummary {
 const STATUS_RANK: Record<HourStatus, number> = { EXCESS: 3, DEFICIT: 2, RISK: 1, NORMAL: 0 };
 
 /** Контроль выполнения часов учебного плана */
+/** Параллельная обработка с ограничением числа одновременных задач; порядок результатов как у входа */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 @Injectable()
 export class HourControlService {
   constructor(
@@ -244,7 +258,8 @@ export class HourControlService {
    * Нагрузка преподавателя: плановая (по назначениям), в расписании и фактическая
    * (проведённые занятия, включая замены). Потоковые лекции учитываются один раз.
    */
-  async teacherWorkload(organizationId: string, teacherId: string, semesterId?: string) {
+  async teacherWorkload(organizationId: string, teacherId: string, semester?: string | string[]) {
+    const semesterIds = semester === undefined ? undefined : Array.isArray(semester) ? semester : [semester];
     const teacher = await this.prisma.teacher.findFirst({ where: { id: teacherId, organizationId } });
     if (!teacher) throw new NotFoundException('Преподаватель не найден');
     const settings = await this.settings.getEffective(organizationId);
@@ -252,12 +267,12 @@ export class HourControlService {
     const streams = await this.planning.getStreams({
       organizationId,
       teacherId,
-      semesterIds: semesterId ? [semesterId] : undefined,
+      semesterIds,
       includeInactiveGroups: true,
     });
     const lessonWhere: Prisma.ScheduleLessonWhereInput = {
       schedulePeriod: { organizationId },
-      semesterItem: semesterId ? { semesterId } : undefined,
+      semesterItem: semesterIds ? { semesterId: { in: semesterIds } } : undefined,
     };
     const [asTeacher, conductedByTeacher] = await Promise.all([
       this.prisma.scheduleLesson.findMany({
@@ -421,7 +436,7 @@ export class HourControlService {
     const { rows } = await this.rows({
       organizationId,
       teacherId,
-      semesterIds: semesterId ? [semesterId] : undefined,
+      semesterIds,
       includeInactiveGroups: true,
     });
     return {
@@ -458,14 +473,24 @@ export class HourControlService {
   }
 
   /** Сводка нагрузки всех преподавателей (для списка и отчёта) */
-  async allTeachersWorkload(organizationId: string, semesterId?: string) {
+  async allTeachersWorkload(organizationId: string, semesterId?: string, current = false) {
     const teachers = await this.prisma.teacher.findMany({
       where: { organizationId },
       orderBy: { fullName: 'asc' },
     });
+    // «Текущие семестры» — все семестры организации (СПО и ВО), в которые попадает сегодняшний день
+    const semesters = semesterId
+      ? [semesterId]
+      : current
+        ? await this.currentSemesterIds(organizationId)
+        : undefined;
+    // Преподаватели считаются параллельно (по 8), порядок результата сохраняется
+    const workloads = await mapLimit(teachers, 8, (t) =>
+      this.teacherWorkload(organizationId, t.id, semesters),
+    );
     const result = [];
-    for (const t of teachers) {
-      const w = await this.teacherWorkload(organizationId, t.id, semesterId);
+    for (const [i, t] of teachers.entries()) {
+      const w = workloads[i];
       result.push({
         teacherId: t.id,
         fullName: t.fullName,
@@ -486,8 +511,8 @@ export class HourControlService {
     return result;
   }
 
-  /** Сводные данные для дашборда: процент выполнения по текущим семестрам */
-  async currentSemestersProgress(organizationId: string) {
+  /** Семестры организации, в которые попадает сегодняшний день */
+  async currentSemesterIds(organizationId: string): Promise<string[]> {
     const settings = await this.settings.getEffective(organizationId);
     const today = todayInTimezone(settings.timezone);
     const semesters = await this.prisma.semester.findMany({
@@ -498,8 +523,14 @@ export class HourControlService {
       },
       select: { id: true },
     });
-    if (semesters.length === 0) return null;
-    return this.rows({ organizationId, semesterIds: semesters.map((s) => s.id) });
+    return semesters.map((s) => s.id);
+  }
+
+  /** Сводные данные для дашборда: процент выполнения по текущим семестрам */
+  async currentSemestersProgress(organizationId: string) {
+    const semesterIds = await this.currentSemesterIds(organizationId);
+    if (semesterIds.length === 0) return null;
+    return this.rows({ organizationId, semesterIds });
   }
 
   static statusLabel(status: HourStatus): string {

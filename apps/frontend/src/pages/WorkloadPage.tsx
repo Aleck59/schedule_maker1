@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Pencil, Plus, Sparkles, Trash2, TriangleAlert } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Pencil, Plus, Search, Sparkles, Trash2, TriangleAlert } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Confirm } from '@/components/common/confirm';
 import { DataTable } from '@/components/common/data-table';
 import { Field } from '@/components/common/field';
@@ -10,7 +10,6 @@ import { SimpleSelect } from '@/components/common/simple-select';
 import { EmptyState, ErrorState, LoadingState, Spinner } from '@/components/common/states';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -19,10 +18,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useClassrooms, useGroups, useSemesters, useTeachers } from '@/hooks/use-reference';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { formatDate } from '@/lib/format';
-import { CONTROL_FORM_LABELS, LESSON_TYPE_LABELS } from '@/lib/labels';
+import { formatDate, pluralize } from '@/lib/format';
+import { allowedLevelsOf, CONTROL_FORM_LABELS, LESSON_TYPE_LABELS } from '@/lib/labels';
 import { useApi, useApiMutation } from '@/lib/query';
 import type { Assignment, SemesterItem } from '@/lib/types';
+import { cn } from '@/lib/utils';
+import { contactHours, featuresText, hoursText, isDefaultLessons, lessonsText } from '@/components/workload/format';
 
 interface TeacherWorkloadRow {
   teacherId: string;
@@ -41,204 +42,271 @@ interface TeacherWorkloadRow {
 }
 
 export default function WorkloadPage() {
-  const semesters = useSemesters();
-  const [semesterId, setSemesterId] = useState<string | null>(null);
-  const today = new Date().toISOString().slice(0, 10);
-  const current = (semesters.data ?? []).find((s) => s.startDate.slice(0, 10) <= today && s.endDate.slice(0, 10) >= today);
-  const sid = semesterId ?? current?.id ?? semesters.data?.[0]?.id ?? null;
-  const semester = semesters.data?.find((s) => s.id === sid);
-
-  if (semesters.isLoading) return <LoadingState rows={8} />;
-  if (semesters.error) return <ErrorState error={semesters.error} onRetry={() => semesters.refetch()} />;
-  if (!sid || !semester) return <EmptyState title="Семестры не созданы" description="Создайте учебный план с семестрами" />;
-
+  const [params, setParams] = useSearchParams();
+  const tab = params.get('tab') === 'teachers' ? 'teachers' : 'groups';
   return (
     <div className="space-y-5">
-      <PageHeader
-        title="Педагогическая нагрузка"
-        description="Назначение преподавателей на дисциплины и виды занятий, подгруппы, потоки и недельная интенсивность"
-        actions={
-          <div className="w-96">
-            <SimpleSelect
-              value={sid}
-              onChange={setSemesterId}
-              options={(semesters.data ?? []).map((s) => ({
-                value: s.id,
-                label: `${s.program?.title ?? ''} · ${s.number} семестр (${formatDate(s.startDate)} — ${formatDate(s.endDate)})`,
-              }))}
-            />
-          </div>
-        }
-      />
-      <Tabs defaultValue="assignments">
+      <PageHeader title="Нагрузка" description="Кто ведёт дисциплины групп: виды занятий, подгруппы, потоки" />
+      <Tabs
+        value={tab}
+        onValueChange={(v) => {
+          const next = new URLSearchParams(params);
+          if (v === 'teachers') next.set('tab', 'teachers');
+          else next.delete('tab');
+          setParams(next, { replace: true });
+        }}
+      >
         <TabsList>
-          <TabsTrigger value="assignments">Назначения по группам</TabsTrigger>
-          <TabsTrigger value="teachers">Нагрузка преподавателей</TabsTrigger>
+          <TabsTrigger value="groups">По группам</TabsTrigger>
+          <TabsTrigger value="teachers">По преподавателям</TabsTrigger>
         </TabsList>
-        <TabsContent value="assignments">
-          <AssignmentsEditor semesterId={sid} programId={semester.educationalProgramId} />
+        <TabsContent value="groups">
+          <GroupAssignments />
         </TabsContent>
         <TabsContent value="teachers">
-          <TeachersWorkload semesterId={sid} />
+          <TeachersWorkload />
         </TabsContent>
       </Tabs>
     </div>
   );
 }
 
-function AssignmentsEditor({ semesterId, programId }: { semesterId: string; programId: string }) {
+function GroupAssignments() {
   const { canEdit } = useAuth();
+  const [params, setParams] = useSearchParams();
   const groups = useGroups();
-  const programGroups = (groups.data ?? []).filter((g) => g.educationalProgramId === programId && g.isActive);
-  const [groupId, setGroupId] = useState<string | null>(null);
-  const gid = groupId && programGroups.some((g) => g.id === groupId) ? groupId : (programGroups[0]?.id ?? null);
-  const items = useApi<SemesterItem[]>(['semester-items', semesterId], `/semesters/${semesterId}/items`);
-  const assignments = useApi<Assignment[]>(['assignments', gid, semesterId], gid ? '/assignments' : null, { groupId: gid ?? undefined, semesterId });
+  const semesters = useSemesters();
+  const teachers = useTeachers();
+  const [search, setSearch] = useState('');
+  const [onlyMissing, setOnlyMissing] = useState(false);
   const [edit, setEdit] = useState<{ item: SemesterItem; assignment?: Assignment } | null>(null);
 
-  const generate = useApiMutation(() => api.post<{ created: number }>('/assignments/generate', { studentGroupId: gid, semesterId }), {
+  const activeGroups = useMemo(() => (groups.data ?? []).filter((g) => g.isActive).sort((a, b) => a.code.localeCompare(b.code)), [groups.data]);
+  const group = activeGroups.find((g) => g.id === params.get('group')) ?? activeGroups[0];
+  const programSemesters = useMemo(
+    () => (semesters.data ?? []).filter((x) => x.educationalProgramId === group?.educationalProgramId).sort((a, b) => a.number - b.number),
+    [semesters.data, group],
+  );
+  // Семестр по умолчанию — текущий семестр группы
+  const semester =
+    programSemesters.find((x) => x.id === params.get('semester')) ??
+    programSemesters.find((x) => x.number === group?.currentSemesterNumber) ??
+    programSemesters[0];
+  const setParam = (key: string, value: string | null) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    if (key === 'group') next.delete('semester');
+    setParams(next, { replace: true });
+  };
+
+  const items = useApi<SemesterItem[]>(['semester-items', semester?.id], semester ? `/semesters/${semester.id}/items` : null);
+  const assignments = useApi<Assignment[]>(['assignments', group?.id, semester?.id], group && semester ? '/assignments' : null, {
+    groupId: group?.id,
+    semesterId: semester?.id,
+  });
+  const generate = useApiMutation(() => api.post<{ created: number }>('/assignments/generate', { studentGroupId: group!.id, semesterId: semester!.id }), {
     success: (r) => (r.created ? `Создано назначений: ${r.created}. Укажите преподавателей` : 'Все дисциплины уже имеют назначения'),
     invalidate: [['assignments']],
   });
   const remove = useApiMutation((id: string) => api.delete(`/assignments/${id}`), { success: 'Назначение удалено', invalidate: [['assignments']] });
   const setTeacher = useApiMutation((v: { id: string; teacherId: string | null }) => api.patch(`/assignments/${v.id}`, { teacherId: v.teacherId }), {
     success: 'Преподаватель назначен',
-    invalidate: [['assignments'], ['hour-control']],
+    invalidate: [['assignments'], ['hour-control'], ['teachers']],
   });
-  const teachers = useTeachers();
 
-  const scheduledItems = (items.data ?? []).filter(
-    (i) =>
-      i.curriculumItem?.itemType !== 'MODULE' &&
-      i.lectureHours + i.practicalHours + i.laboratoryHours + i.consultationHours + (i.practiceAtCollege ? i.practiceHours : 0) > 0,
+  // Только преподаватели, которым образование позволяет вести занятия у этой группы
+  const level = group?.program?.specialty?.educationLevel ?? 'SPO';
+  const teacherOptions = useMemo(
+    () =>
+      (teachers.data ?? [])
+        .filter((t) => t.isActive && (t.allowedLevels ?? allowedLevelsOf(t)).includes(level))
+        .map((t) => ({ value: t.id, label: t.fullName })),
+    [teachers.data, level],
   );
+
   const byItem = useMemo(() => {
     const map = new Map<string, Assignment[]>();
     for (const a of assignments.data ?? []) map.set(a.semesterCurriculumItemId, [...(map.get(a.semesterCurriculumItemId) ?? []), a]);
+    for (const list of map.values()) list.sort((a, b) => Number(!!a.lessonType) - Number(!!b.lessonType) || (a.subgroupNumber ?? 0) - (b.subgroupNumber ?? 0));
     return map;
   }, [assignments.data]);
+  const scheduled = (items.data ?? []).filter((i) => i.curriculumItem?.itemType !== 'MODULE' && contactHours(i) > 0);
+  const missing = (i: SemesterItem) => {
+    const list = byItem.get(i.id) ?? [];
+    return list.length === 0 || list.some((a) => !a.teacherId);
+  };
+  const missingCount = scheduled.filter(missing).length;
+  const q = search.trim().toLowerCase();
+  const shown = scheduled.filter(
+    (i) =>
+      (!onlyMissing || missing(i)) &&
+      (!q ||
+        `${i.curriculumItem?.code} ${i.curriculumItem?.name}`.toLowerCase().includes(q) ||
+        (byItem.get(i.id) ?? []).some((a) => a.teacher?.fullName.toLowerCase().includes(q))),
+  );
+
+  if (groups.isLoading || semesters.isLoading) return <LoadingState rows={8} />;
+  if (!group) return <EmptyState title="Нет активных групп" description="Создайте группу в разделе «Группы»" />;
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="w-56">
-          <SimpleSelect value={gid} onChange={setGroupId} options={programGroups.map((g) => ({ value: g.id, label: `${g.code} (${g.studentCount} чел.)` }))} />
+        <SimpleSelect
+          value={group.id}
+          onChange={(v) => setParam('group', v)}
+          options={activeGroups.map((g) => ({ value: g.id, label: `${g.code} · ${g.studentCount} чел.` }))}
+          className="w-full sm:w-52"
+        />
+        <SimpleSelect
+          value={semester?.id ?? null}
+          onChange={(v) => setParam('semester', v)}
+          options={programSemesters.map((x) => ({
+            value: x.id,
+            label: `${x.number} семестр${x.number === group.currentSemesterNumber ? ' · текущий' : ''}`,
+          }))}
+          placeholder="Семестр"
+          className="w-full sm:w-56"
+        />
+        <div className="relative w-full sm:w-64">
+          <Search className="text-muted-foreground absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Дисциплина или преподаватель…" className="pl-8" />
         </div>
-        {canEdit && gid && (
-          <Button variant="outline" onClick={() => generate.mutate(undefined)} disabled={generate.isPending}>
-            {generate.isPending ? <Spinner /> : <Sparkles />} Сформировать по учебному плану
+        <Button variant={onlyMissing ? 'secondary' : 'ghost'} onClick={() => setOnlyMissing(!onlyMissing)} disabled={!missingCount && !onlyMissing}>
+          <TriangleAlert className={missingCount ? 'text-amber-600' : undefined} /> Без преподавателя: {missingCount}
+        </Button>
+        {canEdit && semester && (
+          <Button variant="outline" className="sm:ml-auto" onClick={() => generate.mutate(undefined)} disabled={generate.isPending}>
+            {generate.isPending ? <Spinner /> : <Sparkles />} Сформировать по плану
           </Button>
         )}
       </div>
+      {semester && (
+        <p className="text-muted-foreground text-sm">
+          {group.program?.specialty?.code} {group.program?.specialty?.name} · {formatDate(semester.startDate)} — {formatDate(semester.endDate)} ·{' '}
+          {scheduled.length} {pluralize(scheduled.length, 'дисциплина', 'дисциплины', 'дисциплин')},{' '}
+          {scheduled.reduce((a, i) => a + contactHours(i), 0)} ч аудиторных
+        </p>
+      )}
       {items.isLoading || assignments.isLoading ? (
-        <LoadingState rows={6} />
+        <LoadingState rows={8} />
+      ) : scheduled.length === 0 ? (
+        <EmptyState title="В семестре нет дисциплин с аудиторными часами" />
       ) : (
-        <div className="space-y-3">
-          {scheduledItems.map((item) => {
-            const list = byItem.get(item.id) ?? [];
-            const missing = list.length === 0 || list.some((a) => !a.teacher);
-            return (
-              <Card key={item.id} className="gap-3 py-4">
-                <CardHeader className="flex flex-row items-start justify-between gap-2 px-4">
-                  <div>
-                    <CardTitle className="text-base">
-                      {item.curriculumItem?.code} {item.curriculumItem?.name}
-                    </CardTitle>
-                    <CardDescription>
-                      {[
-                        item.lectureHours && `лекции ${item.lectureHours} ч`,
-                        item.practicalHours && `практические ${item.practicalHours} ч`,
-                        item.laboratoryHours && `лабораторные ${item.laboratoryHours} ч`,
-                        item.consultationHours && `консультации ${item.consultationHours} ч`,
-                        item.practiceAtCollege && item.practiceHours && `практика ${item.practiceHours} ч`,
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                      {item.controlForm !== 'NONE' && ` · ${CONTROL_FORM_LABELS[item.controlForm]}`}
-                    </CardDescription>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {missing && (
-                      <Badge variant="warning">
-                        <TriangleAlert /> не назначен преподаватель
-                      </Badge>
+        <div className="bg-card overflow-x-auto rounded-lg border scrollbar-thin">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Дисциплина</TableHead>
+                <TableHead>Часы</TableHead>
+                <TableHead>Занятия</TableHead>
+                <TableHead className="w-72">Преподаватель</TableHead>
+                <TableHead>Особенности</TableHead>
+                {canEdit && <TableHead className="w-24" />}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {shown.map((item) => {
+                const list = byItem.get(item.id) ?? [];
+                const rows = list.length ? list : [null];
+                return rows.map((a, i) => (
+                  <TableRow key={a?.id ?? item.id} className={cn(i > 0 && 'border-t-0', i < rows.length - 1 && 'border-b-border/40')}>
+                    {i === 0 && (
+                      <>
+                        <TableCell rowSpan={rows.length} className={cn('max-w-80', rows.length > 1 && 'align-top')}>
+                          <div className="truncate" title={`${item.curriculumItem?.code} ${item.curriculumItem?.name}`}>
+                            <span className="text-muted-foreground">{item.curriculumItem?.code}</span> {item.curriculumItem?.name}
+                          </div>
+                          {item.controlForm !== 'NONE' && <div className="text-muted-foreground text-xs">{CONTROL_FORM_LABELS[item.controlForm]?.toLowerCase()}</div>}
+                        </TableCell>
+                        <TableCell
+                          rowSpan={rows.length}
+                          className={cn('text-muted-foreground text-xs whitespace-nowrap tabular-nums', rows.length > 1 && 'align-top')}
+                        >
+                          {hoursText(item)}
+                        </TableCell>
+                      </>
                     )}
+                    <TableCell className={cn('text-sm whitespace-nowrap', (!a || isDefaultLessons(a)) && 'text-muted-foreground')}>
+                      {a ? lessonsText(a) : '—'}
+                    </TableCell>
+                    <TableCell>
+                      {!a ? (
+                        canEdit ? (
+                          <Button size="sm" variant="outline" onClick={() => setEdit({ item })}>
+                            <Plus /> Назначить
+                          </Button>
+                        ) : (
+                          <span className="text-amber-600">не назначен</span>
+                        )
+                      ) : canEdit ? (
+                        <SimpleSelect
+                          size="sm"
+                          value={a.teacherId}
+                          allowEmpty
+                          emptyLabel="Не назначен"
+                          onChange={(v) => setTeacher.mutate({ id: a.id, teacherId: v })}
+                          options={
+                            a.teacherId && !teacherOptions.some((o) => o.value === a.teacherId)
+                              ? [{ value: a.teacherId, label: a.teacher?.fullName ?? '—' }, ...teacherOptions]
+                              : teacherOptions
+                          }
+                          className={cn('w-72', !a.teacherId && 'border-amber-400 text-amber-700')}
+                        />
+                      ) : (
+                        (a.teacher?.fullName ?? <span className="text-amber-600">не назначен</span>)
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-xs">{a ? featuresText(a) : ''}</TableCell>
                     {canEdit && (
-                      <Button size="sm" variant="outline" onClick={() => setEdit({ item })}>
-                        <Plus /> Назначение
-                      </Button>
+                      <TableCell className="text-right whitespace-nowrap">
+                        {a && (
+                          <>
+                            <Button variant="ghost" size="icon-sm" onClick={() => setEdit({ item, assignment: a })} aria-label="Изменить назначение">
+                              <Pencil />
+                            </Button>
+                            <Confirm
+                              trigger={
+                                <Button variant="ghost" size="icon-sm" aria-label="Удалить назначение">
+                                  <Trash2 />
+                                </Button>
+                              }
+                              title="Удалить назначение?"
+                              description={`${item.curriculumItem?.name}: ${lessonsText(a)}`}
+                              destructive
+                              confirmText="Удалить"
+                              onConfirm={() => remove.mutate(a.id)}
+                            />
+                            {i === 0 && (
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                onClick={() => setEdit({ item })}
+                                aria-label="Добавить назначение (вид занятий или подгруппа)"
+                                title="Разделить: вид занятий или подгруппа"
+                              >
+                                <Plus />
+                              </Button>
+                            )}
+                          </>
+                        )}
+                      </TableCell>
                     )}
-                  </div>
-                </CardHeader>
-                {list.length > 0 && (
-                  <CardContent className="px-4">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Вид занятий</TableHead>
-                          <TableHead>Подгруппа</TableHead>
-                          <TableHead className="w-72">Преподаватель</TableHead>
-                          <TableHead>Пар в неделю</TableHead>
-                          <TableHead>Аудитория</TableHead>
-                          <TableHead>Поток</TableHead>
-                          <TableHead />
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {list.map((a) => (
-                          <TableRow key={a.id}>
-                            <TableCell>{a.lessonType ? LESSON_TYPE_LABELS[a.lessonType] : 'Все виды'}</TableCell>
-                            <TableCell>{a.subgroupNumber ? `${a.subgroupNumber} подгруппа` : 'Вся группа'}</TableCell>
-                            <TableCell>
-                              {canEdit ? (
-                                <SimpleSelect
-                                  size="sm"
-                                  value={a.teacherId}
-                                  allowEmpty
-                                  emptyLabel="Не назначен"
-                                  onChange={(v) => setTeacher.mutate({ id: a.id, teacherId: v })}
-                                  options={(teachers.data ?? []).filter((t) => t.isActive).map((t) => ({ value: t.id, label: t.fullName }))}
-                                />
-                              ) : (
-                                (a.teacher?.fullName ?? 'Не назначен')
-                              )}
-                            </TableCell>
-                            <TableCell>{a.weeklyLessonTarget ?? 'авто'}</TableCell>
-                            <TableCell>{a.preferredClassroom?.code ?? (a.classroomTypes.length ? a.classroomTypes.length + ' тип(а)' : 'по плану')}</TableCell>
-                            <TableCell>{a.streamKey ?? '—'}</TableCell>
-                            <TableCell className="text-right whitespace-nowrap">
-                              {canEdit && (
-                                <>
-                                  <Button variant="ghost" size="icon-sm" onClick={() => setEdit({ item, assignment: a })} aria-label="Изменить">
-                                    <Pencil />
-                                  </Button>
-                                  <Confirm
-                                    trigger={
-                                      <Button variant="ghost" size="icon-sm" aria-label="Удалить">
-                                        <Trash2 />
-                                      </Button>
-                                    }
-                                    title="Удалить назначение?"
-                                    destructive
-                                    confirmText="Удалить"
-                                    onConfirm={() => remove.mutate(a.id)}
-                                  />
-                                </>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                )}
-              </Card>
-            );
-          })}
-          {scheduledItems.length === 0 && <EmptyState title="В семестре нет дисциплин с аудиторными часами" />}
+                  </TableRow>
+                ));
+              })}
+              {shown.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={canEdit ? 6 : 5} className="text-muted-foreground py-8 text-center">
+                    Ничего не найдено
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
         </div>
       )}
-      {edit && gid && <AssignmentDialog groupId={gid} item={edit.item} assignment={edit.assignment} onClose={() => setEdit(null)} />}
+      {edit && <AssignmentDialog groupId={group.id} item={edit.item} assignment={edit.assignment} onClose={() => setEdit(null)} />}
     </div>
   );
 }
@@ -308,13 +376,19 @@ function AssignmentDialog({ groupId, item, assignment, onClose }: { groupId: str
               options={(group?.subgroups ?? []).map((s) => ({ value: String(s.number), label: `${s.name} (${s.studentCount} чел.)` }))}
             />
           </Field>
-          <Field label="Преподаватель" className="sm:col-span-2">
+          <Field label="Преподаватель" className="sm:col-span-2" hint="Только те, кто может вести занятия у групп этого уровня образования">
             <SimpleSelect
               value={teacherId}
               onChange={setTeacherId}
               allowEmpty
               emptyLabel="Не назначен"
-              options={(teachers.data ?? []).filter((t) => t.isActive).map((t) => ({ value: t.id, label: `${t.fullName}${t.department ? ` — ${t.department}` : ''}` }))}
+              options={(teachers.data ?? [])
+                .filter(
+                  (t) =>
+                    t.id === assignment?.teacherId ||
+                    (t.isActive && (t.allowedLevels ?? allowedLevelsOf(t)).includes(group?.program?.specialty?.educationLevel ?? 'SPO')),
+                )
+                .map((t) => ({ value: t.id, label: `${t.fullName}${t.position ? ` — ${t.position.toLowerCase()}` : ''}` }))}
             />
           </Field>
           <Field label="Пар в неделю" hint="Пусто — рассчитать автоматически">
@@ -353,8 +427,10 @@ function AssignmentDialog({ groupId, item, assignment, onClose }: { groupId: str
   );
 }
 
-function TeachersWorkload({ semesterId }: { semesterId: string }) {
-  const data = useApi<TeacherWorkloadRow[]>(['workload-teachers', semesterId], '/workload/teachers', { semesterId });
+function TeachersWorkload() {
+  const data = useApi<TeacherWorkloadRow[]>(['workload-teachers', 'current'], '/workload/teachers', { current: true });
+  const rows = useMemo(() => [...(data.data ?? [])].sort((a, b) => b.planned - a.planned || a.fullName.localeCompare(b.fullName)), [data.data]);
+  const hasSubstitutions = rows.some((r) => r.substitutedHours > 0);
   const columns: ColumnDef<TeacherWorkloadRow>[] = [
     {
       accessorKey: 'fullName',
@@ -362,32 +438,58 @@ function TeachersWorkload({ semesterId }: { semesterId: string }) {
       cell: ({ row }) => (
         <Link to={`/teachers/${row.original.teacherId}`} className="font-medium hover:underline" onClick={(e) => e.stopPropagation()}>
           {row.original.fullName}
-          {row.original.department && <div className="text-muted-foreground text-xs font-normal">{row.original.department}</div>}
         </Link>
       ),
     },
     { accessorKey: 'planned', header: 'План, ч', meta: { className: 'text-right' } },
-    { accessorKey: 'scheduled', header: 'В расписании, ч', meta: { className: 'text-right' } },
+    { accessorKey: 'scheduled', header: 'В расп., ч', meta: { className: 'text-right' } },
     { accessorKey: 'conducted', header: 'Проведено, ч', meta: { className: 'text-right' } },
-    { accessorKey: 'substitutedHours', header: 'Замены, ч', meta: { className: 'text-right' } },
+    ...(hasSubstitutions
+      ? [{ accessorKey: 'substitutedHours', header: 'Замены, ч', meta: { className: 'text-right' } } as ColumnDef<TeacherWorkloadRow>]
+      : []),
     {
       id: 'week',
-      header: 'Пар на этой неделе',
-      cell: ({ row }) => (
-        <span className={row.original.currentWeekLessons > row.original.maxWeeklyLessons ? 'font-semibold text-red-600' : undefined}>
-          {row.original.currentWeekLessons} / {row.original.maxWeeklyLessons}
-        </span>
-      ),
+      header: 'Пар на неделе',
+      accessorFn: (r) => r.currentWeekLessons,
+      cell: ({ row }) => {
+        const r = row.original;
+        const over = r.currentWeekLessons > r.maxWeeklyLessons;
+        return (
+          <span className={cn('tabular-nums', over ? 'font-semibold text-red-600' : r.currentWeekLessons === 0 && 'text-muted-foreground')}>
+            {r.currentWeekLessons} / {r.maxWeeklyLessons}
+          </span>
+        );
+      },
     },
     {
       accessorKey: 'overloadWeeks',
-      header: 'Недель с перегрузкой',
-      cell: ({ getValue }) => (getValue<number>() ? <Badge variant="destructive">{getValue<number>()}</Badge> : <Badge variant="success">0</Badge>),
+      header: 'Перегрузка',
+      cell: ({ getValue }) =>
+        getValue<number>() ? (
+          <Badge variant="destructive">
+            {getValue<number>()} {pluralize(getValue<number>(), 'неделя', 'недели', 'недель')}
+          </Badge>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
     },
-    { id: 'groups', header: 'Группы', cell: ({ row }) => row.original.groups.join(', ') || '—' },
-    { id: 'disc', header: 'Дисциплин', cell: ({ row }) => row.original.disciplines.length },
+    {
+      id: 'groups',
+      header: 'Групп / дисциплин',
+      accessorFn: (r) => r.groups.length,
+      cell: ({ row }) => (
+        <span className="tabular-nums" title={row.original.groups.join(', ')}>
+          {row.original.groups.length} / {row.original.disciplines.length}
+        </span>
+      ),
+    },
   ];
   if (data.isLoading) return <LoadingState rows={6} />;
   if (data.error) return <ErrorState error={data.error} onRetry={() => data.refetch()} />;
-  return <DataTable data={data.data ?? []} columns={columns} searchPlaceholder="Поиск преподавателя…" />;
+  return (
+    <div className="space-y-2">
+      <p className="text-muted-foreground text-sm">Текущие семестры всех групп (СПО и ВО). Перегрузка — недели, где пар больше недельного лимита.</p>
+      <DataTable data={rows} columns={columns} searchPlaceholder="Поиск преподавателя…" dense />
+    </div>
+  );
 }

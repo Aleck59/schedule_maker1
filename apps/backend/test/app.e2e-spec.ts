@@ -1088,6 +1088,15 @@ describe('Расписание СПО (e2e)', () => {
     expect(row).toHaveProperty('total.planned');
     expect(['NORMAL', 'RISK', 'DEFICIT', 'EXCESS']).toContain(row.status);
 
+    // Сводная нагрузка: за все семестры и за текущие — по каждому преподавателю, в одинаковом порядке
+    const all = await http.get('/api/workload/teachers').set(auth('manager')).expect(200);
+    const current = await http.get('/api/workload/teachers?current=true').set(auth('manager')).expect(200);
+    expect(current.body.map((t: { teacherId: string }) => t.teacherId)).toEqual(
+      all.body.map((t: { teacherId: string }) => t.teacherId),
+    );
+    expect(all.body.some((t: { planned: number }) => t.planned > 0)).toBe(true);
+    for (const [i, t] of current.body.entries()) expect(t.planned).toBeLessThanOrEqual(all.body[i].planned);
+
     const summary = await http.get('/api/hour-control/summary?by=teacher').set(auth('manager')).expect(200);
     expect(summary.body.items.length).toBeGreaterThan(3);
 
