@@ -324,3 +324,56 @@ def test_flexible_rules_blocked_slots_and_online_room():
             assert p.room_id == "r_online"
         else:
             assert p.room_id == "r_gen"
+
+
+def test_large_problem_assigns_rooms_after_solving(monkeypatch):
+    """Крупная задача: аудитории вне модели, ограничение вместимости фонда и паросочетание после решения."""
+    import app.cpsat as cpsat
+
+    monkeypatch.setattr(cpsat, "ROOM_VARIABLES_LIMIT", 0)
+    raw = base_problem(
+        demands=[
+            demand("math_lec", ["g1"], "t1", 6, ["r_lec", "r_gen"], key="math"),
+            demand("prog_lec", ["g1"], "t2", 6, ["r_lec"], key="prog"),
+            demand(
+                "lab_1",
+                ["g1"],
+                "t2",
+                4,
+                ["r_pc1", "r_pc2"],
+                sub=1,
+                key="prog",
+                lessonType="LABORATORY",
+                size=13,
+            ),
+            demand(
+                "lab_2",
+                ["g1"],
+                "t3",
+                4,
+                ["r_pc1", "r_pc2"],
+                sub=2,
+                key="prog",
+                lessonType="LABORATORY",
+                size=12,
+            ),
+            demand("math_g2", ["g2"], "t3", 6, ["r_gen", "r_lec"], key="math2", size=20),
+        ]
+    )
+    # Группа второй смены: только 3–5 пары
+    raw["groups"][1]["allowedLessons"] = [3, 4, 5]
+    problem = Problem.model_validate(raw)
+    result = solve(problem)
+    assert result.stats.placed_lessons == result.stats.required_lessons == 26
+    check_hard_constraints(problem, result)
+    for p in result.placements:
+        if p.demand_id == "math_g2":
+            assert 3 <= p.lesson_number <= 5
+
+
+def test_match_rooms_uses_augmenting_paths():
+    from app.cpsat import match_rooms
+
+    # Жадный выбор отдал бы «a» аудиторию r1, и «b» осталась бы без аудитории
+    chosen = match_rooms({0: ["r1", "r2"], 1: ["r1"], 2: ["online"]}, {"online"})
+    assert chosen == {0: "r2", 1: "r1", 2: "online"}

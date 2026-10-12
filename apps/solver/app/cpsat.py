@@ -51,6 +51,35 @@ DEFAULT_WEIGHTS: dict[str, float] = {
 COST_SCALE = 10
 #: Вознаграждение за поставленную пару (много больше любого штрафа)
 PLACE_REWARD = 1000
+#: Порог размера недельной модели «занятие × слот × аудитория»: выше него аудитории не входят в модель —
+#: решатель выбирает слоты с ограничением вместимости аудиторного фонда, аудитории назначаются после решения
+ROOM_VARIABLES_LIMIT = int(os.getenv("SOLVER_ROOM_VARIABLES_LIMIT", "60000"))
+
+
+def match_rooms(options: dict[int, list[str]], unlimited: set[str]) -> dict[int, str]:
+    """Паросочетание «занятие — аудитория» (увеличивающие цепи): каждому занятию — своя аудитория из
+    списка подходящих, перебор в порядке предпочтения; онлайн-аудитория вмещает всех."""
+    owner: dict[str, int] = {}
+
+    def assign(i: int, seen: set[str]) -> bool:
+        for room in options[i]:
+            if room in unlimited or room in seen:
+                continue
+            seen.add(room)
+            if room not in owner or assign(owner[room], seen):
+                owner[room] = i
+                return True
+        return False
+
+    chosen: dict[int, str] = {}
+    for i in sorted(options, key=lambda k: len(options[k])):
+        online = next((r for r in options[i] if r in unlimited), None)
+        if online:
+            chosen[i] = online
+        else:
+            assign(i, set())
+    chosen.update({i: room for room, i in owner.items()})
+    return chosen
 
 
 @dataclass(frozen=True)
@@ -156,6 +185,7 @@ class CpSatScheduler:
             t.id: {(d, n): v for d, n, v in t.slot_preferences} for t in problem.teachers
         }
         self.teacher_online = {t.id: {(d, n) for d, n in t.online_slots} for t in problem.teachers}
+        self.hints = {(h.demand_id, h.date, h.lesson_number): h.room_id for h in problem.hints}
         self.online_room_id = (
             problem.online_room_id if problem.online_room_id in {r.id for r in problem.rooms} else None
         )
@@ -305,6 +335,13 @@ class CpSatScheduler:
         x: dict[tuple[int, str, int, str], cp_model.IntVar] = {}
         y: dict[tuple[int, str, int], list[cp_model.IntVar]] = defaultdict(list)
         objective: list[tuple[int, cp_model.IntVar]] = []
+        # Крупная задача (много групп и аудиторий): аудитории назначаются после решения
+        estimate = sum(
+            sum(1 for day in days if day.key in ds.allowed) * self.L * max(1, len(ds.d.room_ids))
+            for ds in active
+        )
+        aggregate = estimate > ROOM_VARIABLES_LIMIT
+        candidates: dict[tuple[int, str, int], list[str]] = {}
 
         for i, ds in enumerate(active):
             reward = PLACE_REWARD * (10 + ds.d.priority)
@@ -315,10 +352,25 @@ class CpSatScheduler:
                     if not self._slot_ok(st, ds, day, lesson):
                         continue
                     base_cost = self._slot_cost(ds, day, lesson)
+                    if aggregate:
+                        free = [
+                            r for r in self._rooms_for(ds, day, lesson) if self._room_ok(st, r, day, lesson)
+                        ]
+                        if not free:
+                            continue
+                        var = model.new_bool_var(f"y_{i}_{day.key}_{lesson}")
+                        if (ds.d.id, day.key, lesson) in self.hints:
+                            model.add_hint(var, 1)
+                        y[(i, day.key, lesson)].append(var)
+                        candidates[(i, day.key, lesson)] = free
+                        objective.append((reward - int(round(base_cost * COST_SCALE)), var))
+                        continue
                     for room_id in self._rooms_for(ds, day, lesson):
                         if not self._room_ok(st, room_id, day, lesson):
                             continue
                         var = model.new_bool_var(f"x_{i}_{day.key}_{lesson}_{room_id[:8]}")
+                        if self.hints.get((ds.d.id, day.key, lesson), "") == room_id:
+                            model.add_hint(var, 1)
                         x[(i, day.key, lesson, room_id)] = var
                         y[(i, day.key, lesson)].append(var)
                         room = self.rooms[room_id]
@@ -327,7 +379,7 @@ class CpSatScheduler:
                             room_cost -= 3
                         coef = reward - int(round((base_cost + room_cost) * COST_SCALE))
                         objective.append((coef, var))
-        if not x:
+        if not x and not y:
             return 0
 
         # Не более одной аудитории на слот и не больше цели недели
@@ -379,6 +431,8 @@ class CpSatScheduler:
         for vars_ in room_slot.values():
             if len(vars_) > 1:
                 model.add(sum(vars_) <= 1)
+        if aggregate:
+            self._room_capacity_constraints(model, y, candidates)
 
         # Не более N пар одной дисциплины в день (параллельные подгруппы — одна пара)
         disc_lesson: dict[tuple[str, str, int], list[cp_model.IntVar]] = defaultdict(list)
@@ -482,6 +536,57 @@ class CpSatScheduler:
                 day = next(d for d in days if d.key == dk)
                 self._commit(st, ds, day, lesson, room_id)
                 placed += 1
+        if aggregate:
+            placed += self._commit_with_rooms(st, active, days, y, candidates, solver)
+        return placed
+
+    def _room_capacity_constraints(
+        self,
+        model: cp_model.CpModel,
+        y: dict[tuple[int, str, int], list[cp_model.IntVar]],
+        candidates: dict[tuple[int, str, int], list[str]],
+    ) -> None:
+        """Занятий в слоте не больше, чем подходящих свободных аудиторий: для каждого набора аудиторий S
+        число занятий, которым подходят только аудитории из S, не больше |S| (условие Холла)."""
+        by_slot: dict[tuple[str, int], list[tuple[frozenset[str], cp_model.IntVar]]] = defaultdict(list)
+        for (i, dk, lesson), vars_ in y.items():
+            rooms = candidates[(i, dk, lesson)]
+            if any(self.rooms[r].unlimited for r in rooms):
+                continue
+            by_slot[(dk, lesson)].append((frozenset(rooms), vars_[0]))
+        for entries in by_slot.values():
+            sets = {rooms for rooms, _ in entries}
+            for room_set in sets:
+                inside = [var for rooms, var in entries if rooms <= room_set]
+                if len(inside) > len(room_set):
+                    model.add(sum(inside) <= len(room_set))
+
+    def _commit_with_rooms(
+        self,
+        st: State,
+        active: list[DemandState],
+        days: list[DayRef],
+        y: dict[tuple[int, str, int], list[cp_model.IntVar]],
+        candidates: dict[tuple[int, str, int], list[str]],
+        solver: cp_model.CpSolver,
+    ) -> int:
+        """Назначение аудиторий выбранным слотам: паросочетание «занятие — аудитория» в каждом слоте,
+        аудитории перебираются в порядке предпочтения (предпочтительная, затем наиболее подходящая по размеру)."""
+        by_slot: dict[tuple[str, int], list[int]] = defaultdict(list)
+        for (i, dk, lesson), vars_ in y.items():
+            if solver.boolean_value(vars_[0]):
+                by_slot[(dk, lesson)].append(i)
+        day_by_key = {d.key: d for d in days}
+        placed = 0
+        for (dk, lesson), demands in by_slot.items():
+            chosen = match_rooms(
+                {i: candidates[(i, dk, lesson)] for i in demands},
+                {r for r in self.rooms if self.rooms[r].unlimited},
+            )
+            for i in demands:
+                if i in chosen:
+                    self._commit(st, active[i], day_by_key[dk], lesson, chosen[i])
+                    placed += 1
         return placed
 
     def _occupancy_vector(self, model: cp_model.CpModel, by_lesson, fixed: set[int], name: str):

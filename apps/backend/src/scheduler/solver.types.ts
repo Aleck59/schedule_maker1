@@ -121,6 +121,8 @@ export interface SolverProblem {
   seed: number;
   /** Онлайн-аудитория для занятий в онлайн-слотах преподавателей */
   onlineRoomId?: string | null;
+  /** Стартовое решение для CP-SAT (например, эвристическое) */
+  hints?: SolverPlacement[];
 }
 
 export interface SolverPlacement {

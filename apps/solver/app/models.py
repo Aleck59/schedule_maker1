@@ -95,6 +95,13 @@ class Settings(CamelModel):
     respect_teacher_preferences: bool = True
 
 
+class Placement(CamelModel):
+    demand_id: str
+    date: str
+    lesson_number: int
+    room_id: str | None = None
+
+
 class Problem(CamelModel):
     version: int = 1
     mode: Literal["CALENDAR", "WEEKLY_TEMPLATE"] = "CALENDAR"
@@ -112,13 +119,8 @@ class Problem(CamelModel):
     seed: int = 42
     # Онлайн-аудитория для занятий в онлайн-слотах преподавателей
     online_room_id: str | None = None
-
-
-class Placement(CamelModel):
-    demand_id: str
-    date: str
-    lesson_number: int
-    room_id: str | None = None
+    # Стартовое решение (например, эвристическое): решатель начинает поиск с него
+    hints: list[Placement] = Field(default_factory=list)
 
 
 class Unplaced(CamelModel):

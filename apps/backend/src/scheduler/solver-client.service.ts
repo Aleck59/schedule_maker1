@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { loadConfig } from '../config/configuration';
 import { EngineService } from '../engine/engine.service';
 import { solveHeuristic } from './heuristic-solver';
+import { describeQuality, qualityOf } from './quality';
 import { SolverProblem, SolverResult } from './solver.types';
 
 export type SolverPreference = 'auto' | 'cp-sat' | 'heuristic';
@@ -41,22 +42,37 @@ export class SolverClientService {
   ): Promise<SolverResult & { fallbackReason?: string }> {
     const mode = preference === 'auto' ? this.config.mode : preference;
     if (mode !== 'heuristic') {
+      // Быстрое эвристическое решение: стартовая точка для CP-SAT и запасной вариант
+      const quick = solveHeuristic(problem);
       try {
         onProgress?.(0.05, 'Решение модели CP-SAT');
         const timeoutMs = Math.min(this.config.timeoutMs, (problem.timeLimitSeconds + 120) * 1000);
-        return await this.engine.run<SolverResult>(['solve'], {
-          input: JSON.stringify(problem),
+        const exact = await this.engine.run<SolverResult>(['solve'], {
+          input: JSON.stringify({ ...problem, hints: quick.placements }),
           timeoutMs,
           onProgress: (fraction, message) => onProgress?.(0.05 + fraction * 0.95, message),
         });
+        if (mode === 'cp-sat') return exact;
+        // Режим auto: из двух вариантов выбирается лучший по числу пар и мягким ограничениям
+        const a = qualityOf(problem, exact);
+        const b = qualityOf(problem, quick);
+        if (a.score >= b.score) {
+          return { ...exact, log: [...exact.log, `Выбран результат CP-SAT (${describeQuality(a)})`] };
+        }
+        return {
+          ...quick,
+          log: [
+            ...quick.log,
+            `Результат эвристики лучше результата CP-SAT: ${describeQuality(b)}; CP-SAT — ${describeQuality(a)}`,
+          ],
+        };
       } catch (e) {
         const message = (e as Error).message;
         if (mode === 'cp-sat') {
           throw new Error(`Решатель OR-Tools CP-SAT недоступен: ${message}`, { cause: e });
         }
         this.logger.warn(`CP-SAT недоступен (${message}), используется эвристический генератор`);
-        const result = solveHeuristic(problem, { onProgress });
-        return { ...result, fallbackReason: `CP-SAT недоступен: ${message}` };
+        return { ...quick, fallbackReason: `CP-SAT недоступен: ${message}` };
       }
     }
     return solveHeuristic(problem, { onProgress });

@@ -141,7 +141,8 @@ python -m app info                                      # версии OR-Tools 
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | Секреты токенов доступа и обновления |
 | `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL` | Срок жизни токенов (по умолчанию 15m и 7d) |
 | `REDIS_URL` | Redis для очереди генерации BullMQ; пусто — генерация в процессе API |
-| `SOLVER_MODE` | Решатель: `auto` (CP-SAT, при недоступности — эвристика), `cp-sat`, `heuristic` |
+| `SOLVER_MODE` | Решатель: `auto` (эвристика как стартовое решение для CP-SAT, в итог — лучший из двух вариантов; без CP-SAT — эвристика), `cp-sat`, `heuristic` |
+| `SOLVER_ROOM_VARIABLES_LIMIT` | Порог размера недельной модели CP-SAT, выше которого аудитории назначаются после решения (по умолчанию 60000) |
 | `PYTHON_BIN`, `ENGINE_DIR` | Интерпретатор Python и каталог модуля `apps/solver` (по умолчанию определяются автоматически) |
 | `CORS_ORIGIN` | Разрешённые источники запросов (через запятую) |
 
