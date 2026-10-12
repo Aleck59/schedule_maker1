@@ -16,6 +16,7 @@ import { TeacherRules } from '../planning/availability-rules';
 import { streamKeyOf } from '../planning/planning.service';
 import { PlanningService } from '../planning/planning.service';
 import { DemandStream } from '../planning/planning.types';
+import { employmentText, isEmployedOn, levelRestriction } from '../common/utils/teacher-levels';
 import { PrismaService } from '../prisma/prisma.service';
 import { EffectiveSettings, SettingsService } from '../settings/settings.service';
 import { DemandMeta, GenerationParams } from './generation.types';
@@ -132,7 +133,7 @@ export class ProblemBuilderService {
     }
     const groupsDb = await this.prisma.studentGroup.findMany({
       where: { id: { in: groupIds } },
-      include: { subgroups: true },
+      include: { subgroups: true, program: { select: { specialty: { select: { educationLevel: true } } } } },
       orderBy: { code: 'asc' },
     });
     // Группа относится к периоду своего учебного плана
@@ -350,6 +351,24 @@ export class ProblemBuilderService {
         );
         continue;
       }
+      const wrongLevel = levelRestriction(
+        teacher,
+        groupById.get(s.groupId)!.program.specialty.educationLevel,
+      );
+      if (wrongLevel) {
+        pushUnplaced(s, lessonsRequired, remainingHours, 'TEACHER_LEVEL', wrongLevel);
+        continue;
+      }
+      if (!days.some((d) => inWindow(s.groupId, d.date) && isEmployedOn(teacher, d.date))) {
+        pushUnplaced(
+          s,
+          lessonsRequired,
+          remainingHours,
+          'TEACHER_NOT_EMPLOYED',
+          `${teacher.fullName} не работает в эти даты (${employmentText(teacher)})`,
+        );
+        continue;
+      }
       let allowedDates: string[] | null = null;
       if (s.lessonType === LessonType.PRACTICE) {
         allowedDates = days
@@ -521,7 +540,9 @@ export class ProblemBuilderService {
         preferences: t.availability
           .filter((a) => a.isAvailable && a.preferenceWeight !== 0)
           .map((a) => [a.weekday, a.lessonNumber, a.preferenceWeight] as [number, number, number]),
-        blockedDates: days.filter((d) => ctx.teacherBlocks(t.id, d.date).length > 0).map((d) => d.date),
+        blockedDates: days
+          .filter((d) => !isEmployedOn(t, d.date) || ctx.teacherBlocks(t.id, d.date).length > 0)
+          .map((d) => d.date),
         ...this.ruleSlots(new TeacherRules(t.availabilityRules, settings.lessonTimes), days, lessonsPerDay),
       }));
     const onlineRoomId = rooms.find((r) => r.type === ClassroomType.ONLINE)?.id ?? null;

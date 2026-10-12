@@ -4,7 +4,12 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { EDITOR_ROLES, Roles, STAFF_ROLES } from '../common/decorators/roles.decorator';
 import { AuthUser } from '../common/types/auth-user';
 import { AssignmentsService } from './assignments.service';
-import { CreateAssignmentDto, GenerateAssignmentsDto, UpdateAssignmentDto } from './dto/assignments.dto';
+import {
+  CreateAssignmentDto,
+  GenerateAssignmentsDto,
+  HandoverAssignmentDto,
+  UpdateAssignmentDto,
+} from './dto/assignments.dto';
 
 @ApiTags('Нагрузка преподавателей')
 @ApiBearerAuth()
@@ -49,6 +54,19 @@ export class AssignmentsController {
   @Roles(...STAFF_ROLES)
   get(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
     return this.assignments.get(id, user);
+  }
+
+  @Post(':id/handover')
+  @Roles(...EDITOR_ROLES)
+  @ApiOperation({
+    summary: 'Передать нагрузку другому преподавателю с даты (занятия до неё остаются за прежним)',
+  })
+  handover(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: HandoverAssignmentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.assignments.handover(id, dto, user);
   }
 
   @Patch(':id')

@@ -193,6 +193,60 @@ export const EDUCATION_LEVEL_LABELS: Record<string, string> = {
   POSTGRADUATE: 'Аспирантура',
 };
 
+/** Образование преподавателя */
+export const TEACHER_EDUCATION_LABELS: Record<string, string> = {
+  SPO: 'Среднее профессиональное',
+  BACHELOR: 'Высшее — бакалавриат',
+  SPECIALIST: 'Высшее — специалитет',
+  MASTER: 'Высшее — магистратура',
+  HIGHEST: 'Высшая квалификация (аспирантура)',
+};
+export const ACADEMIC_DEGREE_LABELS: Record<string, string> = {
+  NONE: 'Без степени',
+  CANDIDATE: 'Кандидат наук',
+  DOCTOR: 'Доктор наук',
+};
+export const ACADEMIC_TITLE_LABELS: Record<string, string> = {
+  NONE: 'Без звания',
+  DOCENT: 'Доцент',
+  PROFESSOR: 'Профессор',
+};
+/** Типовые должности (можно ввести свою) */
+export const TEACHER_POSITIONS = [
+  'Ассистент',
+  'Преподаватель',
+  'Старший преподаватель',
+  'Доцент',
+  'Профессор',
+  'Заведующий кафедрой',
+  'Мастер производственного обучения',
+];
+
+const ALL_LEVELS = ['SPO', 'BACHELOR', 'SPECIALIST', 'MASTER', 'POSTGRADUATE'];
+/**
+ * У каких уровней образования преподаватель может вести занятия (как на сервере):
+ * бакалавр — только СПО; магистр — СПО и бакалавриат; специалист — также специалитет;
+ * высшая квалификация — также магистратура; учёная степень или звание — все уровни.
+ */
+export const LEVELS_BY_EDUCATION: Record<string, string[]> = {
+  SPO: ['SPO'],
+  BACHELOR: ['SPO'],
+  MASTER: ['SPO', 'BACHELOR'],
+  SPECIALIST: ['SPO', 'BACHELOR', 'SPECIALIST'],
+  HIGHEST: ['SPO', 'BACHELOR', 'SPECIALIST', 'MASTER'],
+};
+export function allowedLevelsOf(t: {
+  educationLevel: string | null;
+  academicDegree: string;
+  academicTitle: string;
+  teachableLevels: string[];
+}): string[] {
+  if (t.teachableLevels.length) return ALL_LEVELS.filter((l) => t.teachableLevels.includes(l));
+  if (t.academicDegree !== 'NONE' || t.academicTitle !== 'NONE') return ALL_LEVELS;
+  if (!t.educationLevel) return ALL_LEVELS;
+  return LEVELS_BY_EDUCATION[t.educationLevel] ?? ALL_LEVELS;
+}
+
 /** Уровень образования по коду специальности (направления): 00.02.00 — СПО, 00.03.00 — бакалавриат… */
 export function educationLevelByCode(code: string): string {
   const levels: Record<string, string> = { '03': 'BACHELOR', '04': 'MASTER', '05': 'SPECIALIST', '06': 'POSTGRADUATE', '07': 'POSTGRADUATE', '08': 'POSTGRADUATE' };

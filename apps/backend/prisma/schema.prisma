@@ -39,6 +39,29 @@ enum EducationLevel {
   POSTGRADUATE // подготовка кадров высшей квалификации
 }
 
+/// Образование преподавателя: от него зависит, у каких уровней он может вести занятия
+enum TeacherEducation {
+  SPO // среднее профессиональное
+  BACHELOR // высшее — бакалавриат
+  SPECIALIST // высшее — специалитет
+  MASTER // высшее — магистратура
+  HIGHEST // подготовка кадров высшей квалификации (аспирантура, ординатура)
+}
+
+/// Учёная степень
+enum AcademicDegree {
+  NONE
+  CANDIDATE // кандидат наук
+  DOCTOR // доктор наук
+}
+
+/// Учёное звание
+enum AcademicTitle {
+  NONE
+  DOCENT // доцент
+  PROFESSOR // профессор
+}
+
 enum StudyForm {
   FULL_TIME // очная
   PART_TIME // очно-заочная
@@ -606,20 +629,33 @@ model GroupCurriculumAssignment {
 // ============================================================================
 
 model Teacher {
-  id                   String   @id @default(uuid())
+  id                   String            @id @default(uuid())
   organizationId       String
   fullName             String
   department           String?
   position             String?
   email                String?
   phone                String?
-  maxWeeklyLessons     Int      @default(18)
-  maxDailyLessons      Int      @default(4)
-  preferredStartLesson Int      @default(1)
-  preferredEndLesson   Int      @default(6)
-  isActive             Boolean  @default(true)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  maxWeeklyLessons     Int               @default(18)
+  maxDailyLessons      Int               @default(4)
+  preferredStartLesson Int               @default(1)
+  preferredEndLesson   Int               @default(6)
+  /// Образование, учёная степень и звание (по ним определяется, кому может вести занятия)
+  educationLevel       TeacherEducation?
+  academicDegree       AcademicDegree    @default(NONE)
+  academicTitle        AcademicTitle     @default(NONE)
+  /// Уровни образования групп, у которых может вести занятия, заданные вручную (пусто — по образованию и степени)
+  teachableLevels      EducationLevel[]  @default([])
+  /// Фотография (JPEG, PNG или WebP)
+  photo                Bytes?
+  photoMime            String?
+  photoUpdatedAt       DateTime?
+  /// Период работы: до начала и после окончания занятия преподавателю не ставятся
+  employedFrom         DateTime?         @db.Date
+  employedTo           DateTime?         @db.Date
+  isActive             Boolean           @default(true)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
 
   organization              Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user                      User?

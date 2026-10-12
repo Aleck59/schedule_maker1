@@ -914,6 +914,144 @@ describe('Расписание СПО (e2e)', () => {
       .expect(200);
   });
 
+  it('преподаватель вышел в середине семестра: дата начала работы, передача нагрузки, деление часов', async () => {
+    type Lesson = {
+      id: string;
+      date: string;
+      lessonNumber: number;
+      status: string;
+      assignmentId: string | null;
+      teacher: { id: string } | null;
+    };
+    const listLessons = async (): Promise<Lesson[]> => {
+      const res = await http
+        .get(`/api/schedule-lessons?periodId=${periodId}&groupId=${groupId}`)
+        .set(auth('dispatcher'))
+        .expect(200);
+      return Array.isArray(res.body) ? res.body : res.body.items;
+    };
+    const day = (l: Lesson) => l.date.slice(0, 10);
+    const lessons = await listLessons();
+    const assignments = await http
+      .get(`/api/assignments?groupId=${groupId}`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    const target = assignments.body.find(
+      (a: { id: string; teacherId: string | null; streamKey: string | null }) =>
+        a.teacherId &&
+        !a.streamKey &&
+        new Set(lessons.filter((l) => l.assignmentId === a.id && l.status === 'PLANNED').map(day)).size >= 4,
+    );
+    expect(target).toBeDefined();
+    const own = lessons.filter((l) => l.assignmentId === target.id && l.status === 'PLANNED');
+    const dates = [...new Set(own.map(day))].sort();
+    const fromDate = dates[Math.floor(dates.length / 2)];
+    const early = own.find((l) => day(l) < fromDate)!;
+
+    // Новый преподаватель (бакалавр — только СПО) начинает работать с fromDate
+    const created = await http
+      .post('/api/teachers')
+      .set(auth('dispatcher'))
+      .send({ fullName: 'Новикова Ольга Петровна', educationLevel: 'BACHELOR', employedFrom: fromDate })
+      .expect(201);
+    const newId = created.body.id;
+    expect(created.body).not.toHaveProperty('photo');
+    const card = await http.get(`/api/teachers/${newId}`).set(auth('dispatcher')).expect(200);
+    expect(card.body.allowedLevels).toEqual(['SPO']);
+
+    // Раньше даты начала работы занятие не поставить и нагрузку не передать
+    const check = await http
+      .post('/api/schedule-lessons/check')
+      .set(auth('dispatcher'))
+      .send({ lessonId: early.id, date: day(early), lessonNumber: early.lessonNumber, teacherId: newId })
+      .expect(200);
+    expect(check.body.ok).toBe(false);
+    expect(JSON.stringify(check.body.issues)).toContain('начинает работать');
+    const tooEarly = await http
+      .post(`/api/assignments/${target.id}/handover`)
+      .set(auth('dispatcher'))
+      .send({ teacherId: newId, fromDate: dates[0] })
+      .expect(400);
+    expect(tooEarly.body.message).toContain('начинает работать');
+
+    // Ограничение по уровню: преподаватель, которому разрешён только бакалавриат, не ведёт у группы СПО
+    await http
+      .patch(`/api/teachers/${newId}`)
+      .set(auth('dispatcher'))
+      .send({ teachableLevels: ['BACHELOR'] })
+      .expect(200);
+    const wrongLevel = await http
+      .post(`/api/assignments/${target.id}/handover`)
+      .set(auth('dispatcher'))
+      .send({ teacherId: newId, fromDate })
+      .expect(400);
+    expect(wrongLevel.body.message).toContain('не может вести');
+    await http
+      .patch(`/api/teachers/${newId}`)
+      .set(auth('dispatcher'))
+      .send({ teachableLevels: [] })
+      .expect(200);
+
+    // Передача с даты: ранние занятия остаются за прежним преподавателем
+    const handover = await http
+      .post(`/api/assignments/${target.id}/handover`)
+      .set(auth('dispatcher'))
+      .send({ teacherId: newId, fromDate })
+      .expect(201);
+    expect(handover.body.moved).toBeGreaterThan(0);
+    expect(handover.body.kept).toBeGreaterThan(0);
+    expect(handover.body.conflicts).toEqual([]);
+    const after = (await listLessons()).filter((l) => l.assignmentId === target.id && l.status === 'PLANNED');
+    for (const l of after) {
+      expect(l.teacher?.id).toBe(day(l) >= fromDate ? newId : target.teacherId);
+    }
+
+    // Нагрузка делится: часы прежнего преподавателя не входят в план нового и остаются в плане прежнего
+    const wNew = await http.get(`/api/teachers/${newId}/workload`).set(auth('dispatcher')).expect(200);
+    const wOld = await http
+      .get(`/api/teachers/${target.teacherId}/workload`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    expect(wNew.body.planned.handedOverHours).toBeGreaterThan(0);
+    expect(wOld.body.planned.previousHours).toBe(wNew.body.planned.handedOverHours);
+    expect(wNew.body.scheduled.total).toBeLessThanOrEqual(wNew.body.planned.total);
+
+    // Проверка расписания: ошибок по уровню и периоду работы нет
+    const v = await http
+      .post(`/api/schedule-periods/${periodId}/validate`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    const issues = JSON.stringify(v.body);
+    expect(issues).not.toContain('TEACHER_LEVEL');
+    expect(issues).not.toContain('начинает работать');
+
+    // Фотография: только изображения, отдаётся отдельно, в карточке и списке — без двоичных данных
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+      'base64',
+    );
+    await http
+      .post(`/api/teachers/${newId}/photo`)
+      .set(auth('dispatcher'))
+      .attach('file', Buffer.from('не картинка'), { filename: 'photo.txt', contentType: 'text/plain' })
+      .expect(400);
+    const withPhoto = await http
+      .post(`/api/teachers/${newId}/photo`)
+      .set(auth('dispatcher'))
+      .attach('file', png, { filename: 'photo.png', contentType: 'image/png' })
+      .expect(200);
+    expect(withPhoto.body.photoUpdatedAt).toBeTruthy();
+    expect(withPhoto.body).not.toHaveProperty('photo');
+    const photo = await http.get(`/api/teachers/${newId}/photo`).set(auth('teacher')).expect(200);
+    expect(photo.headers['content-type']).toContain('image/png');
+    const list = await http.get('/api/teachers').set(auth('dispatcher')).expect(200);
+    const tile = list.body.find((x: { id: string }) => x.id === newId);
+    expect(tile).not.toHaveProperty('photo');
+    expect(tile.disciplines.length).toBeGreaterThan(0);
+    await http.delete(`/api/teachers/${newId}/photo`).set(auth('dispatcher')).expect(200);
+    await http.get(`/api/teachers/${newId}/photo`).set(auth('dispatcher')).expect(404);
+  });
+
   it('мастер настройки: шаги подготовки расписания и следующий шаг', async () => {
     await http.get('/api/setup/status').set(auth('teacher')).expect(403);
     const res = await http.get('/api/setup/status').set(auth('dispatcher')).expect(200);
@@ -969,6 +1107,7 @@ describe('Расписание СПО (e2e)', () => {
     expect(pdf.body.slice(0, 4).toString()).toBe('%PDF');
 
     const dashboard = await http.get('/api/dashboard').set(auth('dispatcher')).expect(200);
-    expect(dashboard.body.counters.teachers).toBe(9);
+    // 9 преподавателей демо-данных и преподаватель, вышедший в середине семестра
+    expect(dashboard.body.counters.teachers).toBe(10);
   });
 });

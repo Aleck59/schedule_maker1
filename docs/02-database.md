@@ -83,7 +83,7 @@ erDiagram
 | `StudentGroup` | Учебная группа | `code`, `courseNumber`, `currentSemesterNumber`, `studentCount`, `subgroupCount`, режим занятий: `studyDays[]` (учебные дни, пусто — все), `firstLessonNumber`/`lastLessonNumber` (допустимые пары: вторая смена, вечерние и очно-заочные группы) |
 | `Subgroup` | Подгруппа | `number`, `name`, `studentCount` |
 | `Student` | Студент | `fullName`, `recordBookNumber`, `subgroupId` |
-| `Teacher` | Преподаватель | `department`, `maxWeeklyLessons`, `maxDailyLessons`, `preferredStartLesson/EndLesson` |
+| `Teacher` | Преподаватель | `department`, `position`, `maxWeeklyLessons`, `maxDailyLessons`, `preferredStartLesson/EndLesson`; квалификация `educationLevel` (СПО, бакалавриат, специалитет, магистратура, высшая квалификация), `academicDegree` (кандидат, доктор наук), `academicTitle` (доцент, профессор), `teachableLevels` (уровни вручную); период работы `employedFrom`/`employedTo`; фото `photo`, `photoMime`, `photoUpdatedAt` |
 | `TeacherAvailability` | Недоступность и предпочтения | `weekday`, `lessonNumber`, `isAvailable`, `preferenceWeight` (−10…10), `reason` |
 | `TeacherAvailabilityRule` | Гибкие правила доступности | `kind` (UNAVAILABLE, AVAILABLE_ONLY, PREFERRED, UNDESIRED, ONLINE), `weekdays[]`, `lessonNumbers[]`, `timeFrom`/`timeTo`, `parity` (ANY, ODD, EVEN — по неделям учебного года), `monthWeeks[]` (1–5, −1 — последний день недели месяца), `validFrom`/`validTo`, `weight`, `note` |
 | `Classroom` | Аудитория | `code`, `building`, `capacity`, `classroomType`, `equipmentJson` |

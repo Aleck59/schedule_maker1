@@ -12,7 +12,7 @@ import {
   StreamHours,
   sumHours,
 } from '../planning/hours-calculator';
-import { PlanningService } from '../planning/planning.service';
+import { PlanningService, streamKeyOf } from '../planning/planning.service';
 import { DemandStream, StreamFilter } from '../planning/planning.types';
 import { EDUCATION_LEVEL_LABELS } from '../common/utils/labels';
 import { PrismaService } from '../prisma/prisma.service';
@@ -289,16 +289,84 @@ export class HourControlService {
       }),
     ]);
 
+    // Смена преподавателя в середине семестра: часы, которые по дисциплине провёл (или ведёт) другой
+    // преподаватель, остаются в его плане и вычитаются из плана текущего. Владелец часов занятия —
+    // преподаватель по расписанию, а при замене — заменённый (замена не меняет план)
+    const myKeys = new Set(streams.map((s) => s.key));
+    const lessonOwner = (l: {
+      teacherId: string | null;
+      substitutions: { originalTeacherId: string | null }[];
+    }) => l.substitutions[0]?.originalTeacherId ?? l.teacherId;
+    const ownSelect = {
+      id: true,
+      date: true,
+      lessonNumber: true,
+      streamKey: true,
+      teacherId: true,
+      studentGroupId: true,
+      semesterCurriculumItemId: true,
+      lessonType: true,
+      subgroupNumber: true,
+      academicHours: true,
+      substitutions: { select: { originalTeacherId: true }, orderBy: { createdAt: 'asc' as const } },
+    } satisfies Prisma.ScheduleLessonSelect;
+    const [inMyStreams, ownedLessons] = await Promise.all([
+      streams.length
+        ? this.prisma.scheduleLesson.findMany({
+            where: {
+              ...lessonWhere,
+              studentGroupId: { in: [...new Set(streams.map((s) => s.groupId))] },
+              semesterCurriculumItemId: { in: [...new Set(streams.map((s) => s.semesterItemId))] },
+              status: { in: ACTIVE_STATUSES },
+            },
+            select: ownSelect,
+          })
+        : [],
+      this.prisma.scheduleLesson.findMany({
+        where: {
+          ...lessonWhere,
+          status: { in: ACTIVE_STATUSES },
+          OR: [{ teacherId }, { substitutions: { some: { originalTeacherId: teacherId } } }],
+        },
+        select: ownSelect,
+      }),
+    ]);
+    const handedOver = new Map<string, number>();
+    for (const l of inMyStreams) {
+      const owner = lessonOwner(l);
+      if (!owner || owner === teacherId) continue;
+      const key = streamKeyOf(l.studentGroupId, l.semesterCurriculumItemId, l.lessonType, l.subgroupNumber);
+      if (myKeys.has(key)) handedOver.set(key, (handedOver.get(key) ?? 0) + l.academicHours);
+    }
+
     // План: потоки (лекции потока — один раз)
     const plannedByType: Record<string, number> = {};
     const seenStream = new Set<string>();
+    let handedOverHours = 0;
     for (const s of streams) {
       if (s.streamKey && s.subgroupNumber === null) {
         const k = `${s.streamKey}|${s.lessonType}`;
         if (seenStream.has(k)) continue;
         seenStream.add(k);
       }
-      plannedByType[s.lessonType] = (plannedByType[s.lessonType] ?? 0) + s.plannedHours;
+      const other = Math.min(s.plannedHours, handedOver.get(s.key) ?? 0);
+      handedOverHours += other;
+      plannedByType[s.lessonType] = (plannedByType[s.lessonType] ?? 0) + s.plannedHours - other;
+    }
+    // Занятия по дисциплинам, которые теперь ведёт другой преподаватель, остаются в плане этого
+    let previousHours = 0;
+    const seenPrevious = new Set<string>();
+    for (const l of ownedLessons) {
+      if (lessonOwner(l) !== teacherId) continue;
+      if (
+        myKeys.has(streamKeyOf(l.studentGroupId, l.semesterCurriculumItemId, l.lessonType, l.subgroupNumber))
+      )
+        continue;
+      const u = l.streamKey ? `${l.streamKey}|${toDateStr(l.date)}|${l.lessonNumber}` : l.id;
+      if (seenPrevious.has(u)) continue;
+      seenPrevious.add(u);
+      previousHours += l.academicHours;
+      plannedByType[l.lessonType] = (plannedByType[l.lessonType] ?? 0) + l.academicHours;
     }
     const unitKey = (l: { id: string; streamKey: string | null; date: Date; lessonNumber: number }) =>
       l.streamKey ? `${l.streamKey}|${toDateStr(l.date)}|${l.lessonNumber}` : l.id;
@@ -364,7 +432,7 @@ export class HourControlService {
         maxWeeklyLessons: teacher.maxWeeklyLessons,
         maxDailyLessons: teacher.maxDailyLessons,
       },
-      planned: { total: sum(plannedByType), byType: plannedByType },
+      planned: { total: sum(plannedByType), byType: plannedByType, handedOverHours, previousHours },
       scheduled: { total: sum(scheduledByType), byType: scheduledByType },
       conducted: { total: sum(conductedByType), byType: conductedByType, substitutedHours },
       remaining: Math.max(0, sum(plannedByType) - sum(conductedByType) + substitutedHours),

@@ -10,12 +10,17 @@ import {
   Patch,
   Post,
   Query,
+  Res,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
+import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { ReplaceAvailabilityDto } from '../common/dto/availability.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { EDITOR_ROLES, Roles, STAFF_ROLES } from '../common/decorators/roles.decorator';
+import { ALL_ROLES, EDITOR_ROLES, Roles, STAFF_ROLES } from '../common/decorators/roles.decorator';
 import { AuthUser } from '../common/types/auth-user';
 import { AvailabilityRulesService } from './availability-rules.service';
 import { AvailabilityRuleDto, UpdateAvailabilityRuleDto } from './dto/availability-rule.dto';
@@ -78,6 +83,37 @@ export class TeachersController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.teachers.update(id, dto, user);
+  }
+
+  @Get(':id/photo')
+  @Roles(...ALL_ROLES)
+  @ApiOperation({ summary: 'Фотография преподавателя' })
+  async photo(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser, @Res() res: Response) {
+    const { data, mime } = await this.teachers.photo(id, user);
+    res.setHeader('Content-Type', mime);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.send(data);
+  }
+
+  @Post(':id/photo')
+  @HttpCode(200)
+  @Roles(...EDITOR_ROLES)
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Загрузить фотографию преподавателя (JPEG, PNG, WebP, до 3 МБ)' })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 4 * 1024 * 1024 } }))
+  setPhoto(
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.teachers.setPhoto(id, file, user);
+  }
+
+  @Delete(':id/photo')
+  @Roles(...EDITOR_ROLES)
+  @ApiOperation({ summary: 'Удалить фотографию преподавателя' })
+  removePhoto(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.teachers.removePhoto(id, user);
   }
 
   @Delete(':id')

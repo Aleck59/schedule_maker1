@@ -276,6 +276,19 @@ export interface AvailabilitySlot {
   reason?: string | null;
 }
 
+export type TeacherEducation = 'SPO' | 'BACHELOR' | 'SPECIALIST' | 'MASTER' | 'HIGHEST';
+export type AcademicDegree = 'NONE' | 'CANDIDATE' | 'DOCTOR';
+export type AcademicTitle = 'NONE' | 'DOCENT' | 'PROFESSOR';
+
+export interface TeacherAssignment extends Assignment {
+  group: Assignment['group'] & {
+    program?: { title: string; studyForm: string; specialty: { educationLevel: EducationLevel } };
+  };
+  semesterItem: Assignment['semesterItem'] & {
+    semester: { id: string; number: number; startDate: string; endDate: string };
+  };
+}
+
 export interface Teacher {
   id: string;
   fullName: string;
@@ -287,11 +300,29 @@ export interface Teacher {
   maxDailyLessons: number;
   preferredStartLesson: number;
   preferredEndLesson: number;
+  /** Образование, учёная степень и звание — определяют, у каких уровней может вести занятия */
+  educationLevel: TeacherEducation | null;
+  academicDegree: AcademicDegree;
+  academicTitle: AcademicTitle;
+  /** Уровни, заданные вручную (пусто — по образованию) */
+  teachableLevels: EducationLevel[];
+  /** Итоговые уровни, у которых может вести занятия */
+  allowedLevels?: EducationLevel[];
+  photoUpdatedAt: string | null;
+  /** Период работы (вышел в середине семестра, уволился) */
+  employedFrom: string | null;
+  employedTo: string | null;
   isActive: boolean;
   availability?: AvailabilitySlot[];
   user?: { id: string; email: string } | null;
-  assignments?: Assignment[];
-  _count?: { assignments: number; availability: number };
+  assignments?: TeacherAssignment[];
+  _count?: { assignments: number; availability: number; availabilityRules?: number };
+  /** Сводка для плитки */
+  disciplines?: string[];
+  groupsCount?: number;
+  teachingLevels?: EducationLevel[];
+  /** Занятия вне периода работы — их нужно передать другому преподавателю */
+  lessonsOutsideEmployment?: number;
 }
 
 export interface Classroom {

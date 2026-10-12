@@ -1,10 +1,19 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { GroupCurriculumAssignment, LessonType, Prisma } from '@prisma/client';
+import { GroupCurriculumAssignment, LessonStatus, LessonType, Prisma, Severity } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types/auth-user';
+import { formatDateRu, parseDate, toDateStr } from '../common/utils/dates';
 import { hoursForType } from '../common/utils/hours';
+import { levelRestriction } from '../common/utils/teacher-levels';
+import { ACTIVE_STATUSES } from '../planning/hours-calculator';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateAssignmentDto, GenerateAssignmentsDto, UpdateAssignmentDto } from './dto/assignments.dto';
+import { LessonCheckerService } from '../validation/lesson-checker.service';
+import {
+  CreateAssignmentDto,
+  GenerateAssignmentsDto,
+  HandoverAssignmentDto,
+  UpdateAssignmentDto,
+} from './dto/assignments.dto';
 
 const INCLUDE = {
   group: { select: { id: true, code: true, studentCount: true, subgroupCount: true } },
@@ -23,6 +32,7 @@ export class AssignmentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly checker: LessonCheckerService,
   ) {}
 
   list(
@@ -119,6 +129,134 @@ export class AssignmentsService {
     return updated;
   }
 
+  /**
+   * Передача нагрузки с даты (новый преподаватель вышел в середине семестра, прежний уволился):
+   * назначение переходит к новому преподавателю, занятия с этой даты — тоже; проведённые и более ранние
+   * занятия остаются за прежним, и в нагрузке часы делятся между ними. Лекции потока передаются целиком.
+   */
+  async handover(id: string, dto: HandoverAssignmentDto, actor: AuthUser) {
+    const before = await this.get(id, actor);
+    if (before.teacherId === dto.teacherId) {
+      throw new BadRequestException('Этот преподаватель уже ведёт дисциплину');
+    }
+    await this.validate(
+      before.studentGroupId,
+      before.semesterCurriculumItemId,
+      { ...before, teacherId: dto.teacherId },
+      actor,
+      id,
+    );
+    const teacher = (await this.prisma.teacher.findUnique({ where: { id: dto.teacherId } }))!;
+    if (teacher.employedFrom && dto.fromDate < toDateStr(teacher.employedFrom)) {
+      throw new BadRequestException(
+        `${teacher.fullName} начинает работать с ${formatDateRu(teacher.employedFrom)} — передайте нагрузку с этой даты или позже`,
+      );
+    }
+    if (teacher.employedTo && dto.fromDate > toDateStr(teacher.employedTo)) {
+      throw new BadRequestException(
+        `${teacher.fullName} работает только по ${formatDateRu(teacher.employedTo)}`,
+      );
+    }
+    // Назначения потока с тем же преподавателем передаются вместе
+    const assignments = before.streamKey
+      ? await this.prisma.groupCurriculumAssignment.findMany({
+          where: {
+            streamKey: before.streamKey,
+            teacherId: before.teacherId,
+            lessonType: before.lessonType,
+            group: { program: { organizationId: actor.organizationId } },
+          },
+        })
+      : [before];
+    const lessonWhere: Prisma.ScheduleLessonWhereInput = {
+      date: { gte: parseDate(dto.fromDate) },
+      // Замены и проведённые занятия не трогаем
+      status: LessonStatus.PLANNED,
+      conducted: null,
+      OR: assignments.flatMap((a) => [
+        { assignmentId: a.id },
+        {
+          assignmentId: null,
+          studentGroupId: a.studentGroupId,
+          semesterCurriculumItemId: a.semesterCurriculumItemId,
+          teacherId: a.teacherId,
+          lessonType: a.lessonType ?? undefined,
+          subgroupNumber: a.subgroupNumber ?? undefined,
+        },
+      ]),
+    };
+    const lessons = await this.prisma.scheduleLesson.findMany({
+      where: lessonWhere,
+      include: { studentGroup: { select: { code: true } } },
+      orderBy: [{ date: 'asc' }, { lessonNumber: 'asc' }],
+    });
+    await this.prisma.$transaction([
+      this.prisma.groupCurriculumAssignment.updateMany({
+        where: { id: { in: assignments.map((a) => a.id) } },
+        data: { teacherId: dto.teacherId },
+      }),
+      this.prisma.scheduleLesson.updateMany({
+        where: { id: { in: lessons.map((l) => l.id) } },
+        data: { teacherId: dto.teacherId },
+      }),
+    ]);
+    // Проверка переданных занятий: новый преподаватель может быть занят или недоступен в это время
+    const conflicts: Array<{
+      lessonId: string;
+      date: string;
+      lessonNumber: number;
+      group: string;
+      message: string;
+    }> = [];
+    for (const l of lessons) {
+      const issues = await this.checker.check({
+        organizationId: actor.organizationId,
+        lessonId: l.id,
+        schedulePeriodId: l.schedulePeriodId,
+        date: toDateStr(l.date),
+        lessonNumber: l.lessonNumber,
+        studentGroupId: l.studentGroupId,
+        subgroupNumber: l.subgroupNumber,
+        semesterCurriculumItemId: l.semesterCurriculumItemId,
+        lessonType: l.lessonType,
+        teacherId: dto.teacherId,
+        classroomId: l.classroomId,
+        academicHours: l.academicHours,
+        streamKey: l.streamKey,
+        skipHoursCheck: true,
+      });
+      const teacherIssue = issues.find(
+        (i) => i.severity === Severity.ERROR && i.validationType.startsWith('TEACHER_'),
+      );
+      if (teacherIssue) {
+        conflicts.push({
+          lessonId: l.id,
+          date: toDateStr(l.date),
+          lessonNumber: l.lessonNumber,
+          group: l.studentGroup.code,
+          message: teacherIssue.message,
+        });
+      }
+    }
+    const kept = await this.prisma.scheduleLesson.count({
+      where: {
+        assignmentId: { in: assignments.map((a) => a.id) },
+        status: { in: ACTIVE_STATUSES },
+        teacherId: { not: dto.teacherId },
+      },
+    });
+    const result = {
+      assignmentIds: assignments.map((a) => a.id),
+      teacher: { id: teacher.id, fullName: teacher.fullName },
+      fromDate: dto.fromDate,
+      moved: lessons.length,
+      kept,
+      conflicts,
+    };
+    await this.audit.log(actor.id, 'HANDOVER', 'GroupCurriculumAssignment', id, before, result);
+    return result;
+  }
+
   async remove(id: string, actor: AuthUser) {
     const before = await this.get(id, actor);
     await this.prisma.groupCurriculumAssignment.delete({ where: { id } });
@@ -177,6 +315,7 @@ export class AssignmentsService {
   ) {
     const group = await this.prisma.studentGroup.findFirst({
       where: { id: groupId, program: { organizationId: actor.organizationId } },
+      include: { program: { select: { specialty: { select: { educationLevel: true } } } } },
     });
     if (!group) throw new BadRequestException('Группа не найдена');
     const item = await this.prisma.semesterCurriculumItem.findFirst({
@@ -207,6 +346,8 @@ export class AssignmentsService {
       });
       if (!teacher) throw new BadRequestException('Преподаватель не найден');
       if (!teacher.isActive) throw new BadRequestException('Преподаватель неактивен');
+      const restriction = levelRestriction(teacher, group.program.specialty.educationLevel);
+      if (restriction) throw new BadRequestException(restriction);
     }
     if (dto.preferredClassroomId) {
       const room = await this.prisma.classroom.findFirst({

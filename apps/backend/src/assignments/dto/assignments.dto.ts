@@ -8,10 +8,12 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   Min,
   ValidateIf,
 } from 'class-validator';
+import { DATE_MESSAGE, DATE_REGEX } from '../../common/dto/date-range.dto';
 
 export class CreateAssignmentDto {
   @ApiProperty()
@@ -100,4 +102,14 @@ export class GenerateAssignmentsDto {
   @ApiProperty()
   @IsUUID('4', { message: 'Укажите семестр' })
   semesterId: string;
+}
+
+export class HandoverAssignmentDto {
+  @ApiProperty({ description: 'Новый преподаватель' })
+  @IsUUID('4', { message: 'Выберите преподавателя' })
+  teacherId: string;
+
+  @ApiProperty({ example: '2026-11-01', description: 'С какой даты занятия ведёт новый преподаватель' })
+  @Matches(DATE_REGEX, { message: DATE_MESSAGE })
+  fromDate: string;
 }

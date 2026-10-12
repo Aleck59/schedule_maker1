@@ -20,13 +20,21 @@ import {
   matchLessonsToStreams,
 } from '../planning/hours-calculator';
 import { PlanningService } from '../planning/planning.service';
+import { employmentRestriction, levelRestriction } from '../common/utils/teacher-levels';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { BLOCKING_TYPES, ValidationIssue, ValidationSummary } from './validation.types';
 
 const lessonInclude = {
   studentGroup: {
-    select: { id: true, code: true, studentCount: true, subgroupCount: true, subgroups: true },
+    select: {
+      id: true,
+      code: true,
+      studentCount: true,
+      subgroupCount: true,
+      subgroups: true,
+      program: { select: { specialty: { select: { educationLevel: true } } } },
+    },
   },
   teacher: { include: { availability: true, availabilityRules: true } },
   classroom: { include: { availability: true } },
@@ -191,6 +199,24 @@ export class ScheduleValidatorService {
             severity: Severity.ERROR,
             validationType: 'TEACHER_UNAVAILABLE',
             message: `Преподаватель ${l.teacher.fullName} недоступен: ${describe(l)}`,
+          });
+        }
+        const notEmployed = employmentRestriction(l.teacher, date);
+        if (notEmployed) {
+          add({
+            ...base,
+            severity: Severity.ERROR,
+            validationType: 'TEACHER_UNAVAILABLE',
+            message: `${notEmployed}: ${describe(l)}`,
+          });
+        }
+        const wrongLevel = levelRestriction(l.teacher, l.studentGroup.program.specialty.educationLevel);
+        if (wrongLevel) {
+          add({
+            ...base,
+            severity: Severity.ERROR,
+            validationType: 'TEACHER_LEVEL',
+            message: `${wrongLevel}: ${describe(l)}`,
           });
         }
         for (const b of ctx.teacherBlocks(l.teacher.id, date)) {

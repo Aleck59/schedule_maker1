@@ -153,6 +153,8 @@ export interface SolverResult {
 export type UnplacedReason =
   | 'NO_TEACHER'
   | 'TEACHER_INACTIVE'
+  | 'TEACHER_LEVEL'
+  | 'TEACHER_NOT_EMPLOYED'
   | 'NO_SUITABLE_ROOM'
   | 'NO_AVAILABLE_DAYS'
   | 'NO_PRACTICE_PERIOD'

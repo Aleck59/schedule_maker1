@@ -329,6 +329,11 @@ export class ConflictFixesService {
           if (!stream) fix.options.push(...(await this.moveOptions(target, period, actor.organizationId, 2)));
           break;
         }
+        case 'TEACHER_LEVEL': {
+          if (!target) break;
+          fix.options.push(...(await this.teacherOptions(target, actor.organizationId, 3)));
+          break;
+        }
         case 'TEACHER_UNAVAILABLE': {
           if (!target) break;
           if (!stream) fix.options.push(...(await this.moveOptions(target, period, actor.organizationId, 3)));

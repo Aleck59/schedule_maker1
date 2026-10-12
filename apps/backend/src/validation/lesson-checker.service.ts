@@ -8,6 +8,7 @@ import { describeRule, SlotVerdict, TeacherRules } from '../planning/availabilit
 import { PRACTICE_EVENT_TYPES, practiceEventTypeFor } from '../planning/calendar-context';
 import { ACTIVE_STATUSES, computeStreamHours, matchLessonsToStreams } from '../planning/hours-calculator';
 import { PlanningService, streamKeyOf } from '../planning/planning.service';
+import { employmentRestriction, levelRestriction } from '../common/utils/teacher-levels';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { ValidationIssue } from './validation.types';
@@ -66,7 +67,13 @@ export class LessonCheckerService {
       this.prisma.schedulePeriod.findFirst({
         where: { id: c.schedulePeriodId, organizationId: c.organizationId },
       }),
-      this.prisma.studentGroup.findFirst({ where: { id: c.studentGroupId }, include: { subgroups: true } }),
+      this.prisma.studentGroup.findFirst({
+        where: { id: c.studentGroupId },
+        include: {
+          subgroups: true,
+          program: { include: { specialty: { select: { educationLevel: true } } } },
+        },
+      }),
       this.prisma.semesterCurriculumItem.findFirst({
         where: { id: c.semesterCurriculumItemId },
         include: { semester: true, curriculumItem: true },
@@ -224,6 +231,10 @@ export class LessonCheckerService {
         issues.push(
           issue(Severity.ERROR, 'TEACHER_UNAVAILABLE', `Преподаватель ${teacher.fullName} неактивен`),
         );
+      const notEmployed = employmentRestriction(teacher, date);
+      if (notEmployed) issues.push(issue(Severity.ERROR, 'TEACHER_UNAVAILABLE', notEmployed));
+      const wrongLevel = levelRestriction(teacher, group.program.specialty.educationLevel);
+      if (wrongLevel) issues.push(issue(Severity.ERROR, 'TEACHER_LEVEL', wrongLevel));
       const slot = teacher.availability.find(
         (a) => a.weekday === weekday && a.lessonNumber === c.lessonNumber,
       );

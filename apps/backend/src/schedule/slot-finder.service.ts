@@ -15,6 +15,7 @@ import { effectiveRoomTypes } from '../common/utils/rooms';
 import { TeacherRules } from '../planning/availability-rules';
 import { ACTIVE_STATUSES } from '../planning/hours-calculator';
 import { PlanningService } from '../planning/planning.service';
+import { isEmployedOn } from '../common/utils/teacher-levels';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 
@@ -159,7 +160,8 @@ export class SlotFinderService {
           ? ctx.groupDay(req.studentGroupId, date).isWorkingDay
           : ctx.isRegularAllowed(req.studentGroupId, date);
       if (!allowed) continue;
-      if (teacher && ctx.teacherBlocks(teacher.id, date).length > 0) continue;
+      if (teacher && (!isEmployedOn(teacher, date) || ctx.teacherBlocks(teacher.id, date).length > 0))
+        continue;
       const weekday = isoWeekday(date);
       // Режим занятий группы: учебные дни и допустимые пары
       if (group.studyDays.length > 0 && !group.studyDays.includes(weekday)) continue;
