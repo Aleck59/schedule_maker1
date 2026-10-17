@@ -21,8 +21,10 @@ export function Spinner({ className = '' }: { className?: string }) {
 
 export function EmptyState({ title, description, action }: { title: string; description?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed px-6 py-10 text-center">
-      <Inbox className="text-muted-foreground size-8" />
+    <div className="animate-fade-in bg-card/50 flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed px-6 py-10 text-center">
+      <div className="bg-primary/8 text-primary/70 mb-1 flex size-12 items-center justify-center rounded-2xl">
+        <Inbox className="size-6" />
+      </div>
       <div className="font-medium">{title}</div>
       {description && <div className="text-muted-foreground max-w-md text-sm">{description}</div>}
       {action && <div className="mt-2">{action}</div>}
@@ -35,7 +37,7 @@ export function ErrorState({ error, onRetry, back }: { error: unknown; onRetry?:
   const status = error instanceof ApiError ? error.status : 0;
   const final = status === 403 || status === 404;
   return (
-    <div className="border-destructive/30 bg-destructive/5 text-destructive flex flex-col items-center gap-2 rounded-lg border px-6 py-8 text-center">
+    <div className="border-destructive/30 bg-destructive/5 text-destructive animate-fade-in flex flex-col items-center gap-2 rounded-2xl border px-6 py-8 text-center">
       <AlertTriangle className="size-7" />
       <div className="font-medium">{status === 404 ? 'Не найдено' : 'Не удалось загрузить данные'}</div>
       <div className="text-sm opacity-90">{errorMessage(error)}</div>

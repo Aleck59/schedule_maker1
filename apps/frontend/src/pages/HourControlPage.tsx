@@ -405,9 +405,9 @@ function AggregateView({ data }: { data: AggregateResponse }) {
                 <YAxis tickLine={false} axisLine={false} width={40} />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="План" fill="#94a3b8" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="В расписании" fill="#3b82f6" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="Проведено" fill="#10b981" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="План" fill="#cbd5e1" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="В расписании" fill="var(--chart-1)" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="Проведено" fill="var(--chart-2)" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>

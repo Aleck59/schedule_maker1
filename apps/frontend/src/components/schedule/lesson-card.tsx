@@ -54,7 +54,7 @@ export function LessonCard({
       onClick={onClick}
       onKeyDown={(e) => e.key === 'Enter' && onClick?.()}
       className={cn(
-        'group relative w-full min-w-0 cursor-pointer rounded-md border border-l-[3px] px-1.5 py-1 text-left text-[11px] leading-tight shadow-xs transition hover:shadow-md',
+        'group relative w-full min-w-0 cursor-pointer rounded-lg border border-l-[3px] px-1.5 py-1 text-left text-[11px] leading-tight shadow-xs transition duration-200 hover:-translate-y-px hover:shadow-soft',
         TYPE_BORDER[lesson.lessonType],
         STATUS_BG[lesson.status],
         selected && 'ring-primary ring-2',

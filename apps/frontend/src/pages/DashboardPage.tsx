@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { AnimatedNumber } from '@/components/common/animated-number';
 import { PageHeader } from '@/components/common/page-header';
 import { EmptyState, ErrorState, LoadingState } from '@/components/common/states';
 import { StatCard } from '@/components/common/stat-card';
@@ -161,23 +162,32 @@ function StaffView({ data }: { data: StaffDashboard }) {
         <CardContent className="grid grid-cols-2 divide-y px-0 sm:grid-cols-4 sm:divide-x sm:divide-y-0">
           {(
             [
-              ['Занятий сегодня', c.lessonsToday, CalendarClock, '/schedule?view=day'],
-              ['Активных групп', c.activeGroups, GraduationCap, '/groups'],
-              ['Преподавателей', c.teachers, Users, '/teachers'],
-              ['Аудиторий', c.classrooms, Building2, '/classrooms'],
+              ['Занятий сегодня', c.lessonsToday, CalendarClock, '/schedule?view=day', 'bg-indigo-50 text-indigo-600 dark:bg-indigo-400/10 dark:text-indigo-300'],
+              ['Активных групп', c.activeGroups, GraduationCap, '/groups', 'bg-sky-50 text-sky-600 dark:bg-sky-400/10 dark:text-sky-300'],
+              ['Преподавателей', c.teachers, Users, '/teachers', 'bg-violet-50 text-violet-600 dark:bg-violet-400/10 dark:text-violet-300'],
+              ['Аудиторий', c.classrooms, Building2, '/classrooms', 'bg-emerald-50 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300'],
             ] as const
-          ).map(([title, value, Icon, to], i) => (
+          ).map(([title, value, Icon, to, tone], i) => (
             <Link
               key={title}
               to={to}
               className={cn(
-                'hover:bg-muted/40 flex items-center gap-3 px-3 py-3.5 transition-colors sm:px-5 sm:py-4',
+                'group hover:bg-muted/40 flex items-center gap-3 px-3 py-3.5 transition-colors sm:px-5 sm:py-4',
                 i % 2 === 1 && 'border-l sm:border-l-0',
               )}
             >
-              <Icon className="text-muted-foreground size-5 shrink-0" />
+              <div
+                className={cn(
+                  'flex size-10 shrink-0 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-3',
+                  tone,
+                )}
+              >
+                <Icon className="size-5" />
+              </div>
               <div className="min-w-0">
-                <div className="text-2xl leading-tight font-semibold tabular-nums">{value}</div>
+                <div className="text-2xl leading-tight font-semibold tracking-tight tabular-nums">
+                  <AnimatedNumber value={value} />
+                </div>
                 <div className="text-muted-foreground text-xs leading-tight">{title}</div>
               </div>
             </Link>
@@ -197,21 +207,23 @@ function StaffView({ data }: { data: StaffDashboard }) {
               <div className="space-y-4">
                 <div>
                   <div className="flex items-end justify-between">
-                    <span className="text-3xl font-semibold tabular-nums">{formatNumber(data.planCompletion.percent, 1)}%</span>
+                    <span className="text-3xl font-semibold tracking-tight tabular-nums">
+                      <AnimatedNumber value={data.planCompletion.percent} format={(n) => `${formatNumber(n, 1)}%`} />
+                    </span>
                     <span className="text-muted-foreground text-sm">прогноз {formatNumber(data.planCompletion.forecastPercent, 1)}%</span>
                   </div>
                   <Progress value={data.planCompletion.percent} className="mt-2" />
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-center text-sm">
-                  <div className="bg-muted/50 rounded-md p-2">
+                  <div className="bg-muted/60 rounded-xl p-2">
                     <div className="text-muted-foreground text-xs">План</div>
                     <div className="font-semibold tabular-nums">{data.planCompletion.planned} ч</div>
                   </div>
-                  <div className="bg-muted/50 rounded-md p-2">
+                  <div className="bg-muted/60 rounded-xl p-2">
                     <div className="text-muted-foreground text-xs">В расписании</div>
                     <div className="font-semibold tabular-nums">{data.planCompletion.scheduled} ч</div>
                   </div>
-                  <div className="bg-muted/50 rounded-md p-2">
+                  <div className="bg-muted/60 rounded-xl p-2">
                     <div className="text-muted-foreground text-xs">Проведено</div>
                     <div className="font-semibold tabular-nums">{data.planCompletion.conducted} ч</div>
                   </div>
@@ -257,11 +269,22 @@ function StaffView({ data }: { data: StaffDashboard }) {
           <CardContent className="h-64">
             <ResponsiveContainer>
               <BarChart data={data.lessonsByWeekday}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="label" tickLine={false} axisLine={false} />
-                <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={30} />
-                <Tooltip formatter={(v) => [v, 'Занятий']} labelFormatter={(l) => `День: ${l}`} />
-                <Bar dataKey="lessons" fill="var(--primary)" radius={[4, 4, 0, 0]} />
+                <defs>
+                  <linearGradient id="dash-bar" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--primary)" />
+                    <stop offset="100%" stopColor="var(--primary)" stopOpacity={0.45} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} />
+                <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={30} tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} />
+                <Tooltip
+                  cursor={{ fill: 'var(--accent)', radius: 8 }}
+                  contentStyle={{ borderRadius: 12, border: '1px solid var(--border)', boxShadow: 'var(--shadow-soft)' }}
+                  formatter={(v) => [v, 'Занятий']}
+                  labelFormatter={(l) => `День: ${l}`}
+                />
+                <Bar dataKey="lessons" fill="url(#dash-bar)" radius={[8, 8, 2, 2]} maxBarSize={44} animationDuration={700} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -323,7 +346,7 @@ function StaffView({ data }: { data: StaffDashboard }) {
                         {d.groupCode}
                         {d.subgroupNumber ? ` (п/г ${d.subgroupNumber})` : ''}
                       </TableCell>
-                      <TableCell className="max-w-72 truncate">{d.discipline}</TableCell>
+                      <TableCell className="max-w-60 truncate">{d.discipline}</TableCell>
                       <TableCell className="text-right tabular-nums">{d.planned}</TableCell>
                       <TableCell className="text-right tabular-nums">{d.scheduled}</TableCell>
                       <TableCell className="text-right tabular-nums">{d.conducted}</TableCell>
@@ -349,7 +372,7 @@ function StaffView({ data }: { data: StaffDashboard }) {
                 <div className="text-muted-foreground text-sm">Превышений недельной и дневной нагрузки нет</div>
               ) : (
                 data.workloadWarnings.map((w) => (
-                  <Link key={w.teacherId} to={`/teachers/${w.teacherId}`} className="hover:bg-muted/50 block rounded-md border p-2 text-sm">
+                  <Link key={w.teacherId} to={`/teachers/${w.teacherId}`} className="hover:bg-muted/50 hover:border-primary/25 block rounded-xl border p-2.5 text-sm transition-colors">
                     <div className="font-medium">{w.fullName}</div>
                     <div className="text-muted-foreground text-xs">
                       Пар за неделю: {w.weekLessons} (макс. {w.maxWeeklyLessons}) · в день до {w.maxDayLessons} (макс.{' '}
@@ -367,7 +390,7 @@ function StaffView({ data }: { data: StaffDashboard }) {
             <CardContent className="space-y-2">
               {data.periods.length === 0 && <div className="text-muted-foreground text-sm">Периоды не созданы</div>}
               {data.periods.map((p) => (
-                <Link key={p.id} to={`/schedule?period=${p.id}`} className="hover:bg-muted/50 flex items-center justify-between gap-2 rounded-md border p-2">
+                <Link key={p.id} to={`/schedule?period=${p.id}`} className="hover:bg-muted/50 hover:border-primary/25 flex items-center justify-between gap-2 rounded-xl border p-2.5 transition-colors">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium">{p.title}</div>
                     <div className="text-muted-foreground text-xs">
@@ -426,7 +449,7 @@ function Attention({ counters: c }: { counters: StaffDashboard['counters'] }) {
   ].filter(Boolean) as Array<{ to: string; icon: typeof Users; tone: string; text: string; hint: string | null }>;
   if (items.length === 0) {
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+      <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
         <CheckCircle2 className="size-4" /> Конфликтов, отмен, отработок и перегрузок нет
       </div>
     );
@@ -437,12 +460,12 @@ function Attention({ counters: c }: { counters: StaffDashboard['counters'] }) {
         <Link
           key={it.text}
           to={it.to}
-          className="bg-card hover:bg-muted/40 flex min-w-0 items-center gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm transition-colors"
+          className="lift group bg-card flex min-w-0 items-center gap-2.5 rounded-xl border border-border/70 px-3.5 py-2.5 text-sm shadow-soft"
         >
           <it.icon className={cn('size-4 shrink-0', it.tone)} />
           <span className="font-medium">{it.text}</span>
           {it.hint && <span className="text-muted-foreground hidden truncate sm:inline">· {it.hint}</span>}
-          <ChevronRight className="text-muted-foreground size-4 shrink-0" />
+          <ChevronRight className="text-muted-foreground size-4 shrink-0 transition-transform duration-200 group-hover:translate-x-0.5" />
         </Link>
       ))}
     </div>
@@ -455,11 +478,11 @@ function LessonRow({ lesson, onClick, showGroup = true }: { lesson: Lesson; onCl
       type="button"
       onClick={onClick}
       className={cn(
-        'hover:bg-muted/50 flex w-full items-center gap-3 rounded-md border p-2.5 text-left transition-colors',
+        'hover:bg-muted/50 hover:border-primary/25 flex w-full cursor-pointer items-center gap-3 rounded-xl border p-2.5 text-left transition-colors',
         lesson.status === 'CANCELLED' && 'opacity-60',
       )}
     >
-      <div className="bg-primary/10 text-primary flex size-10 shrink-0 flex-col items-center justify-center rounded-md">
+      <div className="bg-primary/10 text-primary flex size-10 shrink-0 flex-col items-center justify-center rounded-lg">
         <span className="text-sm leading-none font-semibold">{lesson.lessonNumber}</span>
         <span className="text-[9px]">пара</span>
       </div>
