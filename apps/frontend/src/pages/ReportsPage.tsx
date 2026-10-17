@@ -167,7 +167,7 @@ export default function ReportsPage() {
       ) : types.error ? (
         <ErrorState error={types.error} />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="stagger grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {available.map((t) => (
             <button
               key={t.type}
@@ -177,7 +177,7 @@ export default function ReportsPage() {
                 setApplied(null);
               }}
               className={cn(
-                'bg-card hover:border-primary/50 rounded-lg border p-4 text-left transition',
+                'lift bg-card cursor-pointer rounded-2xl border border-border/70 p-4 text-left shadow-soft',
                 type === t.type && 'border-primary ring-primary/30 ring-2',
               )}
             >

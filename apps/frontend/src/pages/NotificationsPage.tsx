@@ -56,7 +56,7 @@ export default function NotificationsPage() {
           {items.map((n) => (
             <Card
               key={n.id}
-              className={cn('cursor-pointer py-3 transition hover:shadow-md', !n.isRead && 'border-primary/40 bg-primary/[0.03]')}
+              className={cn('lift cursor-pointer py-3', !n.isRead && 'border-primary/40 bg-primary/[0.03]')}
               onClick={() => {
                 if (!n.isRead) read.mutate(n.id);
                 if (n.scheduleLessonId) setLessonId(n.scheduleLessonId);

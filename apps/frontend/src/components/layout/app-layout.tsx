@@ -133,24 +133,24 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const org = user?.organization?.shortName ?? 'Колледж';
   return (
     <nav className="flex h-full flex-col">
-      <div className="flex items-center gap-2.5 px-4 py-4">
-        <div className="bg-primary flex size-8 shrink-0 items-center justify-center rounded-lg text-white">
-          <CalendarDays className="size-4" />
+      <div className="flex items-center gap-3 px-5 pt-5 pb-4">
+        <div className="brand-gradient flex size-9 shrink-0 items-center justify-center rounded-xl text-white shadow-[0_6px_16px_-6px_oklch(0.5_0.22_272/0.7)]">
+          <CalendarDays className="size-[18px]" />
         </div>
         <div className="min-w-0">
-          <div className="text-sm leading-tight font-semibold text-white">Расписание</div>
+          <div className="text-foreground text-[15px] leading-tight font-semibold tracking-tight">Расписание</div>
           <div className="text-sidebar-muted truncate text-xs leading-tight" title={org}>
             {org}
           </div>
         </div>
       </div>
-      <div className="flex-1 space-y-4 overflow-y-auto px-3 pb-4 scrollbar-thin">
+      <div className="flex-1 space-y-5 overflow-y-auto px-3 pb-4 scrollbar-thin">
         {sections.map((group) => {
           if (group.items.length === 0) return null;
           return (
             <div key={group.section}>
-              <div className="text-sidebar-muted px-2 pb-1 text-[11px] font-semibold tracking-wider uppercase">{group.section}</div>
-              <div className="space-y-px">
+              <div className="text-sidebar-muted px-2.5 pb-1.5 text-[11px] font-semibold tracking-wider uppercase">{group.section}</div>
+              <div className="space-y-0.5">
                 {group.items.map((item) => (
                   <NavLink
                     key={item.to}
@@ -159,15 +159,15 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                     onClick={onNavigate}
                     className={({ isActive }) =>
                       cn(
-                        'text-sidebar-foreground hover:bg-sidebar-accent flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors',
-                        isActive && 'bg-sidebar-accent font-medium text-white',
+                        'nav-item text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground relative flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-sm transition-colors duration-200',
+                        isActive && 'active bg-sidebar-accent text-sidebar-active font-medium',
                       )
                     }
                   >
-                    <item.icon className="size-4 shrink-0 opacity-80" />
+                    <item.icon className="size-4 shrink-0" />
                     <span className="truncate">{item.label}</span>
                     {item.to === '/setup' && setup.data?.next && (
-                      <span className="ml-auto rounded bg-amber-400/20 px-1.5 text-[10px] font-semibold text-amber-200 tabular-nums">
+                      <span className="ml-auto rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-700 tabular-nums dark:bg-amber-400/15 dark:text-amber-200">
                         {setup.data.completed}/{setup.data.total}
                       </span>
                     )}
@@ -178,7 +178,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           );
         })}
       </div>
-      <div className="text-sidebar-muted px-5 py-2.5 text-[11px]">Версия {APP_VERSION}</div>
+      <div className="text-sidebar-muted border-t border-border/60 px-5 py-3 text-[11px]">Версия {APP_VERSION}</div>
     </nav>
   );
 }
@@ -197,13 +197,13 @@ function NotificationsBell() {
         <Button variant="ghost" size="icon" className="relative" aria-label="Уведомления">
           <Bell />
           {count > 0 && (
-            <span className="bg-destructive absolute top-1 right-1 flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white">
+            <span className="animate-pop bg-destructive ring-background absolute top-1 right-1 flex min-w-4 ring-2 items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white">
               {count > 99 ? '99+' : count}
             </span>
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-96 p-0">
+      <PopoverContent align="end" className="w-[min(24rem,calc(100vw-1rem))] overflow-hidden p-0">
         <div className="flex items-center justify-between border-b px-4 py-2.5">
           <div className="text-sm font-semibold">Уведомления</div>
           {count > 0 && (
@@ -214,7 +214,7 @@ function NotificationsBell() {
         </div>
         <div className="max-h-96 overflow-y-auto">
           {(list.data ?? []).slice(0, 8).map((n) => (
-            <div key={n.id} className={cn('border-b px-4 py-2.5 text-sm last:border-0', !n.isRead && 'bg-primary/5')}>
+            <div key={n.id} className={cn('hover:bg-muted/50 border-b px-4 py-2.5 text-sm transition-colors last:border-0', !n.isRead && 'bg-primary/5')}>
               <div className="flex items-center justify-between gap-2">
                 <span className="font-medium">{n.title}</span>
                 <span className="text-muted-foreground shrink-0 text-[11px]">{formatDateTime(n.createdAt)}</span>
@@ -241,20 +241,26 @@ export function AppLayout() {
   const { dark, toggle } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   useEffect(() => setMobileOpen(false), [location.pathname]);
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMobileOpen(false);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mobileOpen]);
 
   return (
     <div className="flex min-h-screen">
-      <aside className="bg-sidebar fixed inset-y-0 left-0 z-30 hidden w-60 lg:block">
+      <aside className="bg-sidebar fixed inset-y-0 left-0 z-30 hidden w-60 border-r border-border/70 backdrop-blur-xl lg:block">
         <Sidebar />
       </aside>
       {mobileOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-          <aside className="bg-sidebar absolute inset-y-0 left-0 w-64">
+          <div className="animate-fade-in absolute inset-0 bg-slate-950/30 backdrop-blur-[3px]" onClick={() => setMobileOpen(false)} />
+          <aside className="animate-drawer bg-card shadow-lift absolute inset-y-0 left-0 w-72 max-w-[85vw]">
             <Button
               variant="ghost"
               size="icon"
-              className="absolute top-4 right-2 text-white hover:bg-white/10"
+              className="absolute top-4 right-2"
               onClick={() => setMobileOpen(false)}
               aria-label="Закрыть меню"
             >
@@ -265,7 +271,7 @@ export function AppLayout() {
         </div>
       )}
       <div className="flex min-w-0 flex-1 flex-col lg:pl-60">
-        <header className="bg-card/80 sticky top-0 z-20 flex h-14 items-center gap-2 border-b px-4 backdrop-blur">
+        <header className="bg-background/70 sticky top-0 z-20 flex h-14 items-center gap-2 border-b border-border/60 px-4 backdrop-blur-xl md:px-6">
           <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Меню">
             <Menu />
           </Button>
@@ -278,7 +284,7 @@ export function AppLayout() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="gap-2 px-2">
-                  <div className="bg-primary/10 text-primary flex size-7 items-center justify-center rounded-full text-xs font-semibold">
+                  <div className="brand-gradient flex size-8 items-center justify-center rounded-full text-xs font-semibold text-white shadow-sm">
                     {user?.fullName
                       .split(' ')
                       .slice(0, 2)
@@ -318,7 +324,9 @@ export function AppLayout() {
         </header>
         <main className="mx-auto w-full max-w-[1600px] flex-1 space-y-5 p-4 md:p-6">
           <GuideBar />
-          <Outlet />
+          <div key={location.pathname} className="page-enter">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>

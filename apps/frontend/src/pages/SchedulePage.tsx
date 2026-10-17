@@ -441,12 +441,20 @@ export default function SchedulePage() {
           )}
           <div className="ml-auto flex items-center gap-2">
             {editable && view !== 'month' && (
-              <Button variant={bulkMode ? 'secondary' : 'ghost'} onClick={() => { setBulkMode(!bulkMode); setSelected(new Set()); }}>
+              <Button
+                variant={bulkMode ? 'secondary' : 'ghost'}
+                aria-label="Массовое редактирование"
+                onClick={() => {
+                  setBulkMode(!bulkMode);
+                  setSelected(new Set());
+                }}
+              >
                 <ListChecks /> <span className="hidden md:inline">Массовое редактирование</span>
               </Button>
             )}
             {editable && (
               <Button
+                aria-label="Добавить занятие"
                 onClick={() => {
                   setCreateInitial({ groupId: params.get('groupId') ?? undefined, date: view === 'day' ? day : week });
                   setCreateOpen(true);

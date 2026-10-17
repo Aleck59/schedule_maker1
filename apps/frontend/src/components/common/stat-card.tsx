@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { AnimatedNumber } from '@/components/common/animated-number';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
@@ -26,15 +27,17 @@ export function StatCard({
     info: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
   }[tone];
   return (
-    <Card className={cn('py-4', onClick && 'cursor-pointer transition-shadow hover:shadow-md')} onClick={onClick}>
+    <Card className={cn('py-4', onClick && 'lift cursor-pointer')} onClick={onClick}>
       <CardContent className="flex items-start justify-between gap-3 px-4">
         <div className="min-w-0">
           <div className="text-muted-foreground text-xs font-medium">{title}</div>
-          <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>
+          <div className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
+            {typeof value === 'number' ? <AnimatedNumber value={value} /> : value}
+          </div>
           {hint && <div className="text-muted-foreground mt-0.5 text-xs">{hint}</div>}
         </div>
         {Icon && (
-          <div className={cn('rounded-lg p-2', toneClass)}>
+          <div className={cn('rounded-xl p-2.5 transition-transform duration-300 group-hover:scale-105', toneClass)}>
             <Icon className="size-5" />
           </div>
         )}

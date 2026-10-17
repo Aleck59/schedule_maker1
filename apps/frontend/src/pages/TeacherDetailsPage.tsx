@@ -481,7 +481,7 @@ function WorkloadTab({ workload: w }: { workload: Workload }) {
               <YAxis allowDecimals={false} width={30} />
               <Tooltip formatter={(v) => [v, 'Пар']} />
               <ReferenceLine y={w.teacher.maxWeeklyLessons} stroke="#ef4444" strokeDasharray="4 4" />
-              <Bar dataKey="lessons" fill="var(--primary)" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="lessons" fill="var(--primary)" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>

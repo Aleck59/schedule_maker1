@@ -107,7 +107,7 @@ export default function TeachersPage() {
           description={list.length ? 'Измените условия поиска или фильтры.' : 'Добавьте преподавателей — затем распределите нагрузку по дисциплинам.'}
         />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        <div className="stagger grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {shown.map((t) => (
             <TeacherTile key={t.id} teacher={t} />
           ))}
@@ -125,7 +125,7 @@ function TeacherTile({ teacher: t }: { teacher: Teacher }) {
   return (
     <Link
       to={`/teachers/${t.id}`}
-      className="bg-card hover:border-primary/40 focus-visible:ring-ring flex flex-col gap-3 rounded-xl border p-4 transition-shadow outline-none hover:shadow-md focus-visible:ring-2"
+      className="lift bg-card focus-visible:ring-ring flex flex-col gap-3 rounded-2xl border border-border/70 p-4 shadow-soft outline-none focus-visible:ring-2"
     >
       <div className="flex items-start gap-3">
         <TeacherPhoto teacher={t} />

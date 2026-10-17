@@ -235,7 +235,7 @@ export default function ProgramDetailsPage() {
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {(p.groups ?? []).map((g) => (
               <Link key={g.id} to={`/groups/${g.id}`}>
-                <Card className="py-4 transition-shadow hover:shadow-md">
+                <Card className="lift py-4">
                   <CardContent className="px-4">
                     <div className="text-lg font-semibold">{g.code}</div>
                     <div className="text-muted-foreground text-sm">
