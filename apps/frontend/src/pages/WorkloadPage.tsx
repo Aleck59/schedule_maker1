@@ -23,6 +23,7 @@ import { allowedLevelsOf, CONTROL_FORM_LABELS, LESSON_TYPE_LABELS } from '@/lib/
 import { useApi, useApiMutation } from '@/lib/query';
 import type { Assignment, SemesterItem } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { StreamsTab } from '@/components/workload/streams';
 import { contactHours, featuresText, hoursText, isDefaultLessons, lessonsText } from '@/components/workload/format';
 
 interface TeacherWorkloadRow {
@@ -43,7 +44,7 @@ interface TeacherWorkloadRow {
 
 export default function WorkloadPage() {
   const [params, setParams] = useSearchParams();
-  const tab = params.get('tab') === 'teachers' ? 'teachers' : 'groups';
+  const tab = params.get('tab') === 'teachers' ? 'teachers' : params.get('tab') === 'streams' ? 'streams' : 'groups';
   return (
     <div className="space-y-5">
       <PageHeader title="Нагрузка" description="Кто ведёт дисциплины групп: виды занятий, подгруппы, потоки" />
@@ -51,7 +52,7 @@ export default function WorkloadPage() {
         value={tab}
         onValueChange={(v) => {
           const next = new URLSearchParams(params);
-          if (v === 'teachers') next.set('tab', 'teachers');
+          if (v !== 'groups') next.set('tab', v);
           else next.delete('tab');
           setParams(next, { replace: true });
         }}
@@ -59,12 +60,16 @@ export default function WorkloadPage() {
         <TabsList>
           <TabsTrigger value="groups">По группам</TabsTrigger>
           <TabsTrigger value="teachers">По преподавателям</TabsTrigger>
+          <TabsTrigger value="streams">Потоки</TabsTrigger>
         </TabsList>
         <TabsContent value="groups">
           <GroupAssignments />
         </TabsContent>
         <TabsContent value="teachers">
           <TeachersWorkload />
+        </TabsContent>
+        <TabsContent value="streams">
+          <StreamsTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -406,7 +411,7 @@ function AssignmentDialog({ groupId, item, assignment, onClose }: { groupId: str
               options={(classrooms.data ?? []).filter((c) => c.isActive).map((c) => ({ value: c.id, label: `${c.code} — ${c.name}` }))}
             />
           </Field>
-          <Field label="Ключ потока" hint="Одинаковый ключ у групп — общая лекция">
+          <Field label="Поток" hint="Одинаковое название у групп одного преподавателя — общая пара (вкладка «Потоки»)">
             <Input value={streamKey} onChange={(e) => setStreamKey(e.target.value)} placeholder="напр. ИСП-24-ЭВМ" />
           </Field>
           <label className="flex items-center justify-between gap-3 text-sm sm:col-span-2">

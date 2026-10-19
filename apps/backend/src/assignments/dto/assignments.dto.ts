@@ -113,3 +113,20 @@ export class HandoverAssignmentDto {
   @Matches(DATE_REGEX, { message: DATE_MESSAGE })
   fromDate: string;
 }
+
+export class SaveStreamDto {
+  @ApiProperty({ example: 'Физкультура 2 курс', description: 'Название потока (ключ)' })
+  @IsString()
+  @Matches(/\S/, { message: 'Укажите название потока' })
+  name: string;
+
+  @ApiProperty({ type: [String], description: 'Назначения групп, которые занимаются вместе (не менее двух)' })
+  @IsArray()
+  @IsUUID('4', { each: true })
+  assignmentIds: string[];
+
+  @ApiPropertyOptional({ description: 'Прежнее название потока при переименовании или изменении состава' })
+  @IsOptional()
+  @IsString()
+  previousName?: string;
+}

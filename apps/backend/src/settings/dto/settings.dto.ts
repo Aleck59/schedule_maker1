@@ -114,6 +114,13 @@ export class UpdateSettingsDto {
   @IsBoolean()
   scheduleConsultations?: boolean;
 
+  @ApiPropertyOptional({
+    description: 'Засчитывать закончившиеся пары без отметок проведёнными автоматически',
+  })
+  @IsOptional()
+  @IsBoolean()
+  autoMarkConducted?: boolean;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsInt()

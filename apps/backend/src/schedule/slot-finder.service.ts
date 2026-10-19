@@ -30,6 +30,8 @@ export interface SlotRequest {
   to?: string;
   excludeLessonIds?: string[];
   limit?: number;
+  /** Насколько можно превысить лимит пар преподавателя в день (отработка после отсутствия) */
+  extraDailyLessons?: number;
 }
 
 export interface FreeSlot {
@@ -175,7 +177,8 @@ export class SlotFinderService {
         if (teacher) {
           if (teacherUnavailable.has(`${weekday}#${lesson}`) || verdict.blocked) continue;
           if (busyTeacher.has(`${teacher.id}#${slot}`)) continue;
-          if ((teacherDayCount.get(`${teacher.id}#${date}`) ?? 0) >= teacher.maxDailyLessons) continue;
+          const dailyLimit = teacher.maxDailyLessons + (req.extraDailyLessons ?? 0);
+          if ((teacherDayCount.get(`${teacher.id}#${date}`) ?? 0) >= dailyLimit) continue;
         }
         // Онлайн-слот преподавателя (по правилу) — онлайн-аудитория
         const candidates = verdict.online && onlineRoom ? [onlineRoom] : suitableRooms;

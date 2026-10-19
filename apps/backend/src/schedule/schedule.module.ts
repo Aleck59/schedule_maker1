@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { GroupsModule } from '../groups/groups.module';
+import { AbsenceMakeupService } from './absence-makeup.service';
+import { AutoConductService } from './auto-conduct.service';
 import { ConflictFixesController } from './conflict-fixes.controller';
 import { ConflictFixesService } from './conflict-fixes.service';
 import { EntityScheduleController } from './entity-schedule.controller';
@@ -24,6 +26,8 @@ import { SlotFinderService } from './slot-finder.service';
     MakeupTasksService,
     SlotFinderService,
     ConflictFixesService,
+    AbsenceMakeupService,
+    AutoConductService,
   ],
   exports: [SchedulePeriodsService, ScheduleLessonsService, SlotFinderService],
 })

@@ -188,7 +188,16 @@ export class GenerationRunnerService {
         lessonsUnplaced: u.count,
         hoursUnplaced: u.count * h - (partial > 0 ? h - partial : 0),
         reasons,
-        suggestions: suggestionsFor(reasons.map((r) => r.code)),
+        suggestions: [
+          ...(this.absenceWithoutMakeup(built, demand.teacherId) &&
+          reasons.some((r) => ['TEACHER_LIMIT', 'TEACHER_BUSY', 'NOT_ENOUGH_TIME'].includes(r.code))
+            ? [
+                'У преподавателя есть отсутствие (больничный, отпуск): включите в нём «Отработать пропущенные пары после выхода» — ' +
+                  'пары встанут после выхода сверх обычного лимита',
+              ]
+            : []),
+          ...suggestionsFor(reasons.map((r) => r.code)),
+        ],
       });
     }
 
@@ -303,5 +312,10 @@ export class GenerationRunnerService {
       overloadedDays,
       buildingChanges,
     };
+  }
+
+  /** Преподаватель отсутствует часть интервала, а отработка после выхода не включена */
+  private absenceWithoutMakeup(built: BuiltProblem, teacherId: string): boolean {
+    return built.absentWithoutMakeup.includes(teacherId);
   }
 }

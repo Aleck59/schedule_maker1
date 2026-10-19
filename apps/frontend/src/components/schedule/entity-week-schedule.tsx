@@ -5,23 +5,31 @@ import { ErrorState, LoadingState } from '@/components/common/states';
 import { Button } from '@/components/ui/button';
 import { useSettings } from '@/hooks/use-reference';
 import { addDays, formatDate, today, weekStart } from '@/lib/format';
+import { useAuth } from '@/lib/auth';
 import { useApi } from '@/lib/query';
 import type { Lesson } from '@/lib/types';
 import { LessonTypeLegend, type GridMode } from './lesson-card';
 import { LessonDialog } from './lesson-dialog';
+import { useLessonMove } from './lesson-move';
 import { ScheduleGrid, weekColumns } from './week-grid';
 
-/** Недельное расписание группы, преподавателя или аудитории (просмотр) */
+/** Недельное расписание группы, преподавателя или аудитории; диспетчер переносит занятия перетаскиванием */
 export function EntityWeekSchedule({
   filter,
   mode,
   initialWeek,
+  readOnly,
 }: {
   filter: { groupId?: string; teacherId?: string; classroomId?: string; periodId?: string };
   mode: GridMode;
   initialWeek?: string;
+  /** Только просмотр, даже для диспетчера */
+  readOnly?: boolean;
 }) {
   const qc = useQueryClient();
+  const { canEdit } = useAuth();
+  const move = useLessonMove();
+  const editable = canEdit && !readOnly;
   const settings = useSettings();
   const [week, setWeek] = useState(initialWeek ?? weekStart(today()));
   const [lessonId, setLessonId] = useState<string | null>(null);
@@ -41,7 +49,10 @@ export function EntityWeekSchedule({
         <Button variant="ghost" onClick={() => setWeek(weekStart(today()))}>
           Текущая неделя
         </Button>
-        <span className="text-muted-foreground ml-auto text-xs">Занятий: {lessons.data?.length ?? 0}</span>
+        <span className="text-muted-foreground ml-auto text-xs">
+          Занятий: {lessons.data?.length ?? 0}
+          {editable && ' · перетащите карточку, чтобы перенести занятие'}
+        </span>
       </div>
       {lessons.isLoading ? (
         <LoadingState rows={6} />
@@ -54,8 +65,12 @@ export function EntityWeekSchedule({
           lessonsPerDay={settings.data?.settings.lessonsPerDay ?? 6}
           lessons={lessons.data ?? []}
           mode={mode}
-          editable={false}
+          editable={editable}
           onLessonClick={(l) => setLessonId(l.id)}
+          onMove={(lesson, date, lessonNumber) => {
+            if (lesson.schedulePeriod.status === 'ARCHIVED') return;
+            move.move({ lesson, date, lessonNumber });
+          }}
         />
       )}
       <LessonTypeLegend />
@@ -65,6 +80,7 @@ export function EntityWeekSchedule({
         onOpenChange={(o) => !o && setLessonId(null)}
         onChanged={() => void qc.invalidateQueries({ queryKey: ['lessons'] })}
       />
+      {move.panel}
     </div>
   );
 }

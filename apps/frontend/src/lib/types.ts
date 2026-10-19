@@ -89,6 +89,7 @@ export interface Settings {
   maxBuildingChangesPerDay: number;
   warnOnPartialLessons: boolean;
   scheduleConsultations: boolean;
+  autoMarkConducted: boolean;
   consultationWeeksBeforeEnd: number;
   solverTimeLimitSeconds: number;
   weights: Record<string, number>;
@@ -370,6 +371,9 @@ export interface CalendarEvent {
   startDate: string;
   endDate: string;
   blocksSchedule: boolean;
+  /** Отсутствие преподавателя: пропущенные пары ставятся после выхода сверх лимита */
+  makeupAfterReturn?: boolean;
+  makeupExtraWeekly?: number;
   notes: string | null;
   program?: { id: string; title: string } | null;
   group?: { id: string; code: string } | null;

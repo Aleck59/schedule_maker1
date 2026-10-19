@@ -1,4 +1,4 @@
-import { cumulativeTargetByDays, effectiveRate } from './pacing';
+import { cumulativeTargetByDays, effectiveRate, pacingPhases, teacherLimits } from './pacing';
 import {
   SolverDemand,
   SolverPlacement,
@@ -49,6 +49,8 @@ interface DemandState {
   /** Число доступных дней по неделям */
   daysByWeek: Map<number, number>;
   totalDays: number;
+  /** Сдвиг округления темпа (см. pacingPhases) */
+  phase: number;
   placed: number;
 }
 
@@ -342,8 +344,18 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
       daysByWeek: dayCounts,
       totalDays: [...dayCounts.values()].reduce((a, b) => a + b, 0),
       rate: effectiveRate(d.lessonsRequired, availableWeeks.length, d.weeklyRate),
+      phase: 0,
       placed: 0,
     });
+  }
+  // Дисциплины одного преподавателя получают разные сдвиги округления — нагрузка по неделям ровная
+  const byTeacher = new Map<string, DemandState[]>();
+  for (const ds of demands) byTeacher.set(ds.teacher.id, [...(byTeacher.get(ds.teacher.id) ?? []), ds]);
+  for (const list of byTeacher.values()) {
+    const phases = pacingPhases(list.length);
+    [...list]
+      .sort((a, b) => (a.d.id < b.d.id ? -1 : a.d.id > b.d.id ? 1 : 0))
+      .forEach((ds, k) => (ds.phase = phases[k]));
   }
 
   const makeState = () => new ScheduleState(problem, roomsById, subgroupsByGroup);
@@ -354,7 +366,14 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     p.days += ds.daysByWeek.get(w) ?? 0;
     p.weeks += 1;
     paceProgress.set(ds, p);
-    return cumulativeTargetByDays(ds.d.lessonsRequired, p.days, ds.totalDays, p.weeks, ds.d.weeklyRate);
+    return cumulativeTargetByDays(
+      ds.d.lessonsRequired,
+      p.days,
+      ds.totalDays,
+      p.weeks,
+      ds.d.weeklyRate,
+      ds.phase,
+    );
   };
   const state = makeState();
   const dayRefByDate = new Map(
@@ -380,9 +399,10 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     const t = ds.teacher;
     if (teacherUnavailableAt(t.id, day, lesson)) return false;
     if (st.teacherSlot.has(`${t.id}#${day.key}#${lesson}`)) return false;
+    const limits = teacherLimits(t, day.key);
     const td = st.teacherDay.get(`${t.id}#${day.key}`);
-    if (td && td.size >= t.maxDailyLessons && !td.has(lesson)) return false;
-    if (weekLimit && (st.teacherWeek.get(`${t.id}#${day.week}`) ?? 0) >= t.maxWeeklyLessons) return false;
+    if (td && td.size >= limits.daily && !td.has(lesson)) return false;
+    if (weekLimit && (st.teacherWeek.get(`${t.id}#${day.week}`) ?? 0) >= limits.weekly) return false;
     return true;
   };
 

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from app.cpsat import solve
 from app.models import Problem
-from app.pacing import cumulative_target_by_days, effective_rate
+from app.pacing import cumulative_target_by_days, effective_rate, pacing_phases
 
 
 def make_days(start: str, weeks: int, working=(1, 2, 3, 4, 5, 6)):
@@ -399,3 +399,78 @@ def test_week_without_solution_in_time_uses_hints(monkeypatch):
     assert result.stats.placed_lessons == 18
     check_hard_constraints(problem, result)
     assert any("решение эвристики" in line for line in result.log)
+
+
+def test_pacing_phases_spread_extra_lessons_across_weeks():
+    assert pacing_phases(1) == [0.0]
+
+    def weekly(phases):
+        return [
+            sum(
+                cumulative_target_by_days(24, w * 6, 96, w, None, ph)
+                - cumulative_target_by_days(24, (w - 1) * 6, 96, w - 1, None, ph)
+                for ph in phases
+            )
+            for w in range(1, 5)
+        ]
+
+    # Как в backend: без сдвигов 8, 4, 8, 4, со сдвигами — по 6 пар в неделю
+    assert weekly([0, 0, 0, 0]) == [8, 4, 8, 4]
+    assert weekly(pacing_phases(4)) == [6, 6, 6, 6]
+
+
+def test_teacher_load_is_even_across_weeks():
+    days = make_days("2025-09-01", 8)
+    all_dates = [d["date"] for d in days]
+    groups = [
+        {"id": g, "code": g, "size": 25, "subgroups": [], "allowedDates": all_dates, "maxLessonsPerDay": 4}
+        for g in "abcd"
+    ]
+    raw = base_problem(
+        days=days,
+        groups=groups,
+        demands=[demand(f"{g}-x", [g], "t2", 12, ["r_gen", "r_lec"], key=g) for g in "abcd"],
+    )
+    raw["teachers"][1]["maxWeeklyLessons"] = 8
+    problem = Problem.model_validate(raw)
+    result = solve(problem)
+    check_hard_constraints(problem, result)
+    assert result.stats.placed_lessons == 48
+    week_of = {d["date"]: d["week"] for d in days}
+    per_week = Counter(week_of[p.date] for p in result.placements)
+    assert set(per_week.values()) == {6}
+
+
+def test_makeup_after_absence_exceeds_weekly_limit_after_return():
+    days = make_days("2025-09-01", 4)
+    all_dates = [d["date"] for d in days]
+
+    def make(relief: bool) -> Problem:
+        raw = base_problem(
+            days=days,
+            groups=[
+                {
+                    "id": "g1",
+                    "code": "g1",
+                    "size": 25,
+                    "subgroups": [],
+                    "allowedDates": all_dates,
+                    "maxLessonsPerDay": 6,
+                }
+            ],
+            demands=[demand("x", ["g1"], "t2", 16, ["r_gen", "r_lec"], key="x")],
+            settings={"maxSameDisciplinePerDay": 3, "maxSameDisciplinePerWeek": 12, "lateLessonNumber": 5},
+        )
+        t = raw["teachers"][1]
+        t["maxWeeklyLessons"] = 6
+        t["blockedDates"] = [d for d in all_dates if d < "2025-09-15"]
+        if relief:
+            t.update({"relaxedFrom": "2025-09-15", "extraDailyLessons": 1, "extraWeeklyLessons": 4})
+        return Problem.model_validate(raw)
+
+    assert solve(make(False)).stats.placed_lessons == 12
+    problem = make(True)
+    result = solve(problem)
+    check_hard_constraints(problem, result)
+    assert result.stats.placed_lessons == 16
+    assert all(p.date >= "2025-09-15" for p in result.placements)

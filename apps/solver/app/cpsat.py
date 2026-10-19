@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from ortools.sat.python import cp_model
 
 from .models import Demand, Placement, Problem, Room, SolveResult, Stats, Teacher, Unplaced
-from .pacing import cumulative_target_by_days, effective_rate
+from .pacing import cumulative_target_by_days, effective_rate, pacing_phases
 
 # Ход решения: доля выполненной работы (0…1) и сообщение
 Progress = Callable[[float, str], None]
@@ -97,6 +97,7 @@ class DemandState:
     days_by_week: dict[int, int]
     total_days: int
     rate: float
+    phase: float = 0.0
     placed: int = 0
     days_seen: int = 0
     weeks_seen: int = 0
@@ -106,7 +107,12 @@ class DemandState:
         self.days_seen += self.days_by_week.get(week, 0)
         self.weeks_seen += 1
         return cumulative_target_by_days(
-            self.d.lessons_required, self.days_seen, self.total_days, self.weeks_seen, self.d.weekly_rate
+            self.d.lessons_required,
+            self.days_seen,
+            self.total_days,
+            self.weeks_seen,
+            self.d.weekly_rate,
+            self.phase,
         )
 
 
@@ -238,6 +244,13 @@ class CpSatScheduler:
                     rate=effective_rate(d.lessons_required, len(by_week), d.weekly_rate),
                 )
             )
+        # Дисциплины одного преподавателя получают разные сдвиги округления — нагрузка по неделям ровная
+        by_teacher: dict[str, list[DemandState]] = defaultdict(list)
+        for ds in states:
+            by_teacher[ds.teacher.id].append(ds)
+        for group in by_teacher.values():
+            for ds, phase in zip(sorted(group, key=lambda x: x.d.id), pacing_phases(len(group)), strict=True):
+                ds.phase = phase
         return states
 
     def _new_state(self) -> State:
@@ -275,7 +288,7 @@ class CpSatScheduler:
         if (t.id, day.key, lesson) in st.teacher_slot:
             return False
         tday = st.teacher_day.get((t.id, day.key), set())
-        if len(tday) >= t.max_daily_lessons and lesson not in tday:
+        if len(tday) >= t.daily_limit(day.key) and lesson not in tday:
             return False
         for g in d.group_ids:
             if g in self.group_lessons and lesson not in self.group_lessons[g]:
@@ -417,11 +430,14 @@ class CpSatScheduler:
             if len(vars_) > 1:
                 model.add(sum(vars_) <= 1)
         for (t, dk), vars_ in teacher_day.items():
-            limit = self.teachers[t].max_daily_lessons - len(st.teacher_day.get((t, dk), set()))
+            limit = self.teachers[t].daily_limit(dk) - len(st.teacher_day.get((t, dk), set()))
             model.add(sum(vars_) <= max(0, limit))
         week_no = days[0].week
         for t, vars_ in teacher_week.items():
-            limit = self.teachers[t].max_weekly_lessons - st.teacher_week.get((t, week_no), 0)
+            # Неделя после выхода из отсутствия (с отработкой) — лимит увеличен
+            limit = max(self.teachers[t].weekly_limit(d.key) for d in days) - st.teacher_week.get(
+                (t, week_no), 0
+            )
             model.add(sum(vars_) <= max(0, limit))
 
         # Аудитории
@@ -560,7 +576,7 @@ class CpSatScheduler:
                     if key not in self.hints or not self._slot_ok(st, ds, day, lesson):
                         continue
                     t = ds.teacher
-                    if st.teacher_week.get((t.id, day.week), 0) >= t.max_weekly_lessons:
+                    if st.teacher_week.get((t.id, day.week), 0) >= t.weekly_limit(day.key):
                         continue
                     hinted = self.hints[key]
                     rooms = [r for r in self._rooms_for(ds, day, lesson) if self._room_ok(st, r, day, lesson)]

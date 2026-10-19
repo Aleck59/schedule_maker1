@@ -278,6 +278,8 @@ model OrganizationSettings {
   /// Консультации ставятся в последние N недель теоретического обучения
   consultationWeeksBeforeEnd Int      @default(3)
   solverTimeLimitSeconds     Int      @default(60)
+  /// Прошедшие пары без отметок засчитываются проведёнными автоматически по окончании пары
+  autoMarkConducted          Boolean  @default(true)
   /// Веса мягких ограничений генератора
   solverWeightsJson          Json?
   createdAt                  DateTime @default(now())
@@ -785,6 +787,10 @@ model CalendarEvent {
   startDate            DateTime          @db.Date
   endDate              DateTime          @db.Date
   blocksSchedule       Boolean           @default(true)
+  /// Отсутствие преподавателя: пропущенные пары переносятся на время после выхода,
+  /// лимиты пар преподавателя в день (+1) и в неделю (+makeupExtraWeekly) после выхода увеличены
+  makeupAfterReturn    Boolean           @default(false)
+  makeupExtraWeekly    Int               @default(4)
   notes                String?
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt

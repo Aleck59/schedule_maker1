@@ -26,7 +26,8 @@ import { EmptyState, ErrorState, LoadingState, Spinner } from '@/components/comm
 import { PeriodStatusBadge } from '@/components/common/status-badge';
 import { CreateLessonDialog } from '@/components/schedule/create-lesson-dialog';
 import { ConflictFixesDialog } from '@/components/schedule/conflict-fixes';
-import { issuesFromError, IssuesList } from '@/components/schedule/issues-list';
+import { IssuesList } from '@/components/schedule/issues-list';
+import { useLessonMove } from '@/components/schedule/lesson-move';
 import { LessonDialog } from '@/components/schedule/lesson-dialog';
 import { LessonTypeLegend } from '@/components/schedule/lesson-card';
 import { MonthView } from '@/components/schedule/month-view';
@@ -34,7 +35,7 @@ import { ScheduleGrid, weekColumns, type GridColumn } from '@/components/schedul
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -74,7 +75,6 @@ export default function SchedulePage() {
   const [createInitial, setCreateInitial] = useState<Record<string, string | number | undefined>>({});
   const [bulkMode, setBulkMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [pendingMove, setPendingMove] = useState<{ lesson: Lesson; date: string; lessonNumber: number; issues: ValidationIssue[] } | null>(null);
   const [showValidation, setShowValidation] = useState(false);
   const [showFixes, setShowFixes] = useState(false);
   const [unpublishOpen, setUnpublishOpen] = useState(false);
@@ -160,29 +160,7 @@ export default function SchedulePage() {
     void qc.invalidateQueries({ queryKey: ['validation'] });
   };
 
-  const move = useApiMutation(
-    (vars: { lesson: Lesson; date: string; lessonNumber: number; force?: boolean }) =>
-      api.post(`/schedule-lessons/${vars.lesson.id}/move`, {
-        date: vars.date,
-        lessonNumber: vars.lessonNumber,
-        force: vars.force,
-      }),
-    {
-      success: 'Занятие перенесено',
-      onSuccess: () => {
-        setPendingMove(null);
-        invalidate();
-      },
-      onError: (e, vars) => {
-        const issues = issuesFromError(e);
-        if (issues) {
-          setPendingMove({ lesson: vars.lesson, date: vars.date, lessonNumber: vars.lessonNumber, issues });
-          return true;
-        }
-        return false;
-      },
-    },
-  );
+  const move = useLessonMove();
 
   const validation = useApi<ValidationIssue[]>(['validation', period?.id], period && canEdit ? `/schedule-periods/${period.id}/validation-results` : null);
   const validate = useApiMutation(() => api.post<ValidationSummary>(`/schedule-periods/${period!.id}/validate`), {
@@ -500,7 +478,7 @@ export default function SchedulePage() {
           editable={editable}
           sameColumnOnly={view === 'day'}
           onLessonClick={(l) => setLessonId(l.id)}
-          onMove={(lesson, date, lessonNumber) => move.mutate({ lesson, date, lessonNumber })}
+          onMove={(lesson, date, lessonNumber) => move.move({ lesson, date, lessonNumber })}
           onCellClick={(date, lessonNumber, col) => {
             setCreateInitial({
               date,
@@ -536,30 +514,7 @@ export default function SchedulePage() {
       <LessonDialog lessonId={lessonId} open={!!lessonId} onOpenChange={(o) => !o && setLessonId(null)} onChanged={invalidate} />
       <CreateLessonDialog open={createOpen} onOpenChange={setCreateOpen} period={period} initial={createInitial} onCreated={invalidate} />
 
-      {pendingMove && (
-        <Card className="border-destructive/40 fixed right-4 bottom-4 z-40 w-[420px] shadow-xl">
-          <CardHeader>
-            <CardTitle className="text-base">Перенос: обнаружены конфликты</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="text-sm">
-              «{pendingMove.lesson.semesterItem.curriculumItem.name}» → {formatDate(pendingMove.date)}, {pendingMove.lessonNumber} пара
-            </div>
-            <IssuesList issues={pendingMove.issues} />
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setPendingMove(null)}>
-                Отмена
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={() => move.mutate({ lesson: pendingMove.lesson, date: pendingMove.date, lessonNumber: pendingMove.lessonNumber, force: true })}
-              >
-                Перенести всё равно
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {move.panel}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Plus, Save, Trash2 } from 'lucide-react';
+import { Compass, Plus, Save, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Field } from '@/components/common/field';
 import { PageHeader } from '@/components/common/page-header';
 import { ErrorState, LoadingState, Spinner } from '@/components/common/states';
@@ -67,7 +68,17 @@ export default function SettingsPage() {
   const data = settings.data!;
   return (
     <div className="space-y-5">
-      <PageHeader title="Настройки" description="Параметры образовательной организации, сетка звонков, правила составления расписания и журнал изменений" />
+      <PageHeader
+        title="Настройки"
+        description="Параметры образовательной организации, сетка звонков, правила составления расписания и журнал изменений"
+        actions={
+          <Button variant="outline" asChild>
+            <Link to="/setup">
+              <Compass /> Мастер настройки
+            </Link>
+          </Button>
+        }
+      />
       {!isAdmin && (
         <Alert variant="info">
           <AlertDescription>Изменять настройки может только администратор. Диспетчеру доступен просмотр и журнал изменений.</AlertDescription>
@@ -150,6 +161,16 @@ function RulesForm({ settings, editable }: { settings: Settings; editable: boole
           <label className="flex items-center justify-between gap-3 text-sm">
             Ставить консультации в расписание по умолчанию
             <Switch checked={draft.scheduleConsultations} disabled={!editable} onCheckedChange={(v) => setDraft({ ...draft, scheduleConsultations: v })} />
+          </label>
+          <label className="flex items-start justify-between gap-3 text-sm">
+            <span>
+              Засчитывать проведённые пары автоматически
+              <span className="text-muted-foreground block text-xs">
+                Пара опубликованного расписания, по которой после её окончания ничего не отмечено (не отменена, не перенесена),
+                считается проведённой, и часы засчитываются. Отметку можно изменить вручную.
+              </span>
+            </span>
+            <Switch checked={draft.autoMarkConducted} disabled={!editable} onCheckedChange={(v) => setDraft({ ...draft, autoMarkConducted: v })} />
           </label>
         </CardContent>
       </Card>

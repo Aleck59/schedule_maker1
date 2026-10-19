@@ -101,6 +101,8 @@ export class CalendarService {
         startDate: parseDate(dto.startDate),
         endDate: parseDate(dto.endDate),
         blocksSchedule: dto.blocksSchedule ?? defaultBlocksSchedule(dto.eventType),
+        makeupAfterReturn: !!dto.teacherId && (dto.makeupAfterReturn ?? false),
+        makeupExtraWeekly: dto.makeupExtraWeekly,
         notes: dto.notes,
       },
     });
@@ -130,6 +132,8 @@ export class CalendarService {
         startDate: dto.startDate ? parseDate(dto.startDate) : undefined,
         endDate: dto.endDate ? parseDate(dto.endDate) : undefined,
         blocksSchedule: dto.blocksSchedule,
+        makeupAfterReturn: dto.makeupAfterReturn,
+        makeupExtraWeekly: dto.makeupExtraWeekly,
         notes: dto.notes,
       },
     });

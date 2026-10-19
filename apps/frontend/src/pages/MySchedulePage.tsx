@@ -72,7 +72,7 @@ export default function MySchedulePage() {
       {periods.data && periods.data.length === 0 && (
         <EmptyState title="Расписание ещё не опубликовано" description="Как только диспетчер опубликует расписание, оно появится здесь" />
       )}
-      {view === 'grid' ? <EntityWeekSchedule filter={filter} mode={isTeacher ? 'teacher' : 'group'} /> : <DayList filter={filter} isTeacher={isTeacher} />}
+      {view === 'grid' ? <EntityWeekSchedule filter={filter} mode={isTeacher ? 'teacher' : 'group'} readOnly /> : <DayList filter={filter} isTeacher={isTeacher} />}
       {isTeacher && user?.teacherId && (
         <Card>
           <CardHeader>
