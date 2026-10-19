@@ -1,42 +1,63 @@
-import { useState } from 'react';
-import { zodResolver } from '@hookform/resolvers/zod';
-import type { ColumnDef } from '@tanstack/react-table';
-import { BookPlus, Plus, ScanLine } from 'lucide-react';
-import { Controller, useForm } from 'react-hook-form';
-import { Link, useNavigate } from 'react-router-dom';
-import { z } from 'zod';
-import { DataTable } from '@/components/common/data-table';
-import { Field } from '@/components/common/field';
-import { PageHeader } from '@/components/common/page-header';
-import { SimpleSelect } from '@/components/common/simple-select';
-import { ErrorState, LoadingState, Spinner } from '@/components/common/states';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
-import { usePrograms } from '@/hooks/use-reference';
-import { api } from '@/lib/api';
-import { useAuth } from '@/lib/auth';
-import { pluralize } from '@/lib/format';
-import { EDUCATION_LEVEL_LABELS, educationLevelByCode, PROGRAM_STATUS_LABELS, STUDY_FORM_LABELS } from '@/lib/labels';
-import { useApi, useApiMutation } from '@/lib/query';
-import type { Program, Specialty } from '@/lib/types';
-import { cn } from '@/lib/utils';
+import { useState } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
+import type { ColumnDef } from "@tanstack/react-table";
+import { BookPlus, Plus, ScanLine } from "lucide-react";
+import { Controller, useForm } from "react-hook-form";
+import { Link, useNavigate } from "react-router-dom";
+import { z } from "zod";
+import { DataTable } from "@/components/common/data-table";
+import { Field } from "@/components/common/field";
+import { PageHeader } from "@/components/common/page-header";
+import { SimpleSelect } from "@/components/common/simple-select";
+import { ErrorState, LoadingState, Spinner } from "@/components/common/states";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { usePrograms } from "@/hooks/use-reference";
+import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { pluralize } from "@/lib/format";
+import {
+  EDUCATION_LEVEL_LABELS,
+  educationLevelByCode,
+  PROGRAM_STATUS_LABELS,
+  EDUCATION_BASE_LABELS,
+  STUDY_FORM_LABELS,
+} from "@/lib/labels";
+import { useApi, useApiMutation } from "@/lib/query";
+import type { Program, Specialty } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 /** «на базе основного общего образования, очная форма, набор 2026» → «на базе 9 классов»: форма и набор — в своих колонках */
 function programSubtitle(title: string): string {
-  const parts = title.split(', ').slice(1);
+  const parts = title.split(", ").slice(1);
   return parts
     .filter((x) => !/форма|набор/.test(x))
-    .map((x) => x.replace('на базе основного общего образования', 'на базе 9 классов').replace('на базе среднего общего образования', 'на базе 11 классов'))
-    .join(', ');
+    .map((x) =>
+      x
+        .replace("на базе основного общего образования", "на базе 9 классов")
+        .replace("на базе среднего общего образования", "на базе 11 классов"),
+    )
+    .join(", ");
 }
 
 function durationText(months: number): string {
   const y = Math.floor(months / 12);
   const m = months % 12;
-  return [y ? `${y} ${pluralize(y, 'год', 'года', 'лет')}` : '', m ? `${m} мес.` : ''].filter(Boolean).join(' ');
+  return [
+    y ? `${y} ${pluralize(y, "год", "года", "лет")}` : "",
+    m ? `${m} мес.` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 export default function ProgramsPage() {
@@ -45,16 +66,22 @@ export default function ProgramsPage() {
   const programs = usePrograms();
   const [open, setOpen] = useState(false);
   const [specialtyOpen, setSpecialtyOpen] = useState(false);
-  const [level, setLevel] = useState<'ALL' | 'SPO' | 'HIGHER'>('ALL');
+  const [level, setLevel] = useState<"ALL" | "SPO" | "HIGHER">("ALL");
   const filtered = (programs.data ?? []).filter((p) =>
-    level === 'ALL' ? true : level === 'SPO' ? p.specialty.educationLevel === 'SPO' : p.specialty.educationLevel !== 'SPO',
+    level === "ALL"
+      ? true
+      : level === "SPO"
+        ? p.specialty.educationLevel === "SPO"
+        : p.specialty.educationLevel !== "SPO",
   );
-  const hasHigher = (programs.data ?? []).some((p) => p.specialty.educationLevel !== 'SPO');
+  const hasHigher = (programs.data ?? []).some(
+    (p) => p.specialty.educationLevel !== "SPO",
+  );
 
   const columns: ColumnDef<Program>[] = [
     {
-      accessorKey: 'title',
-      header: 'Учебный план',
+      accessorKey: "title",
+      header: "Учебный план",
       cell: ({ row }) => {
         const p = row.original;
         const extra = programSubtitle(p.title);
@@ -63,51 +90,86 @@ export default function ProgramsPage() {
             <div className="font-medium">
               {p.specialty.code} {p.specialty.name}
             </div>
-            {extra && <div className="text-muted-foreground text-xs">{extra}</div>}
+            {extra && (
+              <div className="text-muted-foreground text-xs">{extra}</div>
+            )}
           </div>
         );
       },
     },
     {
-      id: 'level',
-      header: 'Уровень',
+      id: "level",
+      header: "Уровень",
       accessorFn: (p) => EDUCATION_LEVEL_LABELS[p.specialty.educationLevel],
       cell: ({ row }) => (
-        <Badge variant={row.original.specialty.educationLevel === 'SPO' ? 'secondary' : 'violet'}>
+        <Badge
+          variant={
+            row.original.specialty.educationLevel === "SPO"
+              ? "secondary"
+              : "violet"
+          }
+        >
           {EDUCATION_LEVEL_LABELS[row.original.specialty.educationLevel]}
         </Badge>
       ),
     },
-    { accessorKey: 'admissionYear', header: 'Набор' },
+    { accessorKey: "admissionYear", header: "Набор" },
     {
-      accessorKey: 'studyForm',
-      header: 'Форма',
-      cell: ({ getValue }) => <span className="whitespace-nowrap">{STUDY_FORM_LABELS[getValue<string>()]?.toLowerCase()}</span>,
+      accessorKey: "studyForm",
+      header: "Форма",
+      cell: ({ getValue }) => (
+        <span className="whitespace-nowrap">
+          {STUDY_FORM_LABELS[getValue<string>()]?.toLowerCase()}
+        </span>
+      ),
     },
     {
-      id: 'duration',
-      header: 'Срок',
-      cell: ({ row }) => <span className="whitespace-nowrap">{durationText(row.original.durationMonths)}</span>,
+      id: "duration",
+      header: "Срок",
+      cell: ({ row }) => (
+        <span className="whitespace-nowrap">
+          {durationText(row.original.durationMonths)}
+        </span>
+      ),
     },
-    { id: 'semesters', header: 'Сем.', cell: ({ row }) => row.original.totalSemesters },
-    { id: 'groups', header: 'Групп', cell: ({ row }) => row.original._count?.groups ?? 0 },
     {
-      id: 'hours',
-      header: 'Ауд. часов',
+      id: "semesters",
+      header: "Сем.",
+      cell: ({ row }) => row.original.totalSemesters,
+    },
+    {
+      id: "groups",
+      header: "Групп",
+      cell: ({ row }) => row.original._count?.groups ?? 0,
+    },
+    {
+      id: "hours",
+      header: "Ауд. часов",
       cell: ({ row }) => {
         const h = row.original.hours;
         return (
-          <span className="tabular-nums" title={`Лекции ${h.lecture}, практ. ${h.practical}, лаб. ${h.laboratory}, конс. ${h.consultation}`}>
+          <span
+            className="tabular-nums"
+            title={`Лекции ${h.lecture}, практ. ${h.practical}, лаб. ${h.laboratory}, конс. ${h.consultation}`}
+          >
             {h.lecture + h.practical + h.laboratory + h.consultation}
           </span>
         );
       },
     },
     {
-      accessorKey: 'status',
-      header: 'Статус',
+      accessorKey: "status",
+      header: "Статус",
       cell: ({ getValue }) => (
-        <Badge variant={getValue<string>() === 'APPROVED' ? 'success' : getValue<string>() === 'DRAFT' ? 'muted' : 'secondary'}>
+        <Badge
+          variant={
+            getValue<string>() === "APPROVED"
+              ? "success"
+              : getValue<string>() === "DRAFT"
+                ? "muted"
+                : "secondary"
+          }
+        >
           {PROGRAM_STATUS_LABELS[getValue<string>()]}
         </Badge>
       ),
@@ -147,9 +209,9 @@ export default function ProgramsPage() {
             <div className="bg-muted inline-flex h-9 rounded-md p-0.5">
               {(
                 [
-                  ['ALL', 'Все'],
-                  ['SPO', 'СПО'],
-                  ['HIGHER', 'Высшее образование'],
+                  ["ALL", "Все"],
+                  ["SPO", "СПО"],
+                  ["HIGHER", "Высшее образование"],
                 ] as const
               ).map(([value, text]) => (
                 <button
@@ -157,8 +219,10 @@ export default function ProgramsPage() {
                   type="button"
                   onClick={() => setLevel(value)}
                   className={cn(
-                    'rounded px-3 text-sm font-medium transition-colors',
-                    level === value ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                    "rounded px-3 text-sm font-medium transition-colors",
+                    level === value
+                      ? "bg-background shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
                 >
                   {text}
@@ -166,49 +230,88 @@ export default function ProgramsPage() {
               ))}
             </div>
           )}
-          <DataTable data={filtered} columns={columns} onRowClick={(p) => navigate(`/programs/${p.id}`)} emptyText="Учебные планы не созданы" />
+          <DataTable
+            data={filtered}
+            columns={columns}
+            onRowClick={(p) => navigate(`/programs/${p.id}`)}
+            emptyText="Учебные планы не созданы"
+          />
         </>
       )}
-      <CreateProgramDialog open={open} onOpenChange={setOpen} onCreated={(id) => navigate(`/programs/${id}`)} />
-      <CreateSpecialtyDialog open={specialtyOpen} onOpenChange={setSpecialtyOpen} />
+      <CreateProgramDialog
+        open={open}
+        onOpenChange={setOpen}
+        onCreated={(id) => navigate(`/programs/${id}`)}
+      />
+      <CreateSpecialtyDialog
+        open={specialtyOpen}
+        onOpenChange={setSpecialtyOpen}
+      />
     </div>
   );
 }
 
 const programSchema = z.object({
-  specialtyId: z.string().min(1, 'Выберите специальность'),
-  title: z.string().trim().min(1, 'Укажите название'),
-  admissionYear: z.number({ invalid_type_error: 'Введите год' }).int().min(2000, 'Некорректный год').max(2100, 'Некорректный год'),
-  studyForm: z.enum(['FULL_TIME', 'PART_TIME', 'EXTRAMURAL']),
-  durationMonths: z.number({ invalid_type_error: 'Введите число' }).int().min(1, 'Не менее 1 месяца'),
-  totalSemesters: z.number({ invalid_type_error: 'Введите число' }).int().min(1, 'Не менее 1').max(14, 'Не более 14'),
+  specialtyId: z.string().min(1, "Выберите специальность"),
+  title: z.string().trim().min(1, "Укажите название"),
+  admissionYear: z
+    .number({ invalid_type_error: "Введите год" })
+    .int()
+    .min(2000, "Некорректный год")
+    .max(2100, "Некорректный год"),
+  studyForm: z.enum(["FULL_TIME", "PART_TIME", "EXTRAMURAL"]),
+  educationBase: z.enum(["BASIC_GENERAL", "SECONDARY_GENERAL"]).nullable(),
+  durationMonths: z
+    .number({ invalid_type_error: "Введите число" })
+    .int()
+    .min(1, "Не менее 1 месяца"),
+  totalSemesters: z
+    .number({ invalid_type_error: "Введите число" })
+    .int()
+    .min(1, "Не менее 1")
+    .max(14, "Не более 14"),
   generateStructure: z.boolean(),
 });
 type ProgramForm = z.infer<typeof programSchema>;
 
-function CreateProgramDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpenChange: (o: boolean) => void; onCreated: (id: string) => void }) {
-  const specialties = useApi<Specialty[]>(['specialties'], open ? '/specialties' : null);
+function CreateProgramDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onCreated: (id: string) => void;
+}) {
+  const specialties = useApi<Specialty[]>(
+    ["specialties"],
+    open ? "/specialties" : null,
+  );
   const form = useForm<ProgramForm>({
     resolver: zodResolver(programSchema),
     defaultValues: {
-      specialtyId: '',
-      title: '',
+      specialtyId: "",
+      title: "",
       admissionYear: new Date().getFullYear(),
-      studyForm: 'FULL_TIME',
+      studyForm: "FULL_TIME",
+      educationBase: null,
       durationMonths: 46,
       totalSemesters: 8,
       generateStructure: true,
     },
   });
-  const create = useApiMutation((v: ProgramForm) => api.post<Program>('/programs', v), {
-    success: 'Учебный план создан',
-    invalidate: [['programs'], ['semesters']],
-    onSuccess: (p) => {
-      onOpenChange(false);
-      form.reset();
-      onCreated(p.id);
+  const create = useApiMutation(
+    (v: ProgramForm) => api.post<Program>("/programs", v),
+    {
+      success: "Учебный план создан",
+      invalidate: [["programs"], ["semesters"]],
+      onSuccess: (p) => {
+        onOpenChange(false);
+        form.reset();
+        onCreated(p.id);
+      },
     },
-  });
+  );
   const e = form.formState.errors;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -216,8 +319,17 @@ function CreateProgramDialog({ open, onOpenChange, onCreated }: { open: boolean;
         <DialogHeader>
           <DialogTitle>Новый учебный план</DialogTitle>
         </DialogHeader>
-        <form id="program-form" className="grid gap-3 sm:grid-cols-2" onSubmit={form.handleSubmit((v) => create.mutate(v))}>
-          <Field label="Специальность" required error={e.specialtyId?.message} className="sm:col-span-2">
+        <form
+          id="program-form"
+          className="grid gap-3 sm:grid-cols-2"
+          onSubmit={form.handleSubmit((v) => create.mutate(v))}
+        >
+          <Field
+            label="Специальность"
+            required
+            error={e.specialtyId?.message}
+            className="sm:col-span-2"
+          >
             <Controller
               control={form.control}
               name="specialtyId"
@@ -225,23 +337,38 @@ function CreateProgramDialog({ open, onOpenChange, onCreated }: { open: boolean;
                 <SimpleSelect
                   value={field.value || null}
                   onChange={(v) => {
-                    field.onChange(v ?? '');
+                    field.onChange(v ?? "");
                     const s = specialties.data?.find((x) => x.id === v);
                     if (s) {
-                      form.setValue('durationMonths', s.durationMonths);
-                      if (!form.getValues('title')) form.setValue('title', `${s.code} ${s.name} (набор ${form.getValues('admissionYear')})`);
+                      form.setValue("durationMonths", s.durationMonths);
+                      if (!form.getValues("title"))
+                        form.setValue(
+                          "title",
+                          `${s.code} ${s.name} (набор ${form.getValues("admissionYear")})`,
+                        );
                     }
                   }}
-                  options={(specialties.data ?? []).map((s) => ({ value: s.id, label: `${s.code} ${s.name}` }))}
+                  options={(specialties.data ?? []).map((s) => ({
+                    value: s.id,
+                    label: `${s.code} ${s.name}`,
+                  }))}
                 />
               )}
             />
           </Field>
-          <Field label="Название" required error={e.title?.message} className="sm:col-span-2">
-            <Input {...form.register('title')} />
+          <Field
+            label="Название"
+            required
+            error={e.title?.message}
+            className="sm:col-span-2"
+          >
+            <Input {...form.register("title")} />
           </Field>
           <Field label="Год набора" required error={e.admissionYear?.message}>
-            <Input type="number" {...form.register('admissionYear', { valueAsNumber: true })} />
+            <Input
+              type="number"
+              {...form.register("admissionYear", { valueAsNumber: true })}
+            />
           </Field>
           <Field label="Форма обучения">
             <Controller
@@ -250,25 +377,67 @@ function CreateProgramDialog({ open, onOpenChange, onCreated }: { open: boolean;
               render={({ field }) => (
                 <SimpleSelect
                   value={field.value}
-                  onChange={(v) => field.onChange(v ?? 'FULL_TIME')}
-                  options={Object.entries(STUDY_FORM_LABELS).map(([value, label]) => ({ value, label }))}
+                  onChange={(v) => field.onChange(v ?? "FULL_TIME")}
+                  options={Object.entries(STUDY_FORM_LABELS).map(
+                    ([value, label]) => ({ value, label }),
+                  )}
                 />
               )}
             />
           </Field>
-          <Field label="Срок обучения, мес." required error={e.durationMonths?.message} hint="3 г. 10 мес. = 46">
-            <Input type="number" {...form.register('durationMonths', { valueAsNumber: true })} />
+          <Field
+            label="База приёма"
+            hint="Для заголовка печатной формы расписания"
+            className="sm:col-span-2"
+          >
+            <Controller
+              control={form.control}
+              name="educationBase"
+              render={({ field }) => (
+                <SimpleSelect
+                  value={field.value}
+                  onChange={(v) => field.onChange(v)}
+                  allowEmpty
+                  emptyLabel="Не указана"
+                  options={Object.entries(EDUCATION_BASE_LABELS).map(
+                    ([value, label]) => ({ value, label }),
+                  )}
+                />
+              )}
+            />
           </Field>
-          <Field label="Количество семестров" required error={e.totalSemesters?.message}>
-            <Input type="number" {...form.register('totalSemesters', { valueAsNumber: true })} />
+          <Field
+            label="Срок обучения, мес."
+            required
+            error={e.durationMonths?.message}
+            hint="3 г. 10 мес. = 46"
+          >
+            <Input
+              type="number"
+              {...form.register("durationMonths", { valueAsNumber: true })}
+            />
+          </Field>
+          <Field
+            label="Количество семестров"
+            required
+            error={e.totalSemesters?.message}
+          >
+            <Input
+              type="number"
+              {...form.register("totalSemesters", { valueAsNumber: true })}
+            />
           </Field>
           <Controller
             control={form.control}
             name="generateStructure"
             render={({ field }) => (
               <label className="flex items-center justify-between gap-3 text-sm sm:col-span-2">
-                Создать учебные годы и семестры автоматически (сентябрь–декабрь, январь–июнь)
-                <Switch checked={field.value} onCheckedChange={field.onChange} />
+                Создать учебные годы и семестры автоматически (сентябрь–декабрь,
+                январь–июнь)
+                <Switch
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                />
               </label>
             )}
           />
@@ -287,44 +456,88 @@ function CreateProgramDialog({ open, onOpenChange, onCreated }: { open: boolean;
 }
 
 const specialtySchema = z.object({
-  code: z.string().trim().regex(/^\d{2}\.\d{2}\.\d{2}$/, 'Код в формате 09.02.07'),
-  educationLevel: z.enum(['SPO', 'BACHELOR', 'SPECIALIST', 'MASTER', 'POSTGRADUATE']),
-  name: z.string().trim().min(1, 'Укажите наименование'),
-  qualification: z.string().trim().min(1, 'Укажите квалификацию'),
+  code: z
+    .string()
+    .trim()
+    .regex(/^\d{2}\.\d{2}\.\d{2}$/, "Код в формате 09.02.07"),
+  educationLevel: z.enum([
+    "SPO",
+    "BACHELOR",
+    "SPECIALIST",
+    "MASTER",
+    "POSTGRADUATE",
+  ]),
+  name: z.string().trim().min(1, "Укажите наименование"),
+  qualification: z.string().trim().min(1, "Укажите квалификацию"),
   fgosNumber: z.string().optional(),
-  durationMonths: z.number({ invalid_type_error: 'Введите число' }).int().min(1, 'Не менее 1 месяца'),
+  durationMonths: z
+    .number({ invalid_type_error: "Введите число" })
+    .int()
+    .min(1, "Не менее 1 месяца"),
 });
 type SpecialtyForm = z.infer<typeof specialtySchema>;
 
-function CreateSpecialtyDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+function CreateSpecialtyDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+}) {
   const form = useForm<SpecialtyForm>({
     resolver: zodResolver(specialtySchema),
-    defaultValues: { code: '', educationLevel: 'SPO', name: '', qualification: '', durationMonths: 46 },
-  });
-  const create = useApiMutation((v: SpecialtyForm) => api.post('/specialties', { ...v, fgosNumber: v.fgosNumber || undefined }), {
-    success: 'Специальность добавлена',
-    invalidate: [['specialties']],
-    onSuccess: () => {
-      onOpenChange(false);
-      form.reset();
+    defaultValues: {
+      code: "",
+      educationLevel: "SPO",
+      name: "",
+      qualification: "",
+      durationMonths: 46,
     },
   });
+  const create = useApiMutation(
+    (v: SpecialtyForm) =>
+      api.post("/specialties", { ...v, fgosNumber: v.fgosNumber || undefined }),
+    {
+      success: "Специальность добавлена",
+      invalidate: [["specialties"]],
+      onSuccess: () => {
+        onOpenChange(false);
+        form.reset();
+      },
+    },
+  );
   const e = form.formState.errors;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Новая специальность (направление подготовки)</DialogTitle>
+          <DialogTitle>
+            Новая специальность (направление подготовки)
+          </DialogTitle>
         </DialogHeader>
-        <form id="specialty-form" className="grid gap-3" onSubmit={form.handleSubmit((v) => create.mutate(v))}>
+        <form
+          id="specialty-form"
+          className="grid gap-3"
+          onSubmit={form.handleSubmit((v) => create.mutate(v))}
+        >
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Код" required error={e.code?.message} hint="00.02.00 — СПО, 00.03.00 — бакалавриат">
+            <Field
+              label="Код"
+              required
+              error={e.code?.message}
+              hint="00.02.00 — СПО, 00.03.00 — бакалавриат"
+            >
               <Input
                 placeholder="09.02.07"
-                {...form.register('code', {
+                {...form.register("code", {
                   onChange: (ev) => {
                     if (/^\d{2}\.\d{2}\.\d{2}$/.test(ev.target.value.trim())) {
-                      form.setValue('educationLevel', educationLevelByCode(ev.target.value) as SpecialtyForm['educationLevel']);
+                      form.setValue(
+                        "educationLevel",
+                        educationLevelByCode(
+                          ev.target.value,
+                        ) as SpecialtyForm["educationLevel"],
+                      );
                     }
                   },
                 })}
@@ -337,25 +550,34 @@ function CreateSpecialtyDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 render={({ field }) => (
                   <SimpleSelect
                     value={field.value}
-                    onChange={(v) => field.onChange(v ?? 'SPO')}
-                    options={Object.entries(EDUCATION_LEVEL_LABELS).map(([value, label]) => ({ value, label }))}
+                    onChange={(v) => field.onChange(v ?? "SPO")}
+                    options={Object.entries(EDUCATION_LEVEL_LABELS).map(
+                      ([value, label]) => ({ value, label }),
+                    )}
                   />
                 )}
               />
             </Field>
           </div>
           <Field label="Наименование" required error={e.name?.message}>
-            <Input {...form.register('name')} />
+            <Input {...form.register("name")} />
           </Field>
           <Field label="Квалификация" required error={e.qualification?.message}>
-            <Input {...form.register('qualification')} />
+            <Input {...form.register("qualification")} />
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Приказ ФГОС">
-              <Input {...form.register('fgosNumber')} />
+              <Input {...form.register("fgosNumber")} />
             </Field>
-            <Field label="Срок, мес." required error={e.durationMonths?.message}>
-              <Input type="number" {...form.register('durationMonths', { valueAsNumber: true })} />
+            <Field
+              label="Срок, мес."
+              required
+              error={e.durationMonths?.message}
+            >
+              <Input
+                type="number"
+                {...form.register("durationMonths", { valueAsNumber: true })}
+              />
             </Field>
           </div>
         </form>
@@ -363,7 +585,11 @@ function CreateSpecialtyDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Отмена
           </Button>
-          <Button type="submit" form="specialty-form" disabled={create.isPending}>
+          <Button
+            type="submit"
+            form="specialty-form"
+            disabled={create.isPending}
+          >
             {create.isPending && <Spinner />} Сохранить
           </Button>
         </DialogFooter>

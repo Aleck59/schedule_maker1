@@ -13,6 +13,7 @@ import { ScheduleLessonsService } from '../schedule/schedule-lessons.service';
 import { SettingsService } from '../settings/settings.service';
 import { ExcelService } from './excel.service';
 import { PdfService } from './pdf.service';
+import { ScheduleFormService } from './schedule-form.service';
 import { sendFile } from './send-file';
 
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -29,6 +30,7 @@ export class ExportController {
     private readonly excel: ExcelService,
     private readonly hours: HourControlService,
     private readonly groups: GroupsService,
+    private readonly form: ScheduleFormService,
   ) {}
 
   private async period(id: string, user: AuthUser) {
@@ -179,6 +181,53 @@ export class ExportController {
       to: toDateStr(period.endDate),
     });
     sendFile(res, buffer, `Расписание_${period.title}.xlsx`, XLSX);
+  }
+
+  @Get('schedule-form/sheets')
+  @Roles(...STAFF_ROLES)
+  @ApiOperation({ summary: 'Печатная форма: специальности с занятиями на неделе' })
+  @ApiQuery({ name: 'from', description: 'Любая дата недели' })
+  @ApiQuery({ name: 'periodId', required: false })
+  formSheets(
+    @CurrentUser() user: AuthUser,
+    @Query('from') from: string,
+    @Query('periodId') periodId?: string,
+  ) {
+    return this.form.sheets(user, { from, periodId: periodId || undefined });
+  }
+
+  @Get('schedule-form/export')
+  @Roles(...STAFF_ROLES)
+  @ApiOperation({ summary: 'Печатная форма расписания на неделю (PDF или Excel)' })
+  @ApiQuery({ name: 'from', description: 'Любая дата недели' })
+  @ApiQuery({ name: 'format', enum: ['pdf', 'xlsx'], required: false })
+  @ApiQuery({ name: 'periodId', required: false })
+  @ApiQuery({ name: 'keys', required: false, description: 'Специальности через запятую' })
+  @ApiQuery({ name: 'weekLabel', required: false, example: '1 неделя' })
+  @ApiQuery({ name: 'lessonTypes', required: false, description: 'true — указывать вид занятия' })
+  async formExport(
+    @CurrentUser() user: AuthUser,
+    @Res() res: Response,
+    @Query('from') from: string,
+    @Query('format') format?: string,
+    @Query('periodId') periodId?: string,
+    @Query('keys') keys?: string,
+    @Query('weekLabel') weekLabel?: string,
+    @Query('lessonTypes') lessonTypes?: string,
+  ) {
+    const sheets = await this.form.build(user, {
+      from,
+      periodId: periodId || undefined,
+      keys: keys ? keys.split(',').filter(Boolean) : undefined,
+      weekLabel: weekLabel?.slice(0, 60),
+      lessonTypes: lessonTypes === 'true',
+    });
+    const name = `Расписание_${formatDateRu(from)}`;
+    if (format === 'xlsx') {
+      sendFile(res, await this.form.excelBuffer(sheets), `${name}.xlsx`, XLSX);
+    } else {
+      sendFile(res, await this.form.pdfBuffer(sheets), `${name}.pdf`, 'application/pdf');
+    }
   }
 
   @Get('programs/:id/export/hour-control/excel')

@@ -62,6 +62,12 @@ enum AcademicTitle {
   PROFESSOR // профессор
 }
 
+/// База приёма: на какой основе обучается набор (для печатной формы расписания)
+enum EducationBase {
+  BASIC_GENERAL // на базе основного общего образования (9 классов)
+  SECONDARY_GENERAL // на базе среднего общего образования (11 классов)
+}
+
 enum StudyForm {
   FULL_TIME // очная
   PART_TIME // очно-заочная
@@ -282,6 +288,8 @@ model OrganizationSettings {
   autoMarkConducted          Boolean  @default(true)
   /// Веса мягких ограничений генератора
   solverWeightsJson          Json?
+  /// Печатная форма расписания: грифы согласования и утверждения, подпись, профили специальностей
+  printFormJson              Json?
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
 
@@ -361,17 +369,18 @@ model Specialty {
 }
 
 model EducationalProgram {
-  id             String        @id @default(uuid())
+  id             String         @id @default(uuid())
   organizationId String
   specialtyId    String
   title          String
   admissionYear  Int
-  studyForm      StudyForm     @default(FULL_TIME)
+  studyForm      StudyForm      @default(FULL_TIME)
+  educationBase  EducationBase?
   durationMonths Int
   totalSemesters Int
-  status         ProgramStatus @default(DRAFT)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  status         ProgramStatus  @default(DRAFT)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
   organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   specialty         Specialty          @relation(fields: [specialtyId], references: [id])

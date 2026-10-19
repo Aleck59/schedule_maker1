@@ -77,6 +77,7 @@ export class ProgramsService {
           title: dto.title.trim(),
           admissionYear: dto.admissionYear,
           studyForm: dto.studyForm,
+          educationBase: dto.educationBase ?? null,
           durationMonths: dto.durationMonths,
           totalSemesters: dto.totalSemesters,
           status: dto.status,

@@ -139,6 +139,14 @@ export class UpdateSettingsDto {
   @IsOptional()
   @IsObject()
   solverWeightsJson?: Record<string, number>;
+
+  @ApiPropertyOptional({
+    description:
+      'Печатная форма расписания: approvals [{heading, position, name}], footerPosition, footerName, profiles {specialtyId: профиль}',
+  })
+  @IsOptional()
+  @IsObject()
+  printFormJson?: Record<string, unknown>;
 }
 
 export class UpdateOrganizationDto {
