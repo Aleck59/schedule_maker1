@@ -119,15 +119,11 @@ function useTheme() {
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { user } = useAuth();
   const setup = useSetupStatus();
-  // Мастер настройки — наверху, пока есть незавершённые шаги; когда всё готово, он уходит в «Администрирование»
+  // Мастер настройки виден в меню, пока есть незавершённые шаги; после завершения он открывается из «Настроек»
   const setupDone = !!setup.data && !setup.data.next;
   const sections = NAV.map((group) => {
     let items = group.items.filter((i) => user && i.roles.includes(user.role));
     if (setupDone) items = items.filter((i) => i.to !== '/setup');
-    if (setupDone && group.section === 'Администрирование') {
-      const wizard = NAV[0].items.find((i) => i.to === '/setup')!;
-      if (user && wizard.roles.includes(user.role)) items = [...items, wizard];
-    }
     return { ...group, items };
   });
   const org = user?.organization?.shortName ?? 'Колледж';

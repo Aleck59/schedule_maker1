@@ -1,31 +1,74 @@
 import { useState } from 'react';
-import { Plane, Plus, Trash2 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { CalendarClock, Plane, Plus, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Confirm } from '@/components/common/confirm';
 import { Field } from '@/components/common/field';
 import { Spinner } from '@/components/common/states';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { api } from '@/lib/api';
-import { formatRange, today } from '@/lib/format';
+import { formatRange, pluralize, today } from '@/lib/format';
 import { useApi, useApiMutation } from '@/lib/query';
 import type { CalendarEvent } from '@/lib/types';
 
 const REASONS = ['Отпуск', 'Курсы повышения квалификации', 'Больничный', 'Командировка'];
 
 /** Отсутствия преподавателя (отпуск, курсы, больничный): в эти дни занятия ему не ставятся */
+interface MakeupResult {
+  total: number;
+  moved: Array<{ lessonId: string; label: string; to: string }>;
+  cancelled: Array<{ lessonId: string; label: string }>;
+}
+
+function makeupMessage(r: MakeupResult): string {
+  if (r.total === 0) return 'На эти дни пар у преподавателя нет — переносить нечего';
+  const parts = [`Перенесено на время после выхода: ${r.moved.length} ${pluralize(r.moved.length, 'пара', 'пары', 'пар')}`];
+  if (r.cancelled.length) parts.push(`без свободного времени — отменено с задачей отработки: ${r.cancelled.length}`);
+  return parts.join('; ');
+}
+
+/** Отсутствия преподавателя (отпуск, курсы, больничный): в эти дни занятия ему не ставятся */
 export function TeacherAbsences({ teacherId, editable }: { teacherId: string; editable: boolean }) {
+  const qc = useQueryClient();
   const events = useApi<CalendarEvent[]>(['calendar-events', 'teacher', teacherId], '/calendar-events', { teacherId });
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(REASONS[0]!);
   const [from, setFrom] = useState(today());
   const [to, setTo] = useState(today());
+  const [makeup, setMakeup] = useState(true);
+  const [extra, setExtra] = useState('4');
+  const refreshLessons = () => {
+    for (const key of ['lessons', 'hour-control', 'validation', 'makeup-tasks']) void qc.invalidateQueries({ queryKey: [key] });
+  };
+  const runMakeup = useApiMutation((id: string) => api.post<MakeupResult>(`/calendar-events/${id}/makeup`), {
+    onSuccess: (r) => {
+      toast.success(makeupMessage(r), { duration: 8000 });
+      refreshLessons();
+    },
+  });
   const add = useApiMutation(
-    () => api.post('/calendar-events', { teacherId, eventType: 'OTHER', title, startDate: from, endDate: to, blocksSchedule: true }),
+    () =>
+      api.post<CalendarEvent>('/calendar-events', {
+        teacherId,
+        eventType: 'OTHER',
+        title,
+        startDate: from,
+        endDate: to,
+        blocksSchedule: true,
+        makeupAfterReturn: makeup,
+        makeupExtraWeekly: makeup ? Math.min(20, Math.max(1, Number(extra) || 4)) : undefined,
+      }),
     {
       success: 'Отсутствие добавлено',
       invalidate: [['calendar-events'], ['teacher']],
-      onSuccess: () => setOpen(false),
+      onSuccess: (created) => {
+        setOpen(false);
+        // Уже поставленные на эти дни пары сразу переносятся на время после выхода
+        if (makeup) runMakeup.mutate(created.id);
+      },
     },
   );
   const remove = useApiMutation((id: string) => api.delete(`/calendar-events/${id}`), {
@@ -41,8 +84,22 @@ export function TeacherAbsences({ teacherId, editable }: { teacherId: string; ed
           <Plane className="text-muted-foreground size-4" />
           <div className="min-w-0 flex-1 text-sm">
             <div className="font-medium">{e.title}</div>
-            <div className="text-muted-foreground text-xs">{formatRange(e.startDate, e.endDate)} — занятия не ставятся</div>
+            <div className="text-muted-foreground text-xs">
+              {formatRange(e.startDate, e.endDate)} — занятия не ставятся
+              {e.makeupAfterReturn && ` · пропущенные пары — после выхода, до +${e.makeupExtraWeekly ?? 4} пар в неделю сверх лимита`}
+            </div>
           </div>
+          {editable && e.makeupAfterReturn && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={runMakeup.isPending}
+              onClick={() => runMakeup.mutate(e.id)}
+              title="Перенести пары, которые стоят в эти дни, на ближайшее время после выхода"
+            >
+              {runMakeup.isPending ? <Spinner /> : <CalendarClock />} Перенести пары
+            </Button>
+          )}
           {editable && (
             <Confirm
               trigger={
@@ -87,6 +144,21 @@ export function TeacherAbsences({ teacherId, editable }: { teacherId: string; ed
                 <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
               </Field>
             </div>
+            <label className="flex items-start justify-between gap-3 rounded-lg border p-3 text-sm">
+              <span>
+                Отработать пропущенные пары после выхода
+                <span className="text-muted-foreground block text-xs">
+                  Пары с этих дней переносятся на ближайшие недели после выхода, даже сверх лимита пар в неделю и на одну пару больше
+                  в день. Генератор тоже ставит их после выхода, а не предлагает другого преподавателя.
+                </span>
+              </span>
+              <Switch checked={makeup} onCheckedChange={setMakeup} />
+            </label>
+            {makeup && (
+              <Field label="Сверх лимита, пар в неделю" hint="Насколько можно превысить недельный лимит, пока пары не отработаны">
+                <Input type="number" min={1} max={20} value={extra} onChange={(e) => setExtra(e.target.value)} className="w-28" />
+              </Field>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>

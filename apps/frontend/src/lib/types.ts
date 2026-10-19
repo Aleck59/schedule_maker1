@@ -1,49 +1,77 @@
 /** Типы данных API */
 
-export type UserRole = 'ADMIN' | 'DISPATCHER' | 'TEACHER' | 'STUDENT' | 'MANAGER';
-export type LessonType = 'LECTURE' | 'PRACTICAL' | 'LABORATORY' | 'CONSULTATION' | 'PRACTICE' | 'OTHER';
-export type LessonStatus = 'PLANNED' | 'CONDUCTED' | 'CANCELLED' | 'MOVED' | 'REPLACED';
-export type ClassroomType = 'LECTURE' | 'COMPUTER_LAB' | 'LABORATORY' | 'WORKSHOP' | 'SPORTS_HALL' | 'GENERAL' | 'ONLINE';
+export type UserRole =
+  "ADMIN" | "DISPATCHER" | "TEACHER" | "STUDENT" | "MANAGER";
+export type LessonType =
+  | "LECTURE"
+  | "PRACTICAL"
+  | "LABORATORY"
+  | "CONSULTATION"
+  | "PRACTICE"
+  | "OTHER";
+export type LessonStatus =
+  "PLANNED" | "CONDUCTED" | "CANCELLED" | "MOVED" | "REPLACED";
+export type ClassroomType =
+  | "LECTURE"
+  | "COMPUTER_LAB"
+  | "LABORATORY"
+  | "WORKSHOP"
+  | "SPORTS_HALL"
+  | "GENERAL"
+  | "ONLINE";
 export type CurriculumItemType =
-  | 'DISCIPLINE'
-  | 'MODULE'
-  | 'INTERDISCIPLINARY_COURSE'
-  | 'EDUCATIONAL_PRACTICE'
-  | 'INDUSTRIAL_PRACTICE'
-  | 'PRE_DIPLOMA_PRACTICE'
-  | 'FINAL_ATTESTATION'
-  | 'ELECTIVE';
-export type ControlForm = 'NONE' | 'EXAM' | 'CREDIT' | 'DIFFERENTIATED_CREDIT' | 'OTHER' | 'COURSE_PROJECT' | 'QUALIFICATION_EXAM';
-export type StudyForm = 'FULL_TIME' | 'PART_TIME' | 'EXTRAMURAL';
-export type EducationLevel = 'SPO' | 'BACHELOR' | 'SPECIALIST' | 'MASTER' | 'POSTGRADUATE';
+  | "DISCIPLINE"
+  | "MODULE"
+  | "INTERDISCIPLINARY_COURSE"
+  | "EDUCATIONAL_PRACTICE"
+  | "INDUSTRIAL_PRACTICE"
+  | "PRE_DIPLOMA_PRACTICE"
+  | "FINAL_ATTESTATION"
+  | "ELECTIVE";
+export type ControlForm =
+  | "NONE"
+  | "EXAM"
+  | "CREDIT"
+  | "DIFFERENTIATED_CREDIT"
+  | "OTHER"
+  | "COURSE_PROJECT"
+  | "QUALIFICATION_EXAM";
+export type StudyForm = "FULL_TIME" | "PART_TIME" | "EXTRAMURAL";
+export type EducationLevel =
+  "SPO" | "BACHELOR" | "SPECIALIST" | "MASTER" | "POSTGRADUATE";
 export type CalendarEventType =
-  | 'THEORETICAL_TRAINING'
-  | 'EXAM_SESSION'
-  | 'VACATION'
-  | 'EDUCATIONAL_PRACTICE'
-  | 'INDUSTRIAL_PRACTICE'
-  | 'PRE_DIPLOMA_PRACTICE'
-  | 'FINAL_ATTESTATION'
-  | 'DIPLOMA_PREPARATION'
-  | 'DIPLOMA_DEFENSE'
-  | 'DEMO_EXAM_PREPARATION'
-  | 'DEMO_EXAM'
-  | 'REATTESTATION'
-  | 'HOLIDAY'
-  | 'OTHER';
-export type PeriodStatus = 'DRAFT' | 'GENERATED' | 'PUBLISHED' | 'ARCHIVED';
-export type HourStatus = 'NORMAL' | 'RISK' | 'DEFICIT' | 'EXCESS';
-export type Severity = 'ERROR' | 'WARNING' | 'INFO';
+  | "THEORETICAL_TRAINING"
+  | "EXAM_SESSION"
+  | "VACATION"
+  | "EDUCATIONAL_PRACTICE"
+  | "INDUSTRIAL_PRACTICE"
+  | "PRE_DIPLOMA_PRACTICE"
+  | "FINAL_ATTESTATION"
+  | "DIPLOMA_PREPARATION"
+  | "DIPLOMA_DEFENSE"
+  | "DEMO_EXAM_PREPARATION"
+  | "DEMO_EXAM"
+  | "REATTESTATION"
+  | "HOLIDAY"
+  | "OTHER";
+export type PeriodStatus = "DRAFT" | "GENERATED" | "PUBLISHED" | "ARCHIVED";
+export type HourStatus = "NORMAL" | "RISK" | "DEFICIT" | "EXCESS";
+export type Severity = "ERROR" | "WARNING" | "INFO";
 export type JobStatus =
-  | 'QUEUED'
-  | 'GENERATING'
-  | 'VALIDATING'
-  | 'COMPLETED'
-  | 'COMPLETED_WITH_CONFLICTS'
-  | 'FAILED'
-  | 'APPLIED'
-  | 'CANCELLED';
-export type CancellationReason = 'GROUP_ABSENT' | 'TEACHER_ABSENT' | 'CLASSROOM_UNAVAILABLE' | 'HOLIDAY' | 'OTHER';
+  | "QUEUED"
+  | "GENERATING"
+  | "VALIDATING"
+  | "COMPLETED"
+  | "COMPLETED_WITH_CONFLICTS"
+  | "FAILED"
+  | "APPLIED"
+  | "CANCELLED";
+export type CancellationReason =
+  | "GROUP_ABSENT"
+  | "TEACHER_ABSENT"
+  | "CLASSROOM_UNAVAILABLE"
+  | "HOLIDAY"
+  | "OTHER";
 
 export interface User {
   id: string;
@@ -57,7 +85,12 @@ export interface User {
   lastLoginAt?: string | null;
   teacher?: { id: string; fullName: string } | null;
   studentGroup?: { id: string; code: string } | null;
-  organization?: { id: string; name: string; shortName: string | null; timezone: string };
+  organization?: {
+    id: string;
+    name: string;
+    shortName: string | null;
+    timezone: string;
+  };
 }
 
 export interface LoginResponse {
@@ -89,13 +122,29 @@ export interface Settings {
   maxBuildingChangesPerDay: number;
   warnOnPartialLessons: boolean;
   scheduleConsultations: boolean;
+  autoMarkConducted: boolean;
   consultationWeeksBeforeEnd: number;
   solverTimeLimitSeconds: number;
   weights: Record<string, number>;
+  printFormJson?: PrintFormSettings;
+}
+
+/** Тексты печатной формы расписания */
+export interface PrintFormSettings {
+  approvals: Array<{ heading: string; position: string; name: string }>;
+  footerPosition: string;
+  footerName: string;
+  profiles: Record<string, string>;
 }
 
 export interface SettingsResponse {
-  organization: { id: string; name: string; shortName: string | null; address: string | null; timezone: string };
+  organization: {
+    id: string;
+    name: string;
+    shortName: string | null;
+    address: string | null;
+    timezone: string;
+  };
   settings: Settings;
   lessonTimes: LessonTime[];
 }
@@ -151,10 +200,11 @@ export interface Program {
   id: string;
   title: string;
   admissionYear: number;
-  studyForm: 'FULL_TIME' | 'PART_TIME' | 'EXTRAMURAL';
+  studyForm: "FULL_TIME" | "PART_TIME" | "EXTRAMURAL";
+  educationBase?: "BASIC_GENERAL" | "SECONDARY_GENERAL" | null;
   durationMonths: number;
   totalSemesters: number;
-  status: 'DRAFT' | 'APPROVED' | 'ARCHIVED';
+  status: "DRAFT" | "APPROVED" | "ARCHIVED";
   specialty: Specialty;
   specialtyId: string;
   hours: HoursSummary;
@@ -221,8 +271,21 @@ export interface CurriculumNode {
 
 export interface CurriculumTree {
   program: Program;
-  semesters: Array<{ id: string; number: number; courseNumber: number; startDate: string; endDate: string }>;
-  cycles: Array<{ id: string; code: string; name: string; sortOrder: number; items: CurriculumNode[]; totals: Record<string, number> }>;
+  semesters: Array<{
+    id: string;
+    number: number;
+    courseNumber: number;
+    startDate: string;
+    endDate: string;
+  }>;
+  cycles: Array<{
+    id: string;
+    code: string;
+    name: string;
+    sortOrder: number;
+    items: CurriculumNode[];
+    totals: Record<string, number>;
+  }>;
 }
 
 export interface Subgroup {
@@ -276,16 +339,26 @@ export interface AvailabilitySlot {
   reason?: string | null;
 }
 
-export type TeacherEducation = 'SPO' | 'BACHELOR' | 'SPECIALIST' | 'MASTER' | 'HIGHEST';
-export type AcademicDegree = 'NONE' | 'CANDIDATE' | 'DOCTOR';
-export type AcademicTitle = 'NONE' | 'DOCENT' | 'PROFESSOR';
+export type TeacherEducation =
+  "SPO" | "BACHELOR" | "SPECIALIST" | "MASTER" | "HIGHEST";
+export type AcademicDegree = "NONE" | "CANDIDATE" | "DOCTOR";
+export type AcademicTitle = "NONE" | "DOCENT" | "PROFESSOR";
 
 export interface TeacherAssignment extends Assignment {
-  group: Assignment['group'] & {
-    program?: { title: string; studyForm: string; specialty: { educationLevel: EducationLevel } };
+  group: Assignment["group"] & {
+    program?: {
+      title: string;
+      studyForm: string;
+      specialty: { educationLevel: EducationLevel };
+    };
   };
-  semesterItem: Assignment['semesterItem'] & {
-    semester: { id: string; number: number; startDate: string; endDate: string };
+  semesterItem: Assignment["semesterItem"] & {
+    semester: {
+      id: string;
+      number: number;
+      startDate: string;
+      endDate: string;
+    };
   };
 }
 
@@ -316,7 +389,11 @@ export interface Teacher {
   availability?: AvailabilitySlot[];
   user?: { id: string; email: string } | null;
   assignments?: TeacherAssignment[];
-  _count?: { assignments: number; availability: number; availabilityRules?: number };
+  _count?: {
+    assignments: number;
+    availability: number;
+    availabilityRules?: number;
+  };
   /** Сводка для плитки */
   disciplines?: string[];
   groupsCount?: number;
@@ -352,8 +429,20 @@ export interface Assignment {
   classroomTypes: ClassroomType[];
   streamKey: string | null;
   allowHoursExcess: boolean;
-  group: { id: string; code: string; studentCount: number; subgroupCount: number };
-  semesterItem: SemesterItem & { curriculumItem: { id: string; code: string; name: string; itemType: CurriculumItemType } };
+  group: {
+    id: string;
+    code: string;
+    studentCount: number;
+    subgroupCount: number;
+  };
+  semesterItem: SemesterItem & {
+    curriculumItem: {
+      id: string;
+      code: string;
+      name: string;
+      itemType: CurriculumItemType;
+    };
+  };
   teacher: { id: string; fullName: string } | null;
   preferredClassroom: { id: string; code: string; name: string } | null;
 }
@@ -370,6 +459,9 @@ export interface CalendarEvent {
   startDate: string;
   endDate: string;
   blocksSchedule: boolean;
+  /** Отсутствие преподавателя: пропущенные пары ставятся после выхода сверх лимита */
+  makeupAfterReturn?: boolean;
+  makeupExtraWeekly?: number;
   notes: string | null;
   program?: { id: string; title: string } | null;
   group?: { id: string; code: string } | null;
@@ -428,20 +520,43 @@ export interface Lesson {
   semesterItem: {
     id: string;
     semesterId: string;
-    curriculumItem: { id: string; code: string; name: string; itemType: CurriculumItemType; isDifficult: boolean };
+    curriculumItem: {
+      id: string;
+      code: string;
+      name: string;
+      itemType: CurriculumItemType;
+      isDifficult: boolean;
+    };
   };
   teacher: { id: string; fullName: string } | null;
-  classroom: { id: string; code: string; name: string; building: string | null; classroomType: ClassroomType; capacity: number } | null;
+  classroom: {
+    id: string;
+    code: string;
+    name: string;
+    building: string | null;
+    classroomType: ClassroomType;
+    capacity: number;
+  } | null;
   conducted: {
-    status: 'CONDUCTED' | 'CANCELLED' | 'POSTPONED' | 'REPLACED';
+    status: "CONDUCTED" | "CANCELLED" | "POSTPONED" | "REPLACED";
     actualHours: number;
     cancellationReason: CancellationReason | null;
     notes: string | null;
     actualTeacher: { id: string; fullName: string } | null;
   } | null;
   schedulePeriod: { id: string; title: string; status: PeriodStatus };
-  originalLesson: { id: string; date: string; lessonNumber: number; status: LessonStatus } | null;
-  derivedLessons: Array<{ id: string; date: string; lessonNumber: number; status: LessonStatus }>;
+  originalLesson: {
+    id: string;
+    date: string;
+    lessonNumber: number;
+    status: LessonStatus;
+  } | null;
+  derivedLessons: Array<{
+    id: string;
+    date: string;
+    lessonNumber: number;
+    status: LessonStatus;
+  }>;
   substitution: {
     originalTeacher: { id: string; fullName: string } | null;
     substituteTeacher: { id: string; fullName: string };
@@ -486,13 +601,13 @@ export interface GenerationJob {
   periodIds?: string[];
   status: JobStatus;
   statusLabel?: string;
-  mode: 'CALENDAR' | 'WEEKLY_TEMPLATE';
+  mode: "CALENDAR" | "WEEKLY_TEMPLATE";
   progress: number;
   message: string | null;
   solver: string | null;
   error: string | null;
   params?: Record<string, unknown>;
-  stats?: GenerationResult['stats'] | null;
+  stats?: GenerationResult["stats"] | null;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
@@ -551,7 +666,12 @@ export interface GenerationResult {
     unplacedLessons: number;
     requiredHours: number;
     placedHours: number;
-    groups: Array<{ groupId: string; groupCode: string; required: number; placed: number }>;
+    groups: Array<{
+      groupId: string;
+      groupCode: string;
+      required: number;
+      placed: number;
+    }>;
     durationMs: number;
     weeks: number;
     softViolations: Record<string, number>;
@@ -593,7 +713,11 @@ export interface HourControlRow {
   itemName: string;
   itemType: CurriculumItemType;
   controlForm: ControlForm;
-  teachers: Array<{ id: string | null; name: string | null; lessonType: LessonType }>;
+  teachers: Array<{
+    id: string | null;
+    name: string | null;
+    lessonType: LessonType;
+  }>;
   byType: Partial<Record<LessonType, StreamHours>>;
   total: StreamHours;
   status: HourStatus;
@@ -619,7 +743,7 @@ export interface ReportColumn {
   key: string;
   header: string;
   width?: number;
-  type?: 'text' | 'number' | 'date' | 'percent';
+  type?: "text" | "number" | "date" | "percent";
 }
 
 export interface ReportTable {
@@ -643,7 +767,7 @@ export interface Notification {
 
 export interface MakeupTask {
   id: string;
-  status: 'OPEN' | 'SCHEDULED' | 'DONE' | 'CANCELLED';
+  status: "OPEN" | "SCHEDULED" | "DONE" | "CANCELLED";
   lessonType: LessonType;
   academicHours: number;
   subgroupNumber: number | null;
@@ -652,8 +776,19 @@ export interface MakeupTask {
   group: { id: string; code: string };
   semesterItem: { curriculumItem: { code: string; name: string } };
   teacher: { id: string; fullName: string } | null;
-  sourceLesson: { id: string; date: string; lessonNumber: number; schedulePeriodId: string; status: LessonStatus } | null;
-  resolvedLesson: { id: string; date: string; lessonNumber: number; status: LessonStatus } | null;
+  sourceLesson: {
+    id: string;
+    date: string;
+    lessonNumber: number;
+    schedulePeriodId: string;
+    status: LessonStatus;
+  } | null;
+  resolvedLesson: {
+    id: string;
+    date: string;
+    lessonNumber: number;
+    status: LessonStatus;
+  } | null;
 }
 
 /** План составления расписания для всех групп */
@@ -679,5 +814,11 @@ export interface AllGroupsPlanRow {
 export interface AllGroupsPlan {
   date: string;
   groups: AllGroupsPlanRow[];
-  summary: { groups: number; included: number; skipped: number; periods: number; newPeriods: number };
+  summary: {
+    groups: number;
+    included: number;
+    skipped: number;
+    periods: number;
+    newPeriods: number;
+  };
 }

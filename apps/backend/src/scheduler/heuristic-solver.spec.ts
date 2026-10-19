@@ -161,4 +161,61 @@ describe('Эвристический генератор расписания', (
     }
     expect(result.placements.some((p) => p.date === onlineDay)).toBe(true);
   });
+
+  it('распределяет пары преподавателя по неделям ровно, без чередования «много — мало»', () => {
+    const days = makeDays('2025-09-01', 8);
+    const all = days.map((d) => d.date);
+    const groups = ['a', 'b', 'c', 'd'].map((id) => ({
+      id,
+      code: id,
+      size: 25,
+      subgroups: [],
+      allowedDates: all,
+      maxLessonsPerDay: 4,
+    }));
+    const problem = baseProblem({
+      days,
+      groups,
+      demands: groups.map((g) =>
+        demand(`${g.id}-x`, [g.id], 't2', 12, ['r_gen', 'r_lec'], { semesterItemId: g.id }),
+      ),
+    });
+    problem.teachers[1].maxWeeklyLessons = 8;
+    const result = solveHeuristic(problem);
+    assertHardConstraints(problem, result);
+    expect(result.stats.placedLessons).toBe(48);
+    const perWeek = new Map<number, number>();
+    const weekOf = new Map(days.map((d) => [d.date, d.week]));
+    for (const p of result.placements)
+      perWeek.set(weekOf.get(p.date)!, (perWeek.get(weekOf.get(p.date)!) ?? 0) + 1);
+    // 48 пар за 8 недель — по 6 в неделю
+    expect([...perWeek.values()].every((n) => n === 6)).toBe(true);
+  });
+
+  it('отработка после отсутствия: после выхода лимит недели превышается, пары не теряются', () => {
+    const days = makeDays('2025-09-01', 4);
+    const all = days.map((d) => d.date);
+    const absent = all.filter((d) => d < '2025-09-15');
+    const make = (relief: boolean) => {
+      const problem = baseProblem({
+        days,
+        groups: [{ id: 'g1', code: 'g1', size: 25, subgroups: [], allowedDates: all, maxLessonsPerDay: 6 }],
+        demands: [demand('x', ['g1'], 't2', 16, ['r_gen', 'r_lec'], { semesterItemId: 'x' })],
+        settings: { ...baseProblem().settings, maxSameDisciplinePerDay: 3, maxSameDisciplinePerWeek: 12 },
+      });
+      const t = problem.teachers[1];
+      t.maxWeeklyLessons = 6;
+      t.blockedDates = absent;
+      if (relief)
+        Object.assign(t, { relaxedFrom: '2025-09-15', extraDailyLessons: 1, extraWeeklyLessons: 4 });
+      return problem;
+    };
+    // Без отработки: две недели по 6 пар — 4 пары не помещаются
+    expect(solveHeuristic(make(false)).stats.placedLessons).toBe(12);
+    const problem = make(true);
+    const result = solveHeuristic(problem);
+    assertHardConstraints(problem, result);
+    expect(result.stats.placedLessons).toBe(16);
+    expect(result.placements.every((p) => p.date >= '2025-09-15')).toBe(true);
+  });
 });

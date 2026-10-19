@@ -1,7 +1,9 @@
 import { useMemo, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import {
   DndContext,
   DragOverlay,
+  defaultDropAnimationSideEffects,
   PointerSensor,
   useDraggable,
   useDroppable,
@@ -9,6 +11,7 @@ import {
   useSensors,
   type DragEndEvent,
   type DragStartEvent,
+  type DropAnimation,
 } from '@dnd-kit/core';
 import { Plus } from 'lucide-react';
 import { addDays, formatDateShort, isoWeekday, today, weekdayName } from '@/lib/format';
@@ -43,6 +46,13 @@ interface GridProps {
   /** Разрешать перенос только внутри колонки (сетка дня: колонка = группа) */
   sameColumnOnly?: boolean;
 }
+
+/** Карточка плавно «садится» в ячейку, исходное место подсвечено, пока она летит */
+const DROP_ANIMATION: DropAnimation = {
+  duration: 220,
+  easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+  sideEffects: defaultDropAnimationSideEffects({ styles: { active: { opacity: '0.3' } } }),
+};
 
 function DraggableLesson({
   lesson,
@@ -218,7 +228,13 @@ export function ScheduleGrid({
           })}
         </div>
       </div>
-      <DragOverlay>{active ? <LessonCard lesson={active} mode={mode} className="w-48 rotate-2 scale-105 shadow-lift" /> : null}</DragOverlay>
+      {/* Оверлей — в body: анимации страниц с transform не должны сдвигать его координаты */}
+      {createPortal(
+        <DragOverlay dropAnimation={DROP_ANIMATION}>
+          {active ? <LessonCard lesson={active} mode={mode} className="w-48 rotate-2 scale-105 shadow-lift" /> : null}
+        </DragOverlay>,
+        document.body,
+      )}
     </DndContext>
   );
 }

@@ -546,7 +546,61 @@ export class ScheduleLessonsService {
 
   // ---------------------------------------------------------------- перенос
 
+  /** Перенос занятия; пары потока (общие у нескольких групп) переносятся вместе */
   async move(id: string, dto: MoveLessonDto, actor: AuthUser) {
+    const lesson = await this.loadForChange(id, actor);
+    const siblings = lesson.streamKey
+      ? await this.prisma.scheduleLesson.findMany({
+          where: {
+            id: { not: id },
+            streamKey: lesson.streamKey,
+            date: lesson.date,
+            lessonNumber: lesson.lessonNumber,
+            teacherId: lesson.teacherId,
+            status: { in: [LessonStatus.PLANNED, LessonStatus.REPLACED] },
+            schedulePeriod: { organizationId: actor.organizationId },
+          },
+          include: { ...LESSON_INCLUDE, schedulePeriod: true },
+        })
+      : [];
+    if (siblings.length === 0) return this.moveOne(id, dto, actor);
+    // Сначала проверяем все группы потока, чтобы не разорвать поток на полпути
+    const issues: ValidationIssue[] = [];
+    for (const s of siblings) {
+      const found = await this.checker.check({
+        organizationId: actor.organizationId,
+        lessonId: s.id,
+        schedulePeriodId: s.schedulePeriodId,
+        date: dto.date,
+        lessonNumber: dto.lessonNumber,
+        studentGroupId: s.studentGroupId,
+        subgroupNumber: s.subgroupNumber,
+        semesterCurriculumItemId: s.semesterCurriculumItemId,
+        lessonType: s.lessonType,
+        teacherId: s.teacherId,
+        classroomId: dto.classroomId ?? s.classroomId,
+        academicHours: s.academicHours,
+        streamKey: s.streamKey,
+        skipHoursCheck: true,
+      });
+      // Занятость преподавателя и аудитории общая для потока — её покажет проверка основной пары
+      issues.push(
+        ...found.filter((i) => i.severity === Severity.ERROR && !issues.some((x) => x.message === i.message)),
+      );
+    }
+    if (issues.length > 0 && !this.canForce(actor, dto.force)) {
+      throw new ConflictException({
+        message: `Обнаружены конфликты: ${issues[0].message}`,
+        errors: issues.map((e) => e.message),
+        details: { issues },
+      });
+    }
+    const main = await this.moveOne(id, dto, actor);
+    for (const s of siblings) await this.moveOne(s.id, { ...dto, force: true }, actor);
+    return { ...main, movedTogether: siblings.map((s) => s.studentGroup.code) };
+  }
+
+  private async moveOne(id: string, dto: MoveLessonDto, actor: AuthUser) {
     const lesson = await this.loadForChange(id, actor);
     if (lesson.status === LessonStatus.CANCELLED || lesson.status === LessonStatus.MOVED) {
       throw new ConflictException('Занятие уже отменено или перенесено');

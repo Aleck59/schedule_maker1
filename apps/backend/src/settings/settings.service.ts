@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { LessonTime, OrganizationSettings, Prisma } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types/auth-user';
+import { normalizePrintForm } from '../export/schedule-form';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReplaceLessonTimesDto, UpdateOrganizationDto, UpdateSettingsDto } from './dto/settings.dto';
 
@@ -89,7 +90,11 @@ export class SettingsService {
     const effective = await this.getEffective(organizationId);
     const organization = await this.prisma.organization.findUnique({ where: { id: organizationId } });
     const { lessonTimes, weights, timezone: _tz, ...settings } = effective;
-    return { organization, settings: { ...settings, weights }, lessonTimes };
+    return {
+      organization,
+      settings: { ...settings, weights, printFormJson: normalizePrintForm(settings.printFormJson) },
+      lessonTimes,
+    };
   }
 
   async update(organizationId: string, dto: UpdateSettingsDto, actor: AuthUser) {
@@ -103,6 +108,9 @@ export class SettingsService {
     }
     if (dto.solverWeightsJson) {
       data.solverWeightsJson = dto.solverWeightsJson as Prisma.InputJsonValue;
+    }
+    if (dto.printFormJson) {
+      data.printFormJson = normalizePrintForm(dto.printFormJson) as unknown as Prisma.InputJsonValue;
     }
     const updated = await this.prisma.organizationSettings.update({ where: { organizationId }, data });
     await this.audit.log(actor.id, 'UPDATE', 'OrganizationSettings', updated.id, before, updated);

@@ -29,6 +29,8 @@ import {
   UpdateLessonDto,
   UpdateMakeupTaskDto,
 } from './dto/schedule.dto';
+import { AbsenceMakeupService } from './absence-makeup.service';
+import { AutoConductService } from './auto-conduct.service';
 import { MakeupTasksService } from './makeup-tasks.service';
 import { presentLesson, ScheduleLessonsService } from './schedule-lessons.service';
 
@@ -41,7 +43,29 @@ export class ScheduleLessonsController {
   constructor(
     private readonly lessons: ScheduleLessonsService,
     private readonly makeup: MakeupTasksService,
+    private readonly absenceMakeup: AbsenceMakeupService,
+    private readonly autoConduct: AutoConductService,
   ) {}
+
+  @Post('calendar-events/:id/makeup')
+  @HttpCode(200)
+  @Roles(...EDITOR_ROLES)
+  @ApiOperation({
+    summary: 'Отсутствие преподавателя: перенести его пары на время после выхода (сверх недельного лимита)',
+  })
+  absenceMakeupRun(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.absenceMakeup.run(id, user);
+  }
+
+  @Post('schedule-lessons/auto-conduct')
+  @HttpCode(200)
+  @Roles(...EDITOR_ROLES)
+  @ApiOperation({
+    summary: 'Засчитать проведёнными закончившиеся пары без отметок (выполняется и автоматически)',
+  })
+  async autoConductRun(@CurrentUser() user: AuthUser) {
+    return { marked: await this.autoConduct.run(user.organizationId) };
+  }
 
   @Get('schedule-lessons')
   @Roles(...ALL_ROLES)

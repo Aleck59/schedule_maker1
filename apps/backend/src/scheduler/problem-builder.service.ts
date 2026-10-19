@@ -50,6 +50,8 @@ export interface BuiltProblem {
   preUnplaced: UnplacedItem[];
   replaceLessonIds: string[];
   warnings: string[];
+  /** Преподаватели с отсутствием в интервале, у которого не включена отработка после выхода */
+  absentWithoutMakeup: string[];
 }
 
 interface RoomLite {
@@ -202,13 +204,17 @@ export class ProblemBuilderService {
         lessonType: true,
         subgroupNumber: true,
         academicHours: true,
+        date: true,
       },
     });
     const existingHours = new Map<string, number>();
+    // Потоки, у которых уже есть пары после интервала: будущие недели заполнены, интервал добирает остаток целиком
+    const plannedAfterWindow = new Set<string>();
     for (const l of semesterLessons) {
       if (replaceable.has(l.id)) continue;
       const key = streamKeyOf(l.studentGroupId, l.semesterCurriculumItemId, l.lessonType, l.subgroupNumber);
       existingHours.set(key, (existingHours.get(key) ?? 0) + l.academicHours);
+      if (toDateStr(l.date) > to) plannedAfterWindow.add(key);
       if (l.subgroupNumber === null) {
         // Занятие всей группы засчитывается и подгруппам (если дисциплина делится)
         for (const s of streams) {
@@ -219,6 +225,7 @@ export class ProblemBuilderService {
             s.subgroupNumber !== null
           ) {
             existingHours.set(s.key, (existingHours.get(s.key) ?? 0) + l.academicHours);
+            if (toDateStr(l.date) > to) plannedAfterWindow.add(s.key);
           }
         }
       }
@@ -272,6 +279,7 @@ export class ProblemBuilderService {
     }
     // Даты консультаций: последние N недель теоретического обучения группы в семестре
     const consultationDates = new Map<string, string[]>();
+    const consultationBorder = new Map<string, string>();
     for (const gId of groupIds) {
       const semester = periodOfGroup.get(gId)!.semester;
       const allSemesterDays = eachDay(toDateStr(semester.startDate), toDateStr(semester.endDate)).filter(
@@ -283,6 +291,7 @@ export class ProblemBuilderService {
         continue;
       }
       const border = addDaysStr(weekStart(last), -7 * (settings.consultationWeeksBeforeEnd - 1));
+      consultationBorder.set(gId, border);
       consultationDates.set(
         gId,
         allSemesterDays.filter((d) => d >= border && dayDates.has(d) && inWindow(gId, d)),
@@ -332,10 +341,10 @@ export class ProblemBuilderService {
     }
     const pending: Pending[] = [];
     for (const s of streams) {
-      const remainingHours = s.plannedHours - (existingHours.get(s.key) ?? 0);
+      let remainingHours = s.plannedHours - (existingHours.get(s.key) ?? 0);
       if (remainingHours <= 0) continue;
-      const lessonsRequired = Math.ceil(remainingHours / h);
-      const partialHours = remainingHours % h;
+      let lessonsRequired = Math.ceil(remainingHours / h);
+      let partialHours = remainingHours % h;
       if (!s.teacherId) {
         pushUnplaced(s, lessonsRequired, remainingHours, 'NO_TEACHER', 'Преподаватель не назначен');
         continue;
@@ -387,6 +396,25 @@ export class ProblemBuilderService {
       } else if (s.lessonType === LessonType.CONSULTATION) {
         allowedDates = consultationDates.get(s.groupId) ?? [];
         if (allowedDates.length === 0) allowedDates = null;
+      }
+      // Составление на часть семестра (неделя, месяц): в интервал ставится доля оставшихся пар,
+      // пропорциональная учебным дням интервала, — остальное распределяется по следующим неделям,
+      // а не втискивается в эти дни
+      const fraction = plannedAfterWindow.has(s.key)
+        ? null
+        : this.windowShare(s, teacher, groupWindow(s.groupId), periodOfGroup.get(s.groupId)!.semester, {
+            ctx,
+            settings,
+            studyDays: groupById.get(s.groupId)?.studyDays ?? [],
+            consultationFrom: consultationBorder.get(s.groupId) ?? null,
+          });
+      // Округление вверх с допуском: 1,2 пары → 1, 1,3 → 2; хвост меньше четверти пары ждёт следующего интервала
+      const share = fraction === null ? null : Math.ceil(lessonsRequired * fraction - 0.25);
+      if (share !== null && share < lessonsRequired) {
+        if (share <= 0) continue;
+        lessonsRequired = share;
+        partialHours = 0;
+        remainingHours = share * h;
       }
       const assignmentTotal = s.assignmentId
         ? (assignmentTotals.get(s.assignmentId) ?? s.plannedLessons)
@@ -525,6 +553,35 @@ export class ProblemBuilderService {
       if (d) demands.push(d);
     }
 
+    // Отработка после отсутствия: со дня выхода лимиты пар преподавателя увеличены до конца семестра
+    const makeupEvents = await this.prisma.calendarEvent.findMany({
+      where: {
+        organizationId,
+        teacherId: { in: teacherIds },
+        makeupAfterReturn: true,
+        endDate: { gte: new Date(`${semesterStart}T00:00:00.000Z`), lt: new Date(`${to}T00:00:00.000Z`) },
+      },
+      orderBy: { endDate: 'asc' },
+    });
+    const absences = await this.prisma.calendarEvent.findMany({
+      where: {
+        organizationId,
+        teacherId: { in: teacherIds },
+        blocksSchedule: true,
+        makeupAfterReturn: false,
+        startDate: { lte: new Date(`${to}T00:00:00.000Z`) },
+        endDate: { gte: new Date(`${from}T00:00:00.000Z`) },
+      },
+      select: { teacherId: true },
+    });
+    const relief = new Map<string, { from: string; weekly: number }>();
+    for (const e of makeupEvents) {
+      const prev = relief.get(e.teacherId!);
+      relief.set(e.teacherId!, {
+        from: prev?.from ?? addDaysStr(toDateStr(e.endDate), 1),
+        weekly: Math.max(prev?.weekly ?? 0, e.makeupExtraWeekly),
+      });
+    }
     const teachers: SolverTeacher[] = teachersDb
       .filter((t) => demands.some((d) => d.teacherId === t.id))
       .map((t) => ({
@@ -544,7 +601,22 @@ export class ProblemBuilderService {
           .filter((d) => !isEmployedOn(t, d.date) || ctx.teacherBlocks(t.id, d.date).length > 0)
           .map((d) => d.date),
         ...this.ruleSlots(new TeacherRules(t.availabilityRules, settings.lessonTimes), days, lessonsPerDay),
+        ...(relief.has(t.id)
+          ? {
+              relaxedFrom: relief.get(t.id)!.from,
+              extraDailyLessons: 1,
+              extraWeeklyLessons: relief.get(t.id)!.weekly,
+            }
+          : {}),
       }));
+    for (const t of teachers) {
+      if (t.relaxedFrom) {
+        warnings.push(
+          `${t.name}: отработка после отсутствия — с ${t.relaxedFrom.split('-').reverse().join('.')} допускается до ` +
+            `${t.maxDailyLessons + 1} пар в день и ${t.maxWeeklyLessons + (t.extraWeeklyLessons ?? 0)} в неделю`,
+        );
+      }
+    }
     const onlineRoomId = rooms.find((r) => r.type === ClassroomType.ONLINE)?.id ?? null;
     for (const t of teachers) {
       if (t.onlineSlots?.length && !onlineRoomId) {
@@ -621,6 +693,7 @@ export class ProblemBuilderService {
       preUnplaced,
       replaceLessonIds: [...replaceable],
       warnings,
+      absentWithoutMakeup: [...new Set(absences.map((a) => a.teacherId!))].filter((id) => !relief.has(id)),
     };
   }
 
@@ -659,5 +732,45 @@ export class ProblemBuilderService {
       }
     }
     return { blockedSlots, slotPreferences, onlineSlots };
+  }
+
+  /**
+   * Доля учебных дней интервала среди учебных дней до конца семестра (с учётом календаря группы,
+   * отсутствий преподавателя и периода его работы). null — интервал доходит до конца семестра.
+   */
+  private windowShare(
+    s: DemandStream,
+    teacher: { id: string; employedFrom: Date | null; employedTo: Date | null },
+    window: { from: string; to: string },
+    semester: { endDate: Date },
+    opts: {
+      ctx: Awaited<ReturnType<PlanningService['buildCalendarContext']>>;
+      settings: EffectiveSettings;
+      studyDays: number[];
+      consultationFrom: string | null;
+    },
+  ): number | null {
+    const semesterEnd = toDateStr(semester.endDate);
+    if (window.to >= semesterEnd) return null;
+    const { ctx, settings, studyDays } = opts;
+    const eligible = (date: string) => {
+      const weekday = isoWeekday(date);
+      if (!settings.workingDays.includes(weekday)) return false;
+      if (!isEmployedOn(teacher, date) || ctx.teacherBlocks(teacher.id, date).length > 0) return false;
+      if (s.lessonType === LessonType.PRACTICE) return ctx.isPracticeAllowed(s.groupId, date, s.itemType);
+      if (studyDays.length > 0 && !studyDays.includes(weekday)) return false;
+      if (s.lessonType === LessonType.CONSULTATION && opts.consultationFrom && date < opts.consultationFrom)
+        return false;
+      return ctx.isRegularAllowed(s.groupId, date);
+    };
+    let inside = 0;
+    let future = 0;
+    for (const date of eachDay(window.from, semesterEnd)) {
+      if (!eligible(date)) continue;
+      future++;
+      if (date <= window.to) inside++;
+    }
+    if (future === 0 || inside === future) return null;
+    return inside / future;
   }
 }

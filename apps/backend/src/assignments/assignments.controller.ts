@@ -8,6 +8,7 @@ import {
   CreateAssignmentDto,
   GenerateAssignmentsDto,
   HandoverAssignmentDto,
+  SaveStreamDto,
   UpdateAssignmentDto,
 } from './dto/assignments.dto';
 
@@ -48,6 +49,27 @@ export class AssignmentsController {
   @ApiOperation({ summary: 'Сформировать нагрузку группы на семестр по учебному плану' })
   generate(@Body() dto: GenerateAssignmentsDto, @CurrentUser() user: AuthUser) {
     return this.assignments.generate(dto, user);
+  }
+
+  @Get('streams')
+  @Roles(...STAFF_ROLES)
+  @ApiOperation({ summary: 'Потоки: группы, у которых один преподаватель ведёт пары одновременно' })
+  streams(@CurrentUser() user: AuthUser) {
+    return this.assignments.streams(user);
+  }
+
+  @Post('streams')
+  @Roles(...EDITOR_ROLES)
+  @ApiOperation({ summary: 'Создать поток или изменить его состав' })
+  saveStream(@Body() dto: SaveStreamDto, @CurrentUser() user: AuthUser) {
+    return this.assignments.saveStream(dto, user);
+  }
+
+  @Delete('streams/:name')
+  @Roles(...EDITOR_ROLES)
+  @ApiOperation({ summary: 'Расформировать поток: группы снова занимаются отдельно' })
+  removeStream(@Param('name') name: string, @CurrentUser() user: AuthUser) {
+    return this.assignments.removeStream(name, user);
   }
 
   @Get(':id')

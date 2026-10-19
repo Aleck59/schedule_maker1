@@ -44,6 +44,10 @@ export interface SolverTeacher {
   slotPreferences?: Array<[string, number, number]>;
   /** [дата, номер пары] — занятия в этих слотах проводятся онлайн (в онлайн-аудитории) */
   onlineSlots?: Array<[string, number]>;
+  /** Отработка пропущенных пар после отсутствия: с этой даты лимиты в день и неделю увеличены */
+  relaxedFrom?: string | null;
+  extraDailyLessons?: number;
+  extraWeeklyLessons?: number;
 }
 
 export interface SolverRoom {

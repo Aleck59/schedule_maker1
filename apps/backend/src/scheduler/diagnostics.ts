@@ -1,3 +1,4 @@
+import { teacherLimits } from './pacing';
 import { SolverDemand, SolverProblem, SolverResult, UnplacedReason } from './solver.types';
 
 export interface DiagnosticReason {
@@ -165,8 +166,9 @@ export function diagnoseDemand(
       funnel.teacherAvailable++;
       if (teacherBusy.has(`${teacher.id}#${day.date}#${lesson}`)) continue;
       funnel.teacherFree++;
-      if ((teacherDay.get(`${teacher.id}#${day.date}`) ?? 0) >= teacher.maxDailyLessons) continue;
-      if ((teacherWeek.get(`${teacher.id}#${day.week}`) ?? 0) >= teacher.maxWeeklyLessons) continue;
+      const limits = teacherLimits(teacher, day.date);
+      if ((teacherDay.get(`${teacher.id}#${day.date}`) ?? 0) >= limits.daily) continue;
+      if ((teacherWeek.get(`${teacher.id}#${day.week}`) ?? 0) >= limits.weekly) continue;
       funnel.teacherWithinLimits++;
       const groupOk = demand.groupIds.every((g) => {
         const set = groupBusy.get(`${g}#${day.date}#${lesson}`);

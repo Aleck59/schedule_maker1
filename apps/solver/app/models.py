@@ -44,6 +44,18 @@ class Teacher(CamelModel):
     slot_preferences: list[tuple[str, int, int]] = Field(default_factory=list)
     # Слоты, в которых занятия преподавателя проводятся онлайн
     online_slots: list[tuple[str, int]] = Field(default_factory=list)
+    # Отработка после отсутствия: с этой даты лимиты пар в день и в неделю увеличены
+    relaxed_from: str | None = None
+    extra_daily_lessons: int = 0
+    extra_weekly_lessons: int = 0
+
+    def daily_limit(self, date: str) -> int:
+        relaxed = self.relaxed_from is not None and not date.startswith("T") and date >= self.relaxed_from
+        return self.max_daily_lessons + (self.extra_daily_lessons if relaxed else 0)
+
+    def weekly_limit(self, date: str) -> int:
+        relaxed = self.relaxed_from is not None and not date.startswith("T") and date >= self.relaxed_from
+        return self.max_weekly_lessons + (self.extra_weekly_lessons if relaxed else 0)
 
 
 class Room(CamelModel):

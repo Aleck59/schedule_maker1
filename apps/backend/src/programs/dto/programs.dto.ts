@@ -1,5 +1,12 @@
 import { ApiProperty, ApiPropertyOptional, OmitType, PartialType } from '@nestjs/swagger';
-import { ClassroomType, ControlForm, CurriculumItemType, ProgramStatus, StudyForm } from '@prisma/client';
+import {
+  ClassroomType,
+  ControlForm,
+  CurriculumItemType,
+  EducationBase,
+  ProgramStatus,
+  StudyForm,
+} from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   IsArray,
@@ -38,6 +45,15 @@ export class CreateProgramDto {
   @IsOptional()
   @IsEnum(StudyForm)
   studyForm?: StudyForm;
+
+  @ApiPropertyOptional({
+    enum: EducationBase,
+    nullable: true,
+    description: 'На базе основного (9 кл.) или среднего (11 кл.) общего образования',
+  })
+  @IsOptional()
+  @IsEnum(EducationBase)
+  educationBase?: EducationBase | null;
 
   @ApiProperty({ example: 46 })
   @IsInt()

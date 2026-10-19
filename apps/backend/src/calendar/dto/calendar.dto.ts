@@ -72,6 +72,24 @@ export class CreateCalendarEventDto {
   @IsBoolean()
   blocksSchedule?: boolean;
 
+  @ApiPropertyOptional({
+    description:
+      'Отсутствие преподавателя: пропущенные пары ставятся после выхода, лимиты пар в день и в неделю после выхода увеличены',
+  })
+  @IsOptional()
+  @IsBoolean()
+  makeupAfterReturn?: boolean;
+
+  @ApiPropertyOptional({
+    example: 4,
+    description: 'На сколько пар в неделю можно превысить лимит при отработке',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  makeupExtraWeekly?: number;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

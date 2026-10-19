@@ -114,6 +114,13 @@ export class UpdateSettingsDto {
   @IsBoolean()
   scheduleConsultations?: boolean;
 
+  @ApiPropertyOptional({
+    description: 'Засчитывать закончившиеся пары без отметок проведёнными автоматически',
+  })
+  @IsOptional()
+  @IsBoolean()
+  autoMarkConducted?: boolean;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsInt()
@@ -132,6 +139,14 @@ export class UpdateSettingsDto {
   @IsOptional()
   @IsObject()
   solverWeightsJson?: Record<string, number>;
+
+  @ApiPropertyOptional({
+    description:
+      'Печатная форма расписания: approvals [{heading, position, name}], footerPosition, footerName, profiles {specialtyId: профиль}',
+  })
+  @IsOptional()
+  @IsObject()
+  printFormJson?: Record<string, unknown>;
 }
 
 export class UpdateOrganizationDto {

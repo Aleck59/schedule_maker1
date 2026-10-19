@@ -12,6 +12,7 @@ import {
   CreateAssignmentDto,
   GenerateAssignmentsDto,
   HandoverAssignmentDto,
+  SaveStreamDto,
   UpdateAssignmentDto,
 } from './dto/assignments.dto';
 
@@ -298,6 +299,106 @@ export class AssignmentsService {
     }
     await this.audit.log(actor.id, 'GENERATE', 'GroupCurriculumAssignment', group.id, null, { created });
     return { created };
+  }
+
+  // ---------------------------------------------------------------- потоки
+
+  /**
+   * Потоки: назначения разных групп с одним названием потока, одним преподавателем и видом занятий
+   * ставятся одной парой (например, физкультура у нескольких групп в спортзале одновременно).
+   */
+  async streams(actor: AuthUser) {
+    const list = await this.prisma.groupCurriculumAssignment.findMany({
+      where: { streamKey: { not: null }, group: { program: { organizationId: actor.organizationId } } },
+      include: INCLUDE,
+      orderBy: [{ streamKey: 'asc' }, { group: { code: 'asc' } }],
+    });
+    const byKey = new Map<string, typeof list>();
+    for (const a of list) byKey.set(a.streamKey!, [...(byKey.get(a.streamKey!) ?? []), a]);
+    return [...byKey].map(([name, assignments]) => {
+      const teachers = new Map(assignments.filter((a) => a.teacher).map((a) => [a.teacher!.id, a.teacher!]));
+      const problems: string[] = [];
+      if (assignments.length < 2) problems.push('В потоке одна группа — пары ставятся отдельно');
+      if (teachers.size > 1)
+        problems.push('У групп разные преподаватели — вместе ставятся только пары одного преподавателя');
+      if (assignments.some((a) => !a.teacherId)) problems.push('Не у всех групп назначен преподаватель');
+      if (assignments.some((a) => a.subgroupNumber !== null))
+        problems.push('Назначения подгрупп в поток не объединяются');
+      return {
+        name,
+        teachers: [...teachers.values()],
+        studentCount: assignments.reduce((sum, a) => sum + a.group.studentCount, 0),
+        assignments,
+        problems,
+      };
+    });
+  }
+
+  async saveStream(dto: SaveStreamDto, actor: AuthUser) {
+    const name = dto.name.trim();
+    const ids = [...new Set(dto.assignmentIds)];
+    if (ids.length < 2) throw new BadRequestException('Выберите не менее двух групп для потока');
+    const list = await this.prisma.groupCurriculumAssignment.findMany({
+      where: { id: { in: ids }, group: { program: { organizationId: actor.organizationId } } },
+      include: INCLUDE,
+    });
+    if (list.length !== ids.length) throw new NotFoundException('Часть назначений не найдена');
+    if (list.some((a) => a.subgroupNumber !== null)) {
+      throw new BadRequestException('В поток объединяются назначения на всю группу, а не на подгруппы');
+    }
+    const teacherIds = new Set(list.map((a) => a.teacherId));
+    if (teacherIds.has(null)) throw new BadRequestException('Назначьте преподавателя всем группам потока');
+    if (teacherIds.size > 1)
+      throw new BadRequestException(
+        'Пары потока ведёт один преподаватель — выберите назначения одного преподавателя',
+      );
+    if (new Set(list.map((a) => a.studentGroupId)).size !== list.length) {
+      throw new BadRequestException('Одна группа может входить в поток только одним назначением');
+    }
+    if (dto.previousName !== name) {
+      const clash = await this.prisma.groupCurriculumAssignment.count({
+        where: {
+          streamKey: name,
+          id: { notIn: ids },
+          group: { program: { organizationId: actor.organizationId } },
+        },
+      });
+      if (clash > 0) throw new ConflictException(`Поток «${name}» уже есть — выберите другое название`);
+    }
+    await this.prisma.$transaction([
+      // При изменении состава убираем из прежнего потока группы, которых в нём больше нет
+      ...(dto.previousName
+        ? [
+            this.prisma.groupCurriculumAssignment.updateMany({
+              where: {
+                streamKey: dto.previousName,
+                id: { notIn: ids },
+                group: { program: { organizationId: actor.organizationId } },
+              },
+              data: { streamKey: null },
+            }),
+          ]
+        : []),
+      this.prisma.groupCurriculumAssignment.updateMany({
+        where: { id: { in: ids } },
+        data: { streamKey: name },
+      }),
+    ]);
+    await this.audit.log(actor.id, 'UPDATE', 'Stream', null, dto.previousName ?? null, {
+      name,
+      assignmentIds: ids,
+    });
+    return (await this.streams(actor)).find((s) => s.name === name);
+  }
+
+  async removeStream(name: string, actor: AuthUser) {
+    const { count } = await this.prisma.groupCurriculumAssignment.updateMany({
+      where: { streamKey: name, group: { program: { organizationId: actor.organizationId } } },
+      data: { streamKey: null },
+    });
+    if (count === 0) throw new NotFoundException('Поток не найден');
+    await this.audit.log(actor.id, 'DELETE', 'Stream', null, { name }, null);
+    return { success: true };
   }
 
   private async validate(

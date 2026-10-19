@@ -242,10 +242,10 @@
 
 /* Появление страницы при переходе и каскад блоков внутри неё */
 .page-enter {
-  animation: sm-fade-in 0.3s ease-out both;
+  animation: sm-fade-in 0.3s ease-out backwards;
 }
 .page-enter > * > * {
-  animation: sm-fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: sm-fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 .page-enter > * > :nth-child(2) {
   animation-delay: 40ms;
@@ -263,7 +263,7 @@
   animation-delay: 200ms;
 }
 .stagger > * {
-  animation: sm-fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: sm-fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 .stagger > :nth-child(2) {
   animation-delay: 50ms;
