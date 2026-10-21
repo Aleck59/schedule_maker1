@@ -1119,4 +1119,82 @@ describe('Расписание СПО (e2e)', () => {
     // 9 преподавателей демо-данных и преподаватель, вышедший в середине семестра
     expect(dashboard.body.counters.teachers).toBe(10);
   });
+
+  it('экзамены и зачёты: у преподавателя и аудитории нет двух мероприятий в одну пару', async () => {
+    const groups = await http.get('/api/groups').set(auth('dispatcher')).expect(200);
+    const base = groups.body.find((g: { code: string }) => g.code === 'ИСП-24-1');
+    // Вторая группа того же учебного плана — те же дисциплины и экзамены в те же дни аттестации
+    await http
+      .post('/api/groups')
+      .set(auth('dispatcher'))
+      .send({
+        educationalProgramId: base.educationalProgramId,
+        code: 'ИСП-24-2',
+        courseNumber: base.courseNumber,
+        currentSemesterNumber: base.currentSemesterNumber,
+        studentCount: 20,
+      })
+      .expect(201);
+    const prisma = app.get(PrismaService);
+    // Семестр с экзаменами в сессию и зачётами
+    const semester = await prisma.semester.findFirstOrThrow({
+      where: { educationalProgramId: base.educationalProgramId, number: 4 },
+    });
+    const placed = await http
+      .post('/api/assessment-events/auto-place')
+      .set(auth('dispatcher'))
+      .send({ semesterId: semester.id, replaceExisting: true })
+      .expect(201);
+    expect(placed.body.created).toBeGreaterThan(2);
+    const list = await http
+      .get(`/api/assessment-events?semesterId=${semester.id}`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    type Ev = {
+      date: string;
+      lessonNumber: number | null;
+      teacherId: string | null;
+      classroomId: string | null;
+      controlForm: string;
+      group: { code: string };
+      semesterItem: { curriculumItem: { name: string } };
+    };
+    const events: Ev[] = list.body;
+    expect(new Set(events.map((e) => e.group.code))).toEqual(new Set(['ИСП-24-1', 'ИСП-24-2']));
+    const slot = (e: Ev) => `${e.date.slice(0, 10)}#${e.lessonNumber}`;
+    const unique = (keys: string[]) => expect(new Set(keys).size).toBe(keys.length);
+    for (const e of events) expect(e.lessonNumber).toBeGreaterThan(0);
+    unique(events.filter((e) => e.teacherId).map((e) => `${e.teacherId}|${slot(e)}`));
+    // Одноимённые дисциплины двух групп (один преподаватель) — разными парами или в разные дни
+    unique(events.map((e) => `${e.semesterItem.curriculumItem.name}|${slot(e)}`));
+    unique(events.filter((e) => e.classroomId).map((e) => `${e.classroomId}|${slot(e)}`));
+    unique(events.map((e) => `${e.group.code}|${slot(e)}`));
+    // Один экзамен группы в день
+    const exams = events.filter((e) => e.controlForm === 'EXAM');
+    unique(exams.map((e) => `${e.group.code}|${e.date.slice(0, 10)}`));
+
+    // Ручное мероприятие в занятую преподавателем пару отклоняется
+    const busy = events.find((e) => e.teacherId);
+    if (busy) {
+      const other = groups.body.find((g: { code: string }) => g.code === 'ИСП-25-1');
+      const item = await prisma.semesterCurriculumItem.findFirstOrThrow({
+        where: {
+          semester: { educationalProgramId: other.educationalProgramId },
+          controlForm: { not: 'NONE' },
+        },
+      });
+      const clash = await http
+        .post('/api/assessment-events')
+        .set(auth('dispatcher'))
+        .send({
+          studentGroupId: other.id,
+          semesterCurriculumItemId: item.id,
+          date: busy.date.slice(0, 10),
+          lessonNumber: busy.lessonNumber,
+          teacherId: busy.teacherId,
+        })
+        .expect(400);
+      expect(clash.body.message).toMatch(/Преподаватель в эту пару уже принимает/);
+    }
+  });
 });

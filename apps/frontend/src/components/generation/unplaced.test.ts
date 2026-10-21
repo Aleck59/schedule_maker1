@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { UnplacedItem } from '@/lib/types';
-import { byTeacher, groupUnplaced } from './unplaced';
+import { byTeacher, combinedPatch, groupUnplaced, quickFixes, type RerunSettings } from './unplaced';
 
 const item = (id: string, code: string, teacher: string | null, lessons: number, group = 'ФИЛ-25-1з'): UnplacedItem => ({
   demandId: id,
@@ -43,5 +43,46 @@ describe('непоставленные занятия', () => {
     ]);
     expect(teachers[1].groups).toEqual(['ФИЛ-25-1з', 'ФИЛ-24-2з']);
     expect(byTeacher([items[3]])[0].name).toBe('Преподаватель не назначен');
+  });
+});
+
+describe('быстрые исправления', () => {
+  const settings: RerunSettings = {
+    timeLimitSeconds: 60,
+    lessonsPerDay: 6,
+    maxGroupLessonsPerDay: 4,
+    maxSameDisciplinePerDay: 2,
+    maxSameDisciplinePerWeek: 6,
+    avoidWindows: true,
+    allowLateLessons: false,
+    respectTeacherPreferences: true,
+  };
+
+  it('нехватка времени — перезапуск с ослабленными настройками, все сразу одной кнопкой', () => {
+    const fixes = quickFixes('NOT_ENOUGH_TIME', settings);
+    expect(fixes.map((f) => f.patch)).toEqual([
+      { timeLimitSeconds: 120 },
+      { avoidWindows: false },
+      { maxGroupLessonsPerDay: 5 },
+      { allowLateLessons: true },
+    ]);
+    expect(combinedPatch(fixes)).toEqual({ timeLimitSeconds: 120, avoidWindows: false, maxGroupLessonsPerDay: 5, allowLateLessons: true });
+  });
+
+  it('уже ослабленные настройки не предлагаются повторно', () => {
+    const fixes = quickFixes('NOT_ENOUGH_TIME', {
+      ...settings,
+      timeLimitSeconds: 3600,
+      avoidWindows: false,
+      allowLateLessons: true,
+      maxGroupLessonsPerDay: 6,
+    });
+    expect(fixes).toEqual([]);
+  });
+
+  it('нет преподавателя — переход к нагрузке, без перезапуска', () => {
+    const fixes = quickFixes('NO_TEACHER', settings);
+    expect(fixes).toEqual([expect.objectContaining({ to: '/workload' })]);
+    expect(combinedPatch(fixes)).toBeNull();
   });
 });

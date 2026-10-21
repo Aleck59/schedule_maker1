@@ -181,4 +181,9 @@ export class AutoPlaceAssessmentsDto {
   @Min(0)
   @Max(7)
   minDaysBetween?: number;
+
+  @ApiPropertyOptional({ description: 'Удалить мероприятия семестра и распределить заново' })
+  @IsOptional()
+  @IsBoolean()
+  replaceExisting?: boolean;
 }
