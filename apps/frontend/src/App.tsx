@@ -15,6 +15,7 @@ import LoginPage from '@/pages/LoginPage';
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const SchedulePage = lazy(() => import('@/pages/SchedulePage'));
 const GenerationPage = lazy(() => import('@/pages/GenerationPage'));
+const GenerationPreviewPage = lazy(() => import('@/pages/GenerationPreviewPage'));
 const HourControlPage = lazy(() => import('@/pages/HourControlPage'));
 const ProgramsPage = lazy(() => import('@/pages/ProgramsPage'));
 const ProgramDetailsPage = lazy(() => import('@/pages/ProgramDetailsPage'));
@@ -97,6 +98,7 @@ export default function App() {
                 <Route path="my" element={page(<MySchedulePage />, ['TEACHER', 'STUDENT'])} />
                 <Route path="schedule" element={page(<SchedulePage />, [...STAFF, 'TEACHER'])} />
                 <Route path="generation" element={page(<GenerationPage />, EDITORS)} />
+                <Route path="generation/preview/:jobId" element={page(<GenerationPreviewPage />, EDITORS)} />
                 <Route path="hour-control" element={page(<HourControlPage />, STAFF)} />
                 <Route path="makeup" element={page(<MakeupPage />, [...EDITORS, 'TEACHER'])} />
                 <Route path="programs" element={page(<ProgramsPage />, STAFF)} />

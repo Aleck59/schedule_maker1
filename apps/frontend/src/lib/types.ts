@@ -630,7 +630,9 @@ export interface PreviewLesson {
   itemCode: string;
   itemName: string;
   lessonType: LessonType;
+  teacherId: string | null;
   teacherName: string | null;
+  roomId: string | null;
   roomCode: string | null;
   academicHours: number;
 }
@@ -642,6 +644,7 @@ export interface UnplacedItem {
   disciplineName: string;
   itemCode: string;
   lessonType: LessonType;
+  teacherId?: string | null;
   teacherName: string | null;
   lessonsRequired: number;
   lessonsUnplaced: number;

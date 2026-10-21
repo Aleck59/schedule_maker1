@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Plus } from 'lucide-react';
 import { Controller, useForm } from 'react-hook-form';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { z } from 'zod';
 import { DataTable } from '@/components/common/data-table';
 import { Field } from '@/components/common/field';
+import { FilterChips } from '@/components/common/filter-chips';
 import { PageHeader } from '@/components/common/page-header';
 import { SimpleSelect } from '@/components/common/simple-select';
 import { ErrorState, LoadingState, Spinner } from '@/components/common/states';
@@ -27,6 +28,42 @@ export default function GroupsPage() {
   const navigate = useNavigate();
   const groups = useGroups();
   const [open, setOpen] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const filters = { form: params.get('form'), level: params.get('level'), course: params.get('course'), status: params.get('status') };
+  const setFilter = (key: keyof typeof filters, v: string | null) =>
+    setParams(
+      (p) => {
+        const next = new URLSearchParams(p);
+        if (v) next.set(key, v);
+        else next.delete(key);
+        return next;
+      },
+      { replace: true },
+    );
+  const all = useMemo(() => groups.data ?? [], [groups.data]);
+  const matches = (g: Group, skip?: keyof typeof filters) =>
+    (skip === 'form' || !filters.form || groupForm(g) === filters.form) &&
+    (skip === 'level' || !filters.level || groupLevel(g) === filters.level) &&
+    (skip === 'course' || !filters.course || String(g.courseNumber) === filters.course) &&
+    (skip === 'status' || !filters.status || (filters.status === 'active') === g.isActive);
+  const filtered = all.filter((g) => matches(g));
+  /** Варианты фильтра — только встречающиеся значения, со счётчиком с учётом остальных фильтров */
+  const chipOptions = (key: keyof typeof filters, valueOf: (g: Group) => string, labelOf: (v: string) => string, order: string[] = []) => {
+    const rest = all.filter((g) => matches(g, key));
+    const rank = (v: string) => (order.includes(v) ? order.indexOf(v) : order.length);
+    const values = [...new Set(all.map(valueOf))].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'ru', { numeric: true }));
+    return {
+      allCount: rest.length,
+      options: values.map((v) => ({ value: v, label: labelOf(v), count: rest.filter((g) => valueOf(g) === v).length })),
+    };
+  };
+  const formChips = chipOptions('form', groupForm, (v) => STUDY_FORM_LABELS[v] ?? v, ['FULL_TIME', 'PART_TIME', 'EXTRAMURAL']);
+  const levelChips = chipOptions('level', groupLevel, (v) => EDUCATION_LEVEL_LABELS[v] ?? v, ['SPO', 'BACHELOR', 'SPECIALIST', 'MASTER', 'POSTGRADUATE']);
+  const courseChips = chipOptions('course', (g) => String(g.courseNumber), (v) => `${v} курс`);
+  const statusChips = chipOptions('status', (g) => (g.isActive ? 'active' : 'archive'), (v) => (v === 'active' ? 'Обучаются' : 'Выпуск / архив'), [
+    'active',
+  ]);
+  const anyFilter = Object.values(filters).some(Boolean);
   const columns: ColumnDef<Group>[] = [
     {
       accessorKey: 'code',
@@ -98,12 +135,45 @@ export default function GroupsPage() {
       ) : groups.error ? (
         <ErrorState error={groups.error} onRetry={() => groups.refetch()} />
       ) : (
-        <DataTable data={groups.data ?? []} columns={columns} onRowClick={(g) => navigate(`/groups/${g.id}`)} searchPlaceholder="Поиск группы…" />
+        <>
+          <div className="bg-card space-y-2 rounded-lg border p-3">
+            <FilterChips label="Форма" value={filters.form} onChange={(v) => setFilter('form', v)} {...formChips} />
+            {levelChips.options.length > 1 && (
+              <FilterChips label="Уровень" value={filters.level} onChange={(v) => setFilter('level', v)} {...levelChips} />
+            )}
+            <FilterChips label="Курс" value={filters.course} onChange={(v) => setFilter('course', v)} {...courseChips} />
+            {statusChips.options.length > 1 && (
+              <FilterChips label="Статус" value={filters.status} onChange={(v) => setFilter('status', v)} {...statusChips} />
+            )}
+          </div>
+          <DataTable
+            data={filtered}
+            columns={columns}
+            onRowClick={(g) => navigate(`/groups/${g.id}`)}
+            searchPlaceholder="Поиск группы…"
+            emptyText={anyFilter ? 'Нет групп с такими фильтрами' : undefined}
+            toolbar={
+              anyFilter && (
+                <>
+                  <span className="text-muted-foreground text-sm">
+                    Показано {filtered.length} из {all.length}
+                  </span>
+                  <Button variant="ghost" size="sm" onClick={() => setParams({}, { replace: true })}>
+                    Сбросить фильтры
+                  </Button>
+                </>
+              )
+            }
+          />
+        </>
       )}
       <GroupDialog open={open} onOpenChange={setOpen} onSaved={(id) => navigate(`/groups/${id}`)} />
     </div>
   );
 }
+
+const groupForm = (g: Group) => g.program?.studyForm ?? 'FULL_TIME';
+const groupLevel = (g: Group) => g.program?.specialty?.educationLevel ?? 'SPO';
 
 const WEEKDAYS = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
 

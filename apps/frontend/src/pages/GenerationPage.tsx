@@ -5,9 +5,9 @@ import {
   AlertTriangle,
   CalendarPlus,
   CheckCircle2,
-  ChevronLeft,
   ChevronRight,
   Cpu,
+  Eye,
   Play,
   Square,
   Upload,
@@ -19,7 +19,7 @@ import { z } from 'zod';
 import { Confirm } from '@/components/common/confirm';
 import { Field } from '@/components/common/field';
 import { AllGroupsPlanCard, LEVEL_FILTER_OPTIONS, type LevelFilter, levelsOf } from '@/components/generation/all-groups';
-import { UnplacedList } from '@/components/generation/unplaced';
+import { type RerunPatch, type RerunSettings, UnplacedList } from '@/components/generation/unplaced';
 import { PageHeader } from '@/components/common/page-header';
 import { SimpleSelect } from '@/components/common/simple-select';
 import { EmptyState, ErrorState, LoadingState, Spinner } from '@/components/common/states';
@@ -37,10 +37,10 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useGroups, usePeriods, useSemesters, useSettings } from '@/hooks/use-reference';
 import { api } from '@/lib/api';
-import { addDays, formatDate, formatDateShort, formatDateTime, formatNumber, isoWeekday, today, weekStart, weekdayName } from '@/lib/format';
-import { LESSON_TYPE_SHORT, SOFT_VIOLATION_LABELS, SOLVER_LABELS } from '@/lib/labels';
+import { formatDate, formatDateTime, formatNumber, today } from '@/lib/format';
+import { SOFT_VIOLATION_LABELS, SOLVER_LABELS } from '@/lib/labels';
 import { useApi, useApiMutation } from '@/lib/query';
-import type { AllGroupsPlan, GenerationJob, GenerationResult, PreviewLesson, SchedulePeriod } from '@/lib/types';
+import type { AllGroupsPlan, GenerationJob, GenerationResult, SchedulePeriod } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 const ACTIVE_JOB = ['QUEUED', 'GENERATING', 'VALIDATING'];
@@ -218,6 +218,14 @@ export default function GenerationPage() {
     onSuccess: (r) => setApplyResult(r),
   });
 
+  const submit = (v: FormValues) => (scope === 'all' ? generateAll.mutate(v) : generate.mutate(v));
+  /** Быстрое исправление: поменять настройки и сразу перезапустить генерацию */
+  const rerun = (patch: RerunPatch) => {
+    for (const [k, v] of Object.entries(patch)) form.setValue(k as keyof RerunSettings, v as never, { shouldDirty: true });
+    void form.handleSubmit(submit)();
+  };
+  const groupIdByCode = useMemo(() => new Map((groups.data ?? []).map((g) => [g.code, g.id])), [groups.data]);
+
   if (periods.isLoading) return <LoadingState rows={8} />;
   if (periods.error) return <ErrorState error={periods.error} onRetry={() => periods.refetch()} />;
 
@@ -265,7 +273,7 @@ export default function GenerationPage() {
           <div className="min-w-0 space-y-4">
             <Card>
               <CardContent className="pt-1">
-                <form className="space-y-4" onSubmit={form.handleSubmit((v) => (scope === 'all' ? generateAll.mutate(v) : generate.mutate(v)))}>
+                <form className="space-y-4" onSubmit={form.handleSubmit(submit)}>
                   {scope === 'all' ? (
                     <div className="grid grid-cols-2 gap-3">
                       <Field label="Семестр групп на дату">
@@ -457,8 +465,10 @@ export default function GenerationPage() {
                 applying={apply.isPending}
                 onApply={() => apply.mutate(job.data!.id)}
                 applyResult={applyResult}
-                lessonsPerDay={form.getValues('lessonsPerDay')}
-                workingDays={s?.workingDays ?? [1, 2, 3, 4, 5, 6]}
+                rerunSettings={form.watch()}
+                onRerun={rerun}
+                rerunDisabled={running || generate.isPending || generateAll.isPending}
+                groupIdByCode={groupIdByCode}
               />
             )}
             <JobHistory
@@ -590,16 +600,20 @@ function JobPanel({
   applying,
   onApply,
   applyResult,
-  lessonsPerDay,
-  workingDays,
+  rerunSettings,
+  onRerun,
+  rerunDisabled,
+  groupIdByCode,
 }: {
   job: GenerationJob;
   result: GenerationResult | null | undefined;
   applying: boolean;
   onApply: () => void;
   applyResult: ApplyResult | null;
-  lessonsPerDay: number;
-  workingDays: number[];
+  rerunSettings: RerunSettings;
+  onRerun: (patch: RerunPatch) => void;
+  rerunDisabled: boolean;
+  groupIdByCode: Map<string, string>;
 }) {
   const running = ACTIVE_JOB.includes(job.status);
   const stats = result?.stats;
@@ -621,19 +635,28 @@ function JobPanel({
                 : ''}
             </CardDescription>
           </div>
-          {canApply && (
-            <Confirm
-              trigger={
-                <Button disabled={applying}>
-                  {applying ? <Spinner /> : <Upload />} Применить
-                </Button>
-              }
-              title="Применить результат?"
-              description={`Будет создано ${result!.lessons.length} занятий, заменено ${result!.replaceLessonIds.length} ранее составленных. Закреплённые, ручные и проведённые занятия не изменятся.`}
-              confirmText="Применить"
-              onConfirm={onApply}
-            />
-          )}
+          <div className="flex shrink-0 flex-wrap justify-end gap-2">
+            {result && result.lessons.length > 0 && (
+              <Button asChild variant="outline">
+                <Link to={`/generation/preview/${job.id}`} title="Неопубликованное расписание по группам, преподавателям и аудиториям">
+                  <Eye /> Предпросмотр
+                </Link>
+              </Button>
+            )}
+            {canApply && (
+              <Confirm
+                trigger={
+                  <Button disabled={applying}>
+                    {applying ? <Spinner /> : <Upload />} Применить
+                  </Button>
+                }
+                title="Применить результат?"
+                description={`Будет создано ${result!.lessons.length} занятий, заменено ${result!.replaceLessonIds.length} ранее составленных. Закреплённые, ручные и проведённые занятия не изменятся.`}
+                confirmText="Применить"
+                onConfirm={onApply}
+              />
+            )}
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
           {running && (
@@ -709,11 +732,16 @@ function JobPanel({
               Не поставлено {result.unplaced.length > 0 && <Badge variant="destructive">{stats.unplacedLessons}</Badge>}
             </TabsTrigger>
             <TabsTrigger value="groups">По группам</TabsTrigger>
-            <TabsTrigger value="preview">Просмотр</TabsTrigger>
             <TabsTrigger value="details">Подробнее</TabsTrigger>
           </TabsList>
           <TabsContent value="unplaced">
-            <UnplacedList items={result.unplaced} />
+            <UnplacedList
+              items={result.unplaced}
+              settings={rerunSettings}
+              onRerun={onRerun}
+              rerunDisabled={rerunDisabled}
+              groupIdByCode={groupIdByCode}
+            />
           </TabsContent>
           <TabsContent value="groups">
             <Card>
@@ -737,9 +765,6 @@ function JobPanel({
                   ))}
               </CardContent>
             </Card>
-          </TabsContent>
-          <TabsContent value="preview">
-            <PreviewGrid result={result} lessonsPerDay={lessonsPerDay} workingDays={workingDays} />
           </TabsContent>
           <TabsContent value="details">
             <Card>
@@ -790,85 +815,6 @@ function JobPanel({
         </Tabs>
       )}
     </div>
-  );
-}
-
-function PreviewGrid({ result, lessonsPerDay, workingDays }: { result: GenerationResult; lessonsPerDay: number; workingDays: number[] }) {
-  const groupOptions = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const l of result.lessons) l.groupIds.forEach((id, i) => map.set(id, l.groupCodes[i] ?? id));
-    return [...map.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
-  }, [result.lessons]);
-  const [groupId, setGroupId] = useState<string | null>(null);
-  const gid = groupId ?? groupOptions[0]?.value ?? null;
-  const firstDate = result.lessons.map((l) => l.date).sort()[0] ?? result.range.from;
-  const [week, setWeek] = useState(weekStart(firstDate));
-  const days = Array.from({ length: 7 }, (_, i) => addDays(week, i)).filter((d) => workingDays.includes(isoWeekday(d)));
-  const cells = useMemo(() => {
-    const map = new Map<string, PreviewLesson[]>();
-    for (const l of result.lessons) {
-      if (!gid || !l.groupIds.includes(gid)) continue;
-      const k = `${l.date}#${l.lessonNumber}`;
-      map.set(k, [...(map.get(k) ?? []), l]);
-    }
-    return map;
-  }, [result.lessons, gid]);
-  const maxN = Math.max(lessonsPerDay, ...result.lessons.map((l) => l.lessonNumber));
-  return (
-    <Card>
-      <CardContent className="space-y-3 pt-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="w-48">
-            <SimpleSelect value={gid} onChange={setGroupId} options={groupOptions} />
-          </div>
-          <Button variant="outline" size="icon" onClick={() => setWeek(addDays(week, -7))} aria-label="Предыдущая неделя">
-            <ChevronLeft />
-          </Button>
-          <span className="text-sm font-medium">
-            {formatDate(week)} — {formatDate(addDays(week, 6))}
-          </span>
-          <Button variant="outline" size="icon" onClick={() => setWeek(addDays(week, 7))} aria-label="Следующая неделя">
-            <ChevronRight />
-          </Button>
-        </div>
-        <div className="overflow-x-auto rounded-md border scrollbar-thin">
-          <table className="w-full min-w-[800px] border-collapse text-xs">
-            <thead>
-              <tr className="bg-muted/40">
-                <th className="w-12 p-2 text-left">Пара</th>
-                {days.map((d) => (
-                  <th key={d} className="border-l p-2 text-center">
-                    {weekdayName(isoWeekday(d), true)} {formatDateShort(d)}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {Array.from({ length: maxN }, (_, i) => i + 1).map((n) => (
-                <tr key={n} className="border-t">
-                  <td className="p-2 text-center font-semibold">{n}</td>
-                  {days.map((d) => (
-                    <td key={d} className="border-l p-1 align-top">
-                      {(cells.get(`${d}#${n}`) ?? []).map((l, i) => (
-                        <div key={i} className="bg-primary/5 mb-1 rounded border px-1.5 py-1 leading-tight">
-                          <div className="font-medium">{l.itemName}</div>
-                          <div className="text-muted-foreground">
-                            {LESSON_TYPE_SHORT[l.lessonType]}
-                            {l.subgroupNumber ? ` · п/г ${l.subgroupNumber}` : ''} · {l.roomCode ?? 'без ауд.'}
-                            {l.academicHours === 1 && <span className="ml-1 rounded bg-amber-200 px-1 text-amber-900">1 ч</span>}
-                          </div>
-                          <div className="text-muted-foreground truncate">{l.teacherName ?? '—'}</div>
-                        </div>
-                      ))}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 

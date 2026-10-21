@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { CalendarPlus, Sparkles, Trash2 } from 'lucide-react';
+import { CalendarPlus, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { Controller, useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { Confirm } from '@/components/common/confirm';
@@ -23,7 +23,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useGroups, usePrograms, useSemesters, useTeachers } from '@/hooks/use-reference';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { formatDate, formatDateShort } from '@/lib/format';
+import { formatDate, formatDateShort, isoWeekday, weekdayName } from '@/lib/format';
 import { CALENDAR_EVENT_CODES, CALENDAR_EVENT_COLORS, CALENDAR_EVENT_LABELS, CONTROL_FORM_LABELS } from '@/lib/labels';
 import { useApi, useApiMutation } from '@/lib/query';
 import type { CalendarEvent, CalendarEventType } from '@/lib/types';
@@ -518,11 +518,15 @@ function AssessmentsView({ programId, editable }: { programId: string; editable:
   const sid = semesterId ?? programSemesters[0]?.id ?? null;
   const list = useApi<AssessmentEvent[]>(['assessments', sid], sid ? '/assessment-events' : null, { semesterId: sid ?? undefined });
   const [warnings, setWarnings] = useState<string[]>([]);
-  const autoPlace = useApiMutation(() => api.post<{ created: number; warnings: string[] }>('/assessment-events/auto-place', { semesterId: sid }), {
-    success: (r) => `Распределено контрольных мероприятий: ${r.created}`,
-    invalidate: [['assessments']],
-    onSuccess: (r) => setWarnings(r.warnings),
-  });
+  const autoPlace = useApiMutation(
+    (replaceExisting: boolean) =>
+      api.post<{ created: number; warnings: string[] }>('/assessment-events/auto-place', { semesterId: sid, replaceExisting }),
+    {
+      success: (r) => `Распределено контрольных мероприятий: ${r.created}`,
+      invalidate: [['assessments']],
+      onSuccess: (r) => setWarnings(r.warnings),
+    },
+  );
   const remove = useApiMutation((id: string) => api.delete(`/assessment-events/${id}`), {
     success: 'Удалено',
     invalidate: [['assessments']],
@@ -538,15 +542,29 @@ function AssessmentsView({ programId, editable }: { programId: string; editable:
           />
         </div>
         {editable && sid && (
-          <Button variant="outline" onClick={() => autoPlace.mutate(undefined)} disabled={autoPlace.isPending}>
+          <Button variant="outline" onClick={() => autoPlace.mutate(false)} disabled={autoPlace.isPending}>
             {autoPlace.isPending ? <Spinner /> : <Sparkles />} Распределить автоматически
           </Button>
+        )}
+        {editable && sid && (list.data ?? []).length > 0 && (
+          <Confirm
+            trigger={
+              <Button variant="ghost" disabled={autoPlace.isPending}>
+                <RefreshCw /> Перераспределить заново
+              </Button>
+            }
+            title="Перераспределить экзамены и зачёты?"
+            description="Все контрольные мероприятия этого семестра будут удалены и расставлены заново — без накладок у преподавателей и аудиторий."
+            confirmText="Перераспределить"
+            onConfirm={() => autoPlace.mutate(true)}
+          />
         )}
       </div>
       <Alert variant="info">
         <AlertDescription>
           Экзамены ставятся в недели промежуточной аттестации с интервалом между экзаменами группы, зачёты — на последние занятия теоретического
-          обучения. Часы экзаменов в сетку занятий не входят.
+          обучения. Каждому мероприятию назначается пара: один преподаватель и одна аудитория не бывают заняты дважды в одну пару, поэтому у
+          разных групп экзамены одного преподавателя идут разными парами или в разные дни. Часы экзаменов в сетку занятий не входят.
         </AlertDescription>
       </Alert>
       {warnings.length > 0 && (
@@ -570,6 +588,7 @@ function AssessmentsView({ programId, editable }: { programId: string; editable:
             <TableHeader>
               <TableRow>
                 <TableHead>Дата</TableHead>
+                <TableHead>Пара</TableHead>
                 <TableHead>Группа</TableHead>
                 <TableHead>Дисциплина</TableHead>
                 <TableHead>Форма контроля</TableHead>
@@ -582,10 +601,10 @@ function AssessmentsView({ programId, editable }: { programId: string; editable:
               {(list.data ?? []).map((a) => (
                 <TableRow key={a.id}>
                   <TableCell className="whitespace-nowrap">
-                    {formatDate(a.date)}
-                    {a.lessonNumber ? `, ${a.lessonNumber} пара` : ''}
+                    {formatDate(a.date)} <span className="text-muted-foreground text-xs">{weekdayName(isoWeekday(a.date), true)}</span>
                   </TableCell>
-                  <TableCell>{a.group.code}</TableCell>
+                  <TableCell className="tabular-nums">{a.lessonNumber ?? '—'}</TableCell>
+                  <TableCell className="whitespace-nowrap">{a.group.code}</TableCell>
                   <TableCell>
                     {a.semesterItem.curriculumItem.code} {a.semesterItem.curriculumItem.name}
                   </TableCell>
@@ -605,7 +624,7 @@ function AssessmentsView({ programId, editable }: { programId: string; editable:
               ))}
               {(list.data ?? []).length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-muted-foreground h-20 text-center">
+                  <TableCell colSpan={8} className="text-muted-foreground h-20 text-center">
                     Контрольные мероприятия не назначены
                   </TableCell>
                 </TableRow>

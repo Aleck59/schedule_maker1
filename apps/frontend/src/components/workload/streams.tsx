@@ -165,7 +165,7 @@ function StreamDialog({ stream, onClose }: { stream: Stream | null; onClose: () 
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{stream ? `Поток «${stream.name}»` : 'Новый поток'}</DialogTitle>
           <DialogDescription>Выберите преподавателя и отметьте группы, у которых он ведёт пару одновременно.</DialogDescription>
@@ -190,7 +190,7 @@ function StreamDialog({ stream, onClose }: { stream: Stream | null; onClose: () 
             <label className="text-muted-foreground flex items-center gap-2 text-xs">
               <Switch checked={onlyCurrent} onCheckedChange={setOnlyCurrent} /> Только текущие семестры групп
             </label>
-            <div className="max-h-72 overflow-y-auto rounded-lg border scrollbar-thin">
+            <div className="max-h-[min(18rem,45vh)] overflow-y-auto rounded-lg border scrollbar-thin">
               {assignments.isLoading ? (
                 <div className="p-3">
                   <LoadingState rows={3} />
@@ -207,13 +207,20 @@ function StreamDialog({ stream, onClose }: { stream: Stream | null; onClose: () 
                     )}
                   >
                     <Checkbox checked={selected.has(a.id)} onCheckedChange={() => toggle(a.id)} />
-                    <span className="w-24 shrink-0 font-medium">{a.group.code}</span>
-                    <span className="min-w-0 flex-1 truncate">
-                      <span className="text-muted-foreground">{a.semesterItem.curriculumItem.code}</span> {a.semesterItem.curriculumItem.name}
-                    </span>
-                    <span className="text-muted-foreground shrink-0 text-xs">
-                      {typeText(a)} · {a.semesterItem.semester.number} сем.
-                    </span>
+                    <div className="min-w-0 flex-1 sm:flex sm:items-center sm:gap-3">
+                      <div className="flex items-baseline justify-between gap-2 sm:contents">
+                        <span className="shrink-0 font-medium sm:w-24">{a.group.code}</span>
+                        <span className="text-muted-foreground shrink-0 text-right text-xs whitespace-nowrap sm:order-last">
+                          {typeText(a)} · {a.semesterItem.semester.number} сем.
+                        </span>
+                      </div>
+                      <span
+                        className="line-clamp-2 min-w-0 sm:flex-1"
+                        title={`${a.semesterItem.curriculumItem.code} ${a.semesterItem.curriculumItem.name}`}
+                      >
+                        <span className="text-muted-foreground">{a.semesterItem.curriculumItem.code}</span> {a.semesterItem.curriculumItem.name}
+                      </span>
+                    </div>
                   </label>
                 ))
               )}
