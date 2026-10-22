@@ -130,8 +130,8 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <nav className="flex h-full flex-col">
       <div className="flex items-center gap-3 px-5 pt-5 pb-4">
-        <div className="brand-gradient flex size-9 shrink-0 items-center justify-center rounded-xl text-white shadow-[0_6px_16px_-6px_oklch(0.5_0.22_272/0.7)]">
-          <CalendarDays className="size-[18px]" />
+        <div className="bg-primary text-primary-foreground flex size-8 shrink-0 items-center justify-center rounded-lg">
+          <CalendarDays className="size-4" />
         </div>
         <div className="min-w-0">
           <div className="text-foreground text-[15px] leading-tight font-semibold tracking-tight">Расписание</div>
@@ -145,7 +145,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           if (group.items.length === 0) return null;
           return (
             <div key={group.section}>
-              <div className="text-sidebar-muted px-2.5 pb-1.5 text-[11px] font-semibold tracking-wider uppercase">{group.section}</div>
+              <div className="text-sidebar-muted px-2.5 pb-1 text-xs font-medium">{group.section}</div>
               <div className="space-y-0.5">
                 {group.items.map((item) => (
                   <NavLink
@@ -246,7 +246,7 @@ export function AppLayout() {
 
   return (
     <div className="flex min-h-screen">
-      <aside className="bg-sidebar fixed inset-y-0 left-0 z-30 hidden w-60 border-r border-border/70 backdrop-blur-xl lg:block">
+      <aside className="bg-sidebar fixed inset-y-0 left-0 z-30 hidden w-60 border-r lg:block">
         <Sidebar />
       </aside>
       {mobileOpen && (
@@ -267,11 +267,10 @@ export function AppLayout() {
         </div>
       )}
       <div className="flex min-w-0 flex-1 flex-col lg:pl-60">
-        <header className="bg-background/70 sticky top-0 z-20 flex h-14 items-center gap-2 border-b border-border/60 px-4 backdrop-blur-xl md:px-6">
+        <header className="bg-background/85 sticky top-0 z-20 flex h-14 items-center gap-2 border-b px-4 backdrop-blur md:px-6">
           <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Меню">
             <Menu />
           </Button>
-          <div className="text-muted-foreground hidden text-sm md:block">{user?.organization?.name}</div>
           <div className="ml-auto flex items-center gap-1">
             <Button variant="ghost" size="icon" onClick={toggle} aria-label="Тема оформления">
               {dark ? <Sun /> : <Moon />}
@@ -280,7 +279,7 @@ export function AppLayout() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="gap-2 px-2">
-                  <div className="brand-gradient flex size-8 items-center justify-center rounded-full text-xs font-semibold text-white shadow-sm">
+                  <div className="bg-muted text-foreground flex size-8 items-center justify-center rounded-full text-xs font-semibold">
                     {user?.fullName
                       .split(' ')
                       .slice(0, 2)

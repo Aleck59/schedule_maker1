@@ -65,7 +65,7 @@ export function StreamsTab() {
           description="Объедините группы, у которых один преподаватель ведёт одну и ту же дисциплину, например физкультуру"
         />
       ) : (
-        <div className="stagger grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {list.map((s) => (
             <Card key={s.name} className="lift">
               <CardContent className="space-y-2.5 p-4">

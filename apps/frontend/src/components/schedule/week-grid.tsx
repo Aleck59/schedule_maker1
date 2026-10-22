@@ -165,7 +165,7 @@ export function ScheduleGrid({
 
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActive(null)}>
-      <div className="bg-card shadow-soft overflow-x-auto rounded-2xl border border-border/70 scrollbar-thin">
+      <div className="bg-card overflow-x-auto rounded-xl border scrollbar-thin">
         <div
           className="grid min-w-[900px]"
           style={{ gridTemplateColumns: `72px repeat(${columns.length}, minmax(${mode === 'day' ? 150 : 130}px, 1fr))` }}

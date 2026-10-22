@@ -66,9 +66,9 @@ export default function LoginPage() {
           <p className="text-muted-foreground mt-3 max-w-md text-[15px]">
             Учебные планы, нагрузка, календарный график и составление расписания с оптимизацией в одном месте.
           </p>
-          <div className="stagger mt-8 grid gap-3">
+          <div className="mt-8 grid gap-3">
             {FEATURES.map((f) => (
-              <div key={f.title} className="bg-card/70 flex items-center gap-3 rounded-2xl border border-border/70 p-3 shadow-soft backdrop-blur">
+              <div key={f.title} className="bg-card/70 flex items-center gap-3 rounded-xl border p-3 shadow-soft backdrop-blur">
                 <div className="bg-primary/10 text-primary flex size-10 shrink-0 items-center justify-center rounded-xl">
                   <f.icon className="size-5" />
                 </div>

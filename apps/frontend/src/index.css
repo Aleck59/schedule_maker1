@@ -4,10 +4,10 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Светлая палитра: воздушный фон, индиго-акцент, мягкие тени */
+/* Светлая палитра: нейтральный фон, один индиго-акцент, почти плоские поверхности */
 :root {
-  --radius: 0.75rem;
-  --background: oklch(0.982 0.005 265);
+  --radius: 0.625rem;
+  --background: oklch(0.985 0.002 265);
   --foreground: oklch(0.24 0.03 268);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.24 0.03 268);
@@ -28,21 +28,18 @@
   --border: oklch(0.925 0.008 268);
   --input: oklch(0.91 0.01 268);
   --ring: oklch(0.6 0.19 272);
-  --sidebar: oklch(1 0 0 / 0.72);
+  --sidebar: oklch(0.985 0.002 265);
   --sidebar-foreground: oklch(0.36 0.03 268);
   --sidebar-muted: oklch(0.6 0.02 268);
-  --sidebar-accent: oklch(0.95 0.03 272);
+  --sidebar-accent: oklch(0.95 0.006 268);
   --sidebar-active: oklch(0.47 0.2 272);
   --chart-1: oklch(0.58 0.2 272);
   --chart-2: oklch(0.66 0.15 165);
   --chart-3: oklch(0.77 0.15 72);
   --chart-4: oklch(0.63 0.21 22);
   --chart-5: oklch(0.62 0.19 310);
-  --shadow-soft: 0 1px 2px oklch(0.3 0.05 270 / 0.04), 0 4px 16px -4px oklch(0.3 0.05 270 / 0.08);
-  --shadow-lift: 0 2px 4px oklch(0.3 0.05 270 / 0.05), 0 16px 32px -12px oklch(0.35 0.1 270 / 0.2);
-  --glow-1: oklch(0.85 0.09 272 / 0.45);
-  --glow-2: oklch(0.9 0.07 210 / 0.4);
-  --glow-3: oklch(0.92 0.06 330 / 0.3);
+  --shadow-soft: 0 1px 2px oklch(0.3 0.03 270 / 0.04);
+  --shadow-lift: 0 2px 4px oklch(0.3 0.03 270 / 0.05), 0 12px 24px -12px oklch(0.3 0.05 270 / 0.18);
 }
 
 .dark {
@@ -64,16 +61,13 @@
   --border: oklch(0.3 0.025 270);
   --input: oklch(0.33 0.028 270);
   --ring: oklch(0.66 0.18 272);
-  --sidebar: oklch(0.19 0.022 270 / 0.8);
+  --sidebar: oklch(0.16 0.02 270);
   --sidebar-foreground: oklch(0.85 0.012 270);
   --sidebar-muted: oklch(0.62 0.02 270);
-  --sidebar-accent: oklch(0.28 0.05 272);
+  --sidebar-accent: oklch(0.24 0.024 270);
   --sidebar-active: oklch(0.85 0.1 272);
-  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.3), 0 4px 16px -4px oklch(0 0 0 / 0.35);
+  --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.25);
   --shadow-lift: 0 2px 4px oklch(0 0 0 / 0.3), 0 18px 36px -12px oklch(0 0 0 / 0.55);
-  --glow-1: oklch(0.4 0.12 272 / 0.25);
-  --glow-2: oklch(0.4 0.08 210 / 0.18);
-  --glow-3: oklch(0.4 0.08 330 / 0.12);
 }
 
 @theme inline {
@@ -129,18 +123,6 @@
     @apply bg-background text-foreground antialiased;
     font-feature-settings: 'tnum' 1, 'cv11' 1;
     min-height: 100vh;
-  }
-  /* Мягкие цветные пятна на фоне — лёгкость без отвлечения */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    background:
-      radial-gradient(40rem 28rem at 12% -6%, var(--glow-1), transparent 70%),
-      radial-gradient(36rem 26rem at 96% 4%, var(--glow-2), transparent 70%),
-      radial-gradient(30rem 24rem at 70% 108%, var(--glow-3), transparent 70%);
   }
   ::selection {
     background: color-mix(in oklab, var(--primary) 22%, transparent);
@@ -242,46 +224,7 @@
 
 /* Появление страницы при переходе и каскад блоков внутри неё */
 .page-enter {
-  animation: sm-fade-in 0.3s ease-out backwards;
-}
-.page-enter > * > * {
-  animation: sm-fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards;
-}
-.page-enter > * > :nth-child(2) {
-  animation-delay: 40ms;
-}
-.page-enter > * > :nth-child(3) {
-  animation-delay: 80ms;
-}
-.page-enter > * > :nth-child(4) {
-  animation-delay: 120ms;
-}
-.page-enter > * > :nth-child(5) {
-  animation-delay: 160ms;
-}
-.page-enter > * > :nth-child(n + 6) {
-  animation-delay: 200ms;
-}
-.stagger > * {
-  animation: sm-fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) backwards;
-}
-.stagger > :nth-child(2) {
-  animation-delay: 50ms;
-}
-.stagger > :nth-child(3) {
-  animation-delay: 100ms;
-}
-.stagger > :nth-child(4) {
-  animation-delay: 150ms;
-}
-.stagger > :nth-child(5) {
-  animation-delay: 200ms;
-}
-.stagger > :nth-child(6) {
-  animation-delay: 250ms;
-}
-.stagger > :nth-child(n + 7) {
-  animation-delay: 300ms;
+  animation: sm-fade-in 0.2s ease-out backwards;
 }
 .animate-fade-in {
   animation: sm-fade-in 0.25s ease-out both;
@@ -305,17 +248,12 @@
   animation: sm-shimmer 1.4s ease-in-out infinite;
 }
 
-/* Карточки, на которые можно нажать, слегка приподнимаются */
+/* Карточки, на которые можно нажать: при наведении только проявляется рамка */
 .lift {
-  transition:
-    transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 0.25s ease,
-    border-color 0.25s ease;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
 }
 .lift:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lift);
-  border-color: color-mix(in oklab, var(--primary) 25%, var(--border));
+  border-color: color-mix(in oklab, var(--foreground) 22%, var(--border));
 }
 
 /* Пункт меню: полоска слева выезжает у активного раздела */
@@ -334,22 +272,13 @@
 .nav-item.active::before {
   transform: translateY(-50%) scaleY(1);
 }
-.nav-item svg {
-  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.nav-item:hover svg {
-  transform: scale(1.12);
-}
 
-/* Градиент фирменного знака */
+/* Фирменный знак — сплошной акцентный цвет */
 .brand-gradient {
-  background: linear-gradient(135deg, oklch(0.62 0.2 285), oklch(0.56 0.22 265) 55%, oklch(0.66 0.15 220));
+  background: var(--primary);
 }
 .text-gradient {
-  background: linear-gradient(90deg, var(--primary), oklch(0.6 0.18 225));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--primary);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -19,12 +19,13 @@ export function StatCard({
   tone?: 'default' | 'success' | 'warning' | 'danger' | 'info';
   onClick?: () => void;
 }) {
+  // Цвет только у значка и только когда он что-то сообщает (успех, риск, ошибка)
   const toneClass = {
-    default: 'bg-primary/10 text-primary',
-    success: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
-    warning: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-    danger: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
-    info: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
+    default: 'text-muted-foreground',
+    success: 'text-emerald-600 dark:text-emerald-400',
+    warning: 'text-amber-600 dark:text-amber-400',
+    danger: 'text-red-600 dark:text-red-400',
+    info: 'text-muted-foreground',
   }[tone];
   return (
     <Card className={cn('py-4', onClick && 'lift cursor-pointer')} onClick={onClick}>
@@ -37,8 +38,8 @@ export function StatCard({
           {hint && <div className="text-muted-foreground mt-0.5 text-xs">{hint}</div>}
         </div>
         {Icon && (
-          <div className={cn('rounded-xl p-2.5 transition-transform duration-300 group-hover:scale-105', toneClass)}>
-            <Icon className="size-5" />
+          <div className={toneClass}>
+            <Icon className="size-4" />
           </div>
         )}
       </CardContent>

@@ -14,6 +14,10 @@ export function qualificationLine(t: Pick<Teacher, 'position' | 'academicDegree'
 }
 
 /** Уровни образования, у которых преподаватель может вести занятия */
+export function teachesAllLevels(teacher: Teacher) {
+  return (teacher.allowedLevels ?? allowedLevelsOf(teacher)).length === Object.keys(EDUCATION_LEVEL_LABELS).length;
+}
+
 export function LevelBadges({ teacher, compact }: { teacher: Teacher; compact?: boolean }) {
   const levels = teacher.allowedLevels ?? allowedLevelsOf(teacher);
   const all = levels.length === Object.keys(EDUCATION_LEVEL_LABELS).length;

@@ -16,7 +16,7 @@ import {
   Wand2,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { AnimatedNumber } from '@/components/common/animated-number';
 import { PageHeader } from '@/components/common/page-header';
 import { EmptyState, ErrorState, LoadingState } from '@/components/common/states';
@@ -151,7 +151,7 @@ function StaffView({ data }: { data: StaffDashboard }) {
           canEdit && (
             <Button asChild>
               <Link to="/generation?scope=all">
-                <Wand2 /> Составить расписание для всех групп
+                <Wand2 /> Составить расписание
               </Link>
             </Button>
           )
@@ -162,12 +162,12 @@ function StaffView({ data }: { data: StaffDashboard }) {
         <CardContent className="grid grid-cols-2 divide-y px-0 sm:grid-cols-4 sm:divide-x sm:divide-y-0">
           {(
             [
-              ['Занятий сегодня', c.lessonsToday, CalendarClock, '/schedule?view=day', 'bg-indigo-50 text-indigo-600 dark:bg-indigo-400/10 dark:text-indigo-300'],
-              ['Активных групп', c.activeGroups, GraduationCap, '/groups', 'bg-sky-50 text-sky-600 dark:bg-sky-400/10 dark:text-sky-300'],
-              ['Преподавателей', c.teachers, Users, '/teachers', 'bg-violet-50 text-violet-600 dark:bg-violet-400/10 dark:text-violet-300'],
-              ['Аудиторий', c.classrooms, Building2, '/classrooms', 'bg-emerald-50 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300'],
+              ['Занятий сегодня', c.lessonsToday, CalendarClock, '/schedule?view=day'],
+              ['Активных групп', c.activeGroups, GraduationCap, '/groups'],
+              ['Преподавателей', c.teachers, Users, '/teachers'],
+              ['Аудиторий', c.classrooms, Building2, '/classrooms'],
             ] as const
-          ).map(([title, value, Icon, to, tone], i) => (
+          ).map(([title, value, Icon, to], i) => (
             <Link
               key={title}
               to={to}
@@ -176,14 +176,7 @@ function StaffView({ data }: { data: StaffDashboard }) {
                 i % 2 === 1 && 'border-l sm:border-l-0',
               )}
             >
-              <div
-                className={cn(
-                  'flex size-10 shrink-0 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-3',
-                  tone,
-                )}
-              >
-                <Icon className="size-5" />
-              </div>
+              <Icon className="text-muted-foreground size-4 shrink-0" />
               <div className="min-w-0">
                 <div className="text-2xl leading-tight font-semibold tracking-tight tabular-nums">
                   <AnimatedNumber value={value} />
@@ -214,42 +207,28 @@ function StaffView({ data }: { data: StaffDashboard }) {
                   </div>
                   <Progress value={data.planCompletion.percent} className="mt-2" />
                 </div>
-                <div className="grid grid-cols-3 gap-2 text-center text-sm">
-                  <div className="bg-muted/60 rounded-xl p-2">
-                    <div className="text-muted-foreground text-xs">План</div>
-                    <div className="font-semibold tabular-nums">{data.planCompletion.planned} ч</div>
-                  </div>
-                  <div className="bg-muted/60 rounded-xl p-2">
-                    <div className="text-muted-foreground text-xs">В расписании</div>
-                    <div className="font-semibold tabular-nums">{data.planCompletion.scheduled} ч</div>
-                  </div>
-                  <div className="bg-muted/60 rounded-xl p-2">
-                    <div className="text-muted-foreground text-xs">Проведено</div>
-                    <div className="font-semibold tabular-nums">{data.planCompletion.conducted} ч</div>
-                  </div>
-                </div>
+                <dl className="grid grid-cols-3 gap-2 text-sm">
+                  {(
+                    [
+                      ['План', data.planCompletion.planned],
+                      ['В расписании', data.planCompletion.scheduled],
+                      ['Проведено', data.planCompletion.conducted],
+                    ] as const
+                  ).map(([label, hours]) => (
+                    <div key={label}>
+                      <dt className="text-muted-foreground text-xs">{label}</dt>
+                      <dd className="font-semibold tabular-nums">{hours} ч</dd>
+                    </div>
+                  ))}
+                </dl>
                 {pie.length > 0 && (
-                  <div className="flex items-center gap-4">
-                    <div className="h-32 w-32 shrink-0">
-                      <ResponsiveContainer>
-                        <PieChart>
-                          <Pie data={pie} dataKey="value" nameKey="name" innerRadius={34} outerRadius={60} paddingAngle={pie.length > 1 ? 2 : 0}>
-                            {pie.map((p) => (
-                              <Cell key={p.status} fill={STATUS_COLORS[p.status]} />
-                            ))}
-                          </Pie>
-                          <Tooltip />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                    <div className="space-y-1 text-sm">
-                      {pie.map((p) => (
-                        <div key={p.status} className="flex items-center gap-2">
-                          <span className="size-2.5 rounded-sm" style={{ background: STATUS_COLORS[p.status] }} />
-                          {p.name}: <span className="font-medium tabular-nums">{p.value}</span>
-                        </div>
-                      ))}
-                    </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 border-t pt-3 text-sm">
+                    {pie.map((p) => (
+                      <div key={p.status} className="flex items-center gap-2">
+                        <span className="size-2 rounded-full" style={{ background: STATUS_COLORS[p.status] }} />
+                        {p.name}: <span className="font-medium tabular-nums">{p.value}</span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -269,22 +248,16 @@ function StaffView({ data }: { data: StaffDashboard }) {
           <CardContent className="h-64">
             <ResponsiveContainer>
               <BarChart data={data.lessonsByWeekday}>
-                <defs>
-                  <linearGradient id="dash-bar" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--primary)" />
-                    <stop offset="100%" stopColor="var(--primary)" stopOpacity={0.45} />
-                  </linearGradient>
-                </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" />
                 <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} />
                 <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={30} tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} />
                 <Tooltip
                   cursor={{ fill: 'var(--accent)', radius: 8 }}
-                  contentStyle={{ borderRadius: 12, border: '1px solid var(--border)', boxShadow: 'var(--shadow-soft)' }}
+                  contentStyle={{ borderRadius: 8, border: '1px solid var(--border)', boxShadow: 'none' }}
                   formatter={(v) => [v, 'Занятий']}
                   labelFormatter={(l) => `День: ${l}`}
                 />
-                <Bar dataKey="lessons" fill="url(#dash-bar)" radius={[8, 8, 2, 2]} maxBarSize={44} animationDuration={700} />
+                <Bar dataKey="lessons" fill="var(--primary)" radius={[4, 4, 0, 0]} maxBarSize={32} animationDuration={700} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -460,7 +433,7 @@ function Attention({ counters: c }: { counters: StaffDashboard['counters'] }) {
         <Link
           key={it.text}
           to={it.to}
-          className="lift group bg-card flex min-w-0 items-center gap-2.5 rounded-xl border border-border/70 px-3.5 py-2.5 text-sm shadow-soft"
+          className="lift group bg-card flex min-w-0 items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-sm shadow-soft"
         >
           <it.icon className={cn('size-4 shrink-0', it.tone)} />
           <span className="font-medium">{it.text}</span>

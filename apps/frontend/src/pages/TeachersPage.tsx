@@ -8,7 +8,7 @@ import { Field } from '@/components/common/field';
 import { PageHeader } from '@/components/common/page-header';
 import { SimpleSelect } from '@/components/common/simple-select';
 import { EmptyState, ErrorState, LoadingState, Spinner } from '@/components/common/states';
-import { employmentState, LevelBadges, qualificationLine } from '@/components/teachers/qualification';
+import { employmentState, LevelBadges, qualificationLine, teachesAllLevels } from '@/components/teachers/qualification';
 import { TeacherPhoto } from '@/components/teachers/teacher-photo';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -65,7 +65,7 @@ export default function TeachersPage() {
     <div className="space-y-5">
       <PageHeader
         title="Преподаватели"
-        description="Фото, должность, учёная степень и уровни, у которых преподаватель может вести занятия. Откройте карточку — там дисциплины, расписание и ограничения."
+        description="Откройте карточку, чтобы увидеть дисциплины, расписание и ограничения."
         actions={
           canEdit && (
             <Button onClick={() => setOpen(true)}>
@@ -107,7 +107,7 @@ export default function TeachersPage() {
           description={list.length ? 'Измените условия поиска или фильтры.' : 'Добавьте преподавателей — затем распределите нагрузку по дисциплинам.'}
         />
       ) : (
-        <div className="stagger grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {shown.map((t) => (
             <TeacherTile key={t.id} teacher={t} />
           ))}
@@ -125,7 +125,7 @@ function TeacherTile({ teacher: t }: { teacher: Teacher }) {
   return (
     <Link
       to={`/teachers/${t.id}`}
-      className="lift bg-card focus-visible:ring-ring flex flex-col gap-3 rounded-2xl border border-border/70 p-4 shadow-soft outline-none focus-visible:ring-2"
+      className="lift bg-card focus-visible:ring-ring flex flex-col gap-3 rounded-xl border p-4 outline-none focus-visible:ring-2"
     >
       <div className="flex items-start gap-3">
         <TeacherPhoto teacher={t} />
@@ -140,10 +140,13 @@ function TeacherTile({ teacher: t }: { teacher: Teacher }) {
           </Badge>
         )}
       </div>
-      <div className="space-y-1">
-        <div className="text-muted-foreground text-xs">Может вести</div>
-        <LevelBadges teacher={t} compact />
-      </div>
+      {/* «Все уровни» — обычный случай, на плитке показываем только ограничения */}
+      {!teachesAllLevels(t) && (
+        <div className="space-y-1">
+          <div className="text-muted-foreground text-xs">Может вести</div>
+          <LevelBadges teacher={t} compact />
+        </div>
+      )}
       <div className="text-sm">
         <div className="flex items-start gap-1.5">
           <BookOpen className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
