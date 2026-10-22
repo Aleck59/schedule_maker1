@@ -56,17 +56,25 @@ describe('быстрые исправления', () => {
     avoidWindows: true,
     allowLateLessons: false,
     respectTeacherPreferences: true,
+    maximizePlacement: false,
   };
 
   it('нехватка времени — перезапуск с ослабленными настройками, все сразу одной кнопкой', () => {
     const fixes = quickFixes('NOT_ENOUGH_TIME', settings);
     expect(fixes.map((f) => f.patch)).toEqual([
+      { maximizePlacement: true },
       { timeLimitSeconds: 120 },
       { avoidWindows: false },
       { maxGroupLessonsPerDay: 5 },
       { allowLateLessons: true },
     ]);
-    expect(combinedPatch(fixes)).toEqual({ timeLimitSeconds: 120, avoidWindows: false, maxGroupLessonsPerDay: 5, allowLateLessons: true });
+    expect(combinedPatch(fixes)).toEqual({
+      maximizePlacement: true,
+      timeLimitSeconds: 120,
+      avoidWindows: false,
+      maxGroupLessonsPerDay: 5,
+      allowLateLessons: true,
+    });
   });
 
   it('уже ослабленные настройки не предлагаются повторно', () => {
@@ -76,6 +84,7 @@ describe('быстрые исправления', () => {
       avoidWindows: false,
       allowLateLessons: true,
       maxGroupLessonsPerDay: 6,
+      maximizePlacement: true,
     });
     expect(fixes).toEqual([]);
   });

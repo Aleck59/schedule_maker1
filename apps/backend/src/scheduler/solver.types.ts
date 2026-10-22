@@ -106,6 +106,11 @@ export interface SolverSettings {
   forbidLateLessons: boolean;
   avoidWindows: boolean;
   respectTeacherPreferences: boolean;
+  /**
+   * Расстановка по максимуму: оставшиеся после обычных проходов пары ставятся сверх лимитов
+   * преподавателя, частоты дисциплины в день и запрета поздних пар (со штрафом)
+   */
+  maximizePlacement?: boolean;
 }
 
 export interface SolverProblem {

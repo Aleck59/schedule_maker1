@@ -79,6 +79,7 @@ export interface RerunSettings {
   avoidWindows: boolean;
   allowLateLessons: boolean;
   respectTeacherPreferences: boolean;
+  maximizePlacement: boolean;
 }
 export type RerunPatch = Partial<RerunSettings>;
 
@@ -134,11 +135,19 @@ export function quickFixes(code: string, s: RerunSettings): QuickFix[] {
           patch: { respectTeacherPreferences: false },
         }
       : null;
+  const maximize = (): QuickFix | null =>
+    s.maximizePlacement
+      ? null
+      : {
+          label: 'Расставить по максимуму',
+          hint: 'Поставить оставшиеся пары сверх лимитов преподавателей и частоты дисциплины; накладок не будет',
+          patch: { maximizePlacement: true },
+        };
   const push = (...list: Array<QuickFix | null>) => list.forEach((f) => f && fixes.push(f));
 
   switch (code) {
     case 'NOT_ENOUGH_TIME':
-      push(moreTime(), allowWindows(), morePerDay(), allowLate());
+      push(maximize(), moreTime(), allowWindows(), morePerDay(), allowLate());
       break;
     case 'GROUP_BUSY':
       push(morePerDay(), allowLate(), {
@@ -149,6 +158,7 @@ export function quickFixes(code: string, s: RerunSettings): QuickFix[] {
       break;
     case 'DAILY_LIMITS':
       push(
+        maximize(),
         s.maxSameDisciplinePerDay < 6
           ? {
               label: `До ${s.maxSameDisciplinePerDay + 1} пар дисциплины в день`,
@@ -170,7 +180,7 @@ export function quickFixes(code: string, s: RerunSettings): QuickFix[] {
       break;
     case 'TEACHER_BUSY':
     case 'TEACHER_LIMIT':
-      push(ignorePreferences(), moreTime(), {
+      push(code === 'TEACHER_LIMIT' ? maximize() : null, ignorePreferences(), moreTime(), {
         label: 'Перераспределить нагрузку',
         hint: 'Передать часть часов другому преподавателю',
         to: '/workload?tab=teachers',

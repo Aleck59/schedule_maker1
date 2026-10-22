@@ -14,6 +14,10 @@
 * цель — максимум поставленных пар (с весом приоритета) минус штрафы.
 
 После основного прохода выполняется компенсационный проход по неделям для недопоставленных пар.
+В режиме «расстановка по максимуму» затем выполняется проход с ослабленными ограничениями: лимиты
+пар преподавателя в день и в неделю, число пар дисциплины в день и запрет поздних пар становятся
+штрафами, а темп по неделям не учитывается. Жёсткими остаются накладки, недоступность, календарь
+и тип аудитории.
 Если все ограничения выполнить невозможно, возвращается лучший найденный вариант и список
 нераспределённых занятий.
 """
@@ -45,6 +49,7 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "sameDayDiscipline": 3,
     "buildingChanges": 15,
     "evenDistribution": 10,
+    "maxPlacementOverflow": 40,
 }
 
 #: Масштаб штрафов (CP-SAT работает с целыми коэффициентами)
@@ -173,7 +178,14 @@ class CpSatScheduler:
         self.p = problem
         self.on_progress = on_progress or (lambda fraction, message: None)
         self.started = time.monotonic()
-        self.deadline = self.started + max(5.0, problem.time_limit_seconds)
+        budget = max(5.0, problem.time_limit_seconds)
+        self.maximize = problem.settings.maximize_placement
+        # По максимуму: часть времени оставляется на проход с ослабленными ограничениями,
+        # и он выполняется даже после основного лимита (с небольшим запасом)
+        self.deadline = self.started + budget * (0.75 if self.maximize else 1.0)
+        self.relaxed_deadline = self.started + budget + min(30.0, budget * 0.25)
+        #: Идёт проход с ослабленными ограничениями
+        self.relaxed = False
         self.log: list[str] = []
         self.weights = {**DEFAULT_WEIGHTS, **(problem.weights or {})}
         self.rooms = {r.id: r for r in problem.rooms}
@@ -278,7 +290,7 @@ class CpSatScheduler:
         s = self.settings
         if lesson > self.L or day.key not in ds.allowed:
             return False
-        if s.forbid_late_lessons and lesson >= s.late_lesson_number:
+        if s.forbid_late_lessons and lesson >= s.late_lesson_number and not self.relaxed:
             return False
         t = ds.teacher
         if (day.weekday, lesson) in self.teacher_unavail.get(t.id, set()):
@@ -288,7 +300,7 @@ class CpSatScheduler:
         if (t.id, day.key, lesson) in st.teacher_slot:
             return False
         tday = st.teacher_day.get((t.id, day.key), set())
-        if len(tday) >= t.daily_limit(day.key) and lesson not in tday:
+        if len(tday) >= t.daily_limit(day.key) and lesson not in tday and not self.relaxed:
             return False
         for g in d.group_ids:
             if g in self.group_lessons and lesson not in self.group_lessons[g]:
@@ -297,10 +309,11 @@ class CpSatScheduler:
             if markers:
                 if d.subgroup_number is None or 0 in markers or d.subgroup_number in markers:
                     return False
-        for k in d.discipline_keys:
-            used = st.disc_day.get((k, day.key), set())
-            if len(used) >= s.max_same_discipline_per_day and lesson not in used:
-                return False
+        if not self.relaxed:
+            for k in d.discipline_keys:
+                used = st.disc_day.get((k, day.key), set())
+                if len(used) >= s.max_same_discipline_per_day and lesson not in used:
+                    return False
         return True
 
     def _room_ok(self, st: State, room_id: str, day: DayRef, lesson: int) -> bool:
@@ -326,8 +339,19 @@ class CpSatScheduler:
             cost -= pref * (w["teacherPreference"] / 5)
         if ds.d.is_difficult and lesson >= max(4, s.late_lesson_number - 1):
             cost += w["difficultLate"]
+        if self.relaxed and s.forbid_late_lessons and lesson >= s.late_lesson_number:
+            cost += w["maxPlacementOverflow"]
         cost += lesson * 0.3
         return cost
+
+    def _cap(self, model: cp_model.CpModel, objective: list, vars_: list, limit: int, name: str) -> None:
+        """Не больше limit; в проходе с ослабленными ограничениями превышение допускается со штрафом."""
+        if not self.relaxed:
+            model.add(sum(vars_) <= max(0, limit))
+            return
+        over = model.new_int_var(0, len(vars_), name)
+        model.add(over >= sum(vars_) - max(0, limit))
+        objective.append((-int(self.weights["maxPlacementOverflow"] * COST_SCALE), over))
 
     def _rooms_for(self, ds: DemandState, day: DayRef, lesson: int) -> list[str]:
         """Аудитории для слота: в онлайн-слоте преподавателя — только онлайн-аудитория."""
@@ -431,14 +455,14 @@ class CpSatScheduler:
                 model.add(sum(vars_) <= 1)
         for (t, dk), vars_ in teacher_day.items():
             limit = self.teachers[t].daily_limit(dk) - len(st.teacher_day.get((t, dk), set()))
-            model.add(sum(vars_) <= max(0, limit))
+            self._cap(model, objective, vars_, limit, f"tdo_{t[:6]}_{dk}")
         week_no = days[0].week
         for t, vars_ in teacher_week.items():
             # Неделя после выхода из отсутствия (с отработкой) — лимит увеличен
             limit = max(self.teachers[t].weekly_limit(d.key) for d in days) - st.teacher_week.get(
                 (t, week_no), 0
             )
-            model.add(sum(vars_) <= max(0, limit))
+            self._cap(model, objective, vars_, limit, f"two_{t[:6]}")
 
         # Аудитории
         room_slot: dict[tuple[str, str, int], list[cp_model.IntVar]] = defaultdict(list)
@@ -465,7 +489,7 @@ class CpSatScheduler:
             disc_day_usage[(k, dk)].append(u)
         for (k, dk), us in disc_day_usage.items():
             limit = s.max_same_discipline_per_day - len(st.disc_day.get((k, dk), set()))
-            model.add(sum(us) <= max(0, limit))
+            self._cap(model, objective, us, limit, f"ddo_{k[:12]}_{dk}")
 
         # Частота дисциплины в неделю (мягко)
         disc_week_vars: dict[str, list[cp_model.IntVar]] = defaultdict(list)
@@ -576,7 +600,10 @@ class CpSatScheduler:
                     if key not in self.hints or not self._slot_ok(st, ds, day, lesson):
                         continue
                     t = ds.teacher
-                    if st.teacher_week.get((t.id, day.week), 0) >= t.weekly_limit(day.key):
+                    if (
+                        st.teacher_week.get((t.id, day.week), 0) >= t.weekly_limit(day.key)
+                        and not self.relaxed
+                    ):
                         continue
                     hinted = self.hints[key]
                     rooms = [r for r in self._rooms_for(ds, day, lesson) if self._room_ok(st, r, day, lesson)]
@@ -737,24 +764,33 @@ class CpSatScheduler:
                 else:
                     self._solve_week(st, self.days_by_week[w], targets, per_week)
 
-        # Компенсация: сначала равномерно по оставшимся неделям, затем в любые свободные слоты
-        for spread in (True, False):
+        # Компенсация: сначала равномерно по оставшимся неделям, затем в любые свободные слоты;
+        # по максимуму — ещё проход с ослабленными ограничениями
+        passes = [(True, False), (False, False)] + ([(False, True)] if self.maximize else [])
+        for spread, relaxed in passes:
             leftovers = [ds for ds in states if ds.placed < ds.d.lessons_required]
-            if not leftovers or time.monotonic() >= self.deadline:
+            if not leftovers:
                 break
+            deadline = self.relaxed_deadline if relaxed else self.deadline
+            if time.monotonic() >= deadline:
+                continue
+            self.relaxed = relaxed
+            before = len(self.placements)
             if spread:
                 self.log.append(
                     f"Компенсационный проход: {len(leftovers)} дисциплин с недопоставленными парами"
                 )
-            self.on_progress(
-                0.88 if spread else 0.95,
-                f"Компенсационный проход: {len(leftovers)} дисциплин с недопоставленными парами",
+            message = (
+                f"Расстановка по максимуму: {len(leftovers)} дисциплин с недопоставленными парами"
+                if relaxed
+                else f"Компенсационный проход: {len(leftovers)} дисциплин с недопоставленными парами"
             )
-            remaining = max(0.5, self.deadline - time.monotonic())
+            self.on_progress(0.88 if spread else 0.92 if not relaxed else 0.96, message)
+            remaining = max(0.5, deadline - time.monotonic())
             weeks_with = [w for w in weeks if any(w in ds.days_by_week for ds in leftovers)]
             per_week = max(0.3, remaining / max(1, len(weeks_with)) / (2 if spread else 1))
             for i, w in enumerate(weeks_with):
-                if time.monotonic() > self.deadline:
+                if time.monotonic() > deadline:
                     break
                 targets = {}
                 for ds in leftovers:
@@ -765,6 +801,12 @@ class CpSatScheduler:
                     targets[ds] = -(-left // max(1, weeks_left)) if spread else left
                 if targets:
                     self._solve_week(st, self.days_by_week[w], targets, per_week)
+            if relaxed:
+                self.relaxed = False
+                self.log.append(
+                    f"Расстановка по максимуму: дополнительно поставлено {len(self.placements) - before} пар "
+                    "сверх лимитов преподавателей, частоты дисциплины в день и запрета поздних пар"
+                )
 
         required = sum(max(0, d.lessons_required) for d in self.p.demands)
         unplaced = [

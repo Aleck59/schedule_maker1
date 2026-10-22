@@ -60,6 +60,7 @@ const schema = z
     avoidWindows: z.boolean(),
     allowLateLessons: z.boolean(),
     respectTeacherPreferences: z.boolean(),
+    maximizePlacement: z.boolean(),
     replaceExisting: z.boolean(),
   })
   .refine((v) => !v.dateFrom || !v.dateTo || v.dateFrom <= v.dateTo, {
@@ -157,6 +158,7 @@ export default function GenerationPage() {
       avoidWindows: true,
       allowLateLessons: false,
       respectTeacherPreferences: true,
+      maximizePlacement: false,
       replaceExisting: true,
     },
   });
@@ -416,6 +418,22 @@ export default function GenerationPage() {
                             )}
                           />
                         ))}
+                        <Controller
+                          control={form.control}
+                          name="maximizePlacement"
+                          render={({ field }) => (
+                            <label className="flex cursor-pointer items-start justify-between gap-3 text-sm">
+                              <span>
+                                Расстановка по максимуму
+                                <span className="text-muted-foreground block text-xs">
+                                  Оставшиеся пары ставятся сверх лимитов преподавателей, частоты дисциплины в день и запрета поздних пар. Накладки, недоступность и календарь
+                                  соблюдаются всегда
+                                </span>
+                              </span>
+                              <Switch checked={field.value} onCheckedChange={field.onChange} />
+                            </label>
+                          )}
+                        />
                       </div>
                       {solver.data && (
                         <p className="text-muted-foreground flex items-center gap-1.5 text-xs">

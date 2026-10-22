@@ -158,17 +158,20 @@ export function diagnoseDemand(
     disciplineOk: 0,
     roomFree: 0,
   };
+  // По максимуму лимиты преподавателя, частота дисциплины и поздние пары ослабляются — не причина
+  const relaxed = problem.settings.maximizePlacement === true;
   for (const day of allowedDays) {
     for (let lesson = 1; lesson <= problem.lessonsPerDay; lesson++) {
-      if (problem.settings.forbidLateLessons && lesson >= problem.settings.lateLessonNumber) continue;
+      if (!relaxed && problem.settings.forbidLateLessons && lesson >= problem.settings.lateLessonNumber)
+        continue;
       funnel.total++;
       if (unavailable.has(`${day.weekday}#${lesson}`) || blockedSlots.has(`${day.date}#${lesson}`)) continue;
       funnel.teacherAvailable++;
       if (teacherBusy.has(`${teacher.id}#${day.date}#${lesson}`)) continue;
       funnel.teacherFree++;
       const limits = teacherLimits(teacher, day.date);
-      if ((teacherDay.get(`${teacher.id}#${day.date}`) ?? 0) >= limits.daily) continue;
-      if ((teacherWeek.get(`${teacher.id}#${day.week}`) ?? 0) >= limits.weekly) continue;
+      if (!relaxed && (teacherDay.get(`${teacher.id}#${day.date}`) ?? 0) >= limits.daily) continue;
+      if (!relaxed && (teacherWeek.get(`${teacher.id}#${day.week}`) ?? 0) >= limits.weekly) continue;
       funnel.teacherWithinLimits++;
       const groupOk = demand.groupIds.every((g) => {
         const set = groupBusy.get(`${g}#${day.date}#${lesson}`);
@@ -180,7 +183,7 @@ export function diagnoseDemand(
       funnel.groupFree++;
       const discOk = demand.disciplineKeys.every((dk) => {
         const set = discDay.get(`${dk}#${day.date}`);
-        return !set || set.has(lesson) || set.size < problem.settings.maxSameDisciplinePerDay;
+        return relaxed || !set || set.has(lesson) || set.size < problem.settings.maxSameDisciplinePerDay;
       });
       if (!discOk) continue;
       funnel.disciplineOk++;
