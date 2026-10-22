@@ -65,6 +65,7 @@ const DEFAULT_WEIGHTS: Record<string, number> = {
   sameDayDiscipline: 3,
   buildingChanges: 15,
   evenDistribution: 10,
+  maxPlacementOverflow: 40,
 };
 
 function gaps(set: Set<number> | undefined, extra?: number): number {
@@ -273,6 +274,11 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
   }
   const lessonsPerDay = problem.lessonsPerDay;
   const settings = problem.settings;
+  /**
+   * Проход «по максимуму»: лимиты пар преподавателя в день и в неделю, число пар дисциплины в день
+   * и запрет поздних пар не отсекают слоты, а только штрафуются
+   */
+  let relaxed = false;
 
   const unavailableTeacher = new Map<string, Set<string>>();
   const preferenceTeacher = new Map<string, Map<string, number>>();
@@ -399,6 +405,7 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     const t = ds.teacher;
     if (teacherUnavailableAt(t.id, day, lesson)) return false;
     if (st.teacherSlot.has(`${t.id}#${day.key}#${lesson}`)) return false;
+    if (relaxed) return true;
     const limits = teacherLimits(t, day.key);
     const td = st.teacherDay.get(`${t.id}#${day.key}`);
     if (td && td.size >= limits.daily && !td.has(lesson)) return false;
@@ -418,6 +425,7 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
   };
 
   const disciplineOk = (st: ScheduleState, ds: DemandState, day: DayRef, lesson: number) => {
+    if (relaxed) return true;
     for (const dk of ds.d.disciplineKeys) {
       const set = st.disciplineDay.get(`${dk}#${day.key}`);
       if (set && !set.has(lesson) && set.size >= settings.maxSameDisciplinePerDay) return false;
@@ -436,7 +444,7 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
   );
   const slotAllowed = (ds: DemandState, day: DayRef, lesson: number) => {
     if (lesson > lessonsPerDay) return false;
-    if (settings.forbidLateLessons && lesson >= settings.lateLessonNumber) return false;
+    if (settings.forbidLateLessons && lesson >= settings.lateLessonNumber && !relaxed) return false;
     for (const g of ds.d.groupIds) {
       const allowed = groupLessons.get(g);
       if (allowed && !allowed.has(lesson)) return false;
@@ -473,6 +481,7 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
       cost -= pref * (weights.teacherPreference / 5);
     }
     if (d.isDifficult && lesson >= Math.max(4, settings.lateLessonNumber - 1)) cost += weights.difficultLate;
+    if (relaxed) cost += overflowCost(st, ds, day, lesson);
     for (const dk of d.disciplineKeys) {
       const wk = st.disciplineWeek.get(`${dk}#${day.week}`) ?? 0;
       if (wk >= settings.maxSameDisciplinePerWeek) cost += weights.disciplineWeekly;
@@ -485,6 +494,22 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     }
     cost += lesson * 0.3;
     return cost;
+  };
+
+  /** Штраф за выход за ослабленные ограничения в проходе «по максимуму» */
+  const overflowCost = (st: ScheduleState, ds: DemandState, day: DayRef, lesson: number): number => {
+    let over = 0;
+    const t = ds.teacher;
+    const limits = teacherLimits(t, day.key);
+    const td = st.teacherDay.get(`${t.id}#${day.key}`);
+    if (!td?.has(lesson) && (td?.size ?? 0) >= limits.daily) over++;
+    if ((st.teacherWeek.get(`${t.id}#${day.week}`) ?? 0) >= limits.weekly) over++;
+    for (const dk of ds.d.disciplineKeys) {
+      const set = st.disciplineDay.get(`${dk}#${day.key}`);
+      if (set && !set.has(lesson) && set.size >= settings.maxSameDisciplinePerDay) over++;
+    }
+    if (settings.forbidLateLessons && lesson >= settings.lateLessonNumber) over++;
+    return over * weights.maxPlacementOverflow;
   };
 
   const roomCost = (st: ScheduleState, ds: DemandState, room: SolverRoom, day: DayRef): number => {
@@ -813,6 +838,8 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     // --- Доработка готового решения: занятия переносятся в состояние с проверкой ограничений
     const byId = new Map(demands.map((ds) => [ds.d.id, ds]));
     let rejected = 0;
+    // Решение «по максимуму» может выходить за ослабляемые ограничения — проверяются только жёсткие
+    relaxed = settings.maximizePlacement === true;
     for (const p of options.initial) {
       const ds = byId.get(p.demandId);
       const day = dayRefByDate.get(p.date);
@@ -833,6 +860,7 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
       state.apply({ demand: ds, day, lesson: p.lessonNumber, roomId: p.roomId, fixed: false });
       ds.placed++;
     }
+    relaxed = false;
     if (rejected)
       log.push(`Доработка: ${rejected} занятий исходного решения не прошли проверку и поставлены заново`);
   } else if (problem.mode === 'WEEKLY_TEMPLATE') {
@@ -960,12 +988,12 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
   }
 
   // --- Компенсация: сначала равномерно по оставшимся неделям, затем в любые свободные слоты
-  const catchUp = (spread: boolean) => {
+  const catchUp = (spread: boolean, until = deadline) => {
     const leftovers = demands.filter((ds) => ds.placed < ds.d.lessonsRequired);
     if (leftovers.length === 0) return;
     if (spread) log.push(`Компенсационный проход: ${leftovers.length} дисциплин с недопоставленными парами`);
     weeks.forEach((w, i) => {
-      if (timeExceeded || Date.now() > deadline) {
+      if (timeExceeded || Date.now() > until) {
         timeExceeded = true;
         return;
       }
@@ -985,6 +1013,18 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     catchUp(false);
   }
   if (timeExceeded) log.push('Достигнут лимит времени — возвращён лучший найденный вариант');
+  if (settings.maximizePlacement && demands.some((ds) => ds.placed < ds.d.lessonsRequired)) {
+    // Проход «по максимуму» выполняется и после лимита времени: он жадный и быстрый
+    const before = state.placements.length;
+    relaxed = true;
+    timeExceeded = false;
+    catchUp(false, deadline + Math.min(30, Math.max(5, problem.timeLimitSeconds / 4)) * 1000);
+    relaxed = false;
+    log.push(
+      `Расстановка по максимуму: дополнительно поставлено ${state.placements.length - before} пар ` +
+        'сверх лимитов преподавателей, частоты дисциплины в день и запрета поздних пар',
+    );
+  }
 
   // --- Доводка: перестановка занятий внутри дня, если это убирает окна групп и преподавателей.
   // Дата не меняется, поэтому темп, недельные лимиты и календарь не нарушаются. В режиме шаблона

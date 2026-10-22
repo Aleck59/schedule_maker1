@@ -105,6 +105,15 @@ export class GenerateScheduleDto {
   @IsBoolean()
   respectTeacherPreferences?: boolean;
 
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'Расстановка по максимуму: оставшиеся пары ставятся сверх лимитов преподавателя, частоты дисциплины в день и запрета поздних пар',
+  })
+  @IsOptional()
+  @IsBoolean()
+  maximizePlacement?: boolean;
+
   @ApiPropertyOptional({ description: 'Переопределение весов мягких ограничений' })
   @IsOptional()
   @IsObject()

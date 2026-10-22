@@ -105,6 +105,9 @@ class Settings(CamelModel):
     forbid_late_lessons: bool = False
     avoid_windows: bool = True
     respect_teacher_preferences: bool = True
+    # Расстановка по максимуму: после обычных проходов оставшиеся пары ставятся с ослаблением
+    # лимитов преподавателя, частоты дисциплины в день и запрета поздних пар (со штрафом)
+    maximize_placement: bool = False
 
 
 class Placement(CamelModel):

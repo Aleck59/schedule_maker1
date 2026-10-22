@@ -218,4 +218,48 @@ describe('Эвристический генератор расписания', (
     expect(result.stats.placedLessons).toBe(16);
     expect(result.placements.every((p) => p.date >= '2025-09-15')).toBe(true);
   });
+
+  describe('расстановка по максимуму', () => {
+    const days = makeDays('2025-09-01', 1);
+    const make = (maximizePlacement: boolean) => {
+      const problem = baseProblem({ days });
+      problem.groups.forEach((g) => (g.allowedDates = days.map((d) => d.date)));
+      problem.settings.forbidLateLessons = true;
+      problem.settings.maximizePlacement = maximizePlacement;
+      problem.demands = [demand('big', ['g2'], 't1', 30, ['r_gen', 'r_lec'], { size: 20 })];
+      return problem;
+    };
+
+    it('ставит все пары сверх лимитов, не нарушая недоступность и накладки', () => {
+      expect(solveHeuristic(make(false)).stats.placedLessons).toBeLessThanOrEqual(10);
+      const result = solveHeuristic(make(true));
+      expect(result.stats.placedLessons).toBe(30);
+      expect(result.unplaced).toEqual([]);
+      // Иванова не работает по субботам
+      const weekdays = new Map(days.map((d) => [d.date, d.weekday]));
+      expect(result.placements.every((p) => weekdays.get(p.date) !== 6)).toBe(true);
+      expect(new Set(result.placements.map((p) => `${p.date}#${p.lessonNumber}`)).size).toBe(30);
+      expect(result.log.join(' ')).toContain('по максимуму');
+    });
+
+    it('доработка сохраняет занятия решения «по максимуму» сверх лимитов', () => {
+      const problem = make(true);
+      const initial = solveHeuristic(problem).placements;
+      const refined = solveHeuristic(problem, { initial });
+      expect(refined.stats.placedLessons).toBe(30);
+      expect(refined.log.join(' ')).not.toContain('не прошли проверку');
+    });
+
+    it('причина непоставленных пар — жёсткое ограничение, а не ослабленные лимиты', () => {
+      const problem = make(true);
+      problem.demands[0].lessonsRequired = 40;
+      const result = solveHeuristic(problem);
+      expect(result.stats.placedLessons).toBe(30);
+      const { reasons } = diagnoseDemand(problem, result, problem.demands[0], result.unplaced[0].count);
+      // Все рабочие слоты Ивановой заняты её же парами; суббота недоступна
+      expect(reasons[0].code).toBe('TEACHER_BUSY');
+      expect(reasons.map((r) => r.code)).not.toContain('DAILY_LIMITS');
+      expect(reasons.map((r) => r.code)).not.toContain('TEACHER_LIMIT');
+    });
+  });
 });

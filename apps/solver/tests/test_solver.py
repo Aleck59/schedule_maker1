@@ -474,3 +474,35 @@ def test_makeup_after_absence_exceeds_weekly_limit_after_return():
     check_hard_constraints(problem, result)
     assert result.stats.placed_lessons == 16
     assert all(p.date >= "2025-09-15" for p in result.placements)
+
+
+def test_maximize_placement_relaxes_limits_but_keeps_hard_constraints():
+    raw = base_problem(days=make_days("2025-09-01", 1))
+    dates = [d["date"] for d in raw["days"]]
+    for g in raw["groups"]:
+        g["allowedDates"] = dates
+    # 30 пар за неделю: лимит преподавателя 4 пары в день, не более 2 пар дисциплины в день, поздние пары
+    # запрещены, в субботу преподаватель недоступен — без ослабления больше 20 пар не поставить
+    raw["demands"] = [demand("big", ["g2"], "t1", 30, ["r_gen", "r_lec"], size=20)]
+    raw["settings"]["forbidLateLessons"] = True
+    strict = solve(Problem.model_validate(raw))
+    assert strict.stats.placed_lessons <= 5 * 2
+
+    raw["settings"]["maximizePlacement"] = True
+    problem = Problem.model_validate(raw)
+    result = solve(problem)
+    # Все слоты понедельника — пятницы: недоступность в субботу и накладки остаются жёсткими
+    assert result.stats.placed_lessons == 30
+    assert result.unplaced == []
+    assert all(dt.date.fromisoformat(p.date).isoweekday() != 6 for p in result.placements)
+    assert len({(p.date, p.lesson_number) for p in result.placements}) == 30
+    assert any("по максимуму" in line for line in result.log)
+
+
+def test_maximize_placement_keeps_limits_when_everything_fits():
+    raw = base_problem(demands=[demand("a", ["g2"], "t2", 8, ["r_gen"], size=20)])
+    raw["settings"]["maximizePlacement"] = True
+    problem = Problem.model_validate(raw)
+    result = solve(problem)
+    assert result.stats.placed_lessons == 8
+    check_hard_constraints(problem, result)

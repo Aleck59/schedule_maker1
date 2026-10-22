@@ -667,6 +667,7 @@ export class ProblemBuilderService {
         forbidLateLessons: params.allowLateLessons === false,
         avoidWindows: params.avoidWindows !== false,
         respectTeacherPreferences: params.respectTeacherPreferences !== false,
+        maximizePlacement: params.maximizePlacement === true,
       },
       weights: { ...settings.weights, ...(params.weights ?? {}) },
       seed: params.seed ?? 42,

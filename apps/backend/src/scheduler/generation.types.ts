@@ -17,6 +17,8 @@ export interface GenerationParams {
   avoidWindows?: boolean;
   allowLateLessons?: boolean;
   respectTeacherPreferences?: boolean;
+  /** Расстановка по максимуму: не оставлять непоставленных пар, ослабляя мягкие ограничения */
+  maximizePlacement?: boolean;
   weights?: Record<string, number>;
   seed?: number;
   /** Совместная генерация нескольких периодов (все группы организации) */
