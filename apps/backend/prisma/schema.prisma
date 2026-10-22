@@ -238,15 +238,17 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  settings        OrganizationSettings?
-  lessonTimes     LessonTime[]
-  users           User[]
-  teachers        Teacher[]
-  classrooms      Classroom[]
-  programs        EducationalProgram[]
-  schedulePeriods SchedulePeriod[]
-  calendarEvents  CalendarEvent[]
-  curriculumScans CurriculumScan[]
+  settings         OrganizationSettings?
+  lessonTimes      LessonTime[]
+  users            User[]
+  teachers         Teacher[]
+  classrooms       Classroom[]
+  programs         EducationalProgram[]
+  schedulePeriods  SchedulePeriod[]
+  calendarEvents   CalendarEvent[]
+  curriculumScans  CurriculumScan[]
+  holidays         Holiday[]
+  holidayTransfers HolidayTransfer[]
 
   @@map("organizations")
 }
@@ -290,6 +292,10 @@ model OrganizationSettings {
   solverWeightsJson          Json?
   /// Печатная форма расписания: грифы согласования и утверждения, подпись, профили специальностей
   printFormJson              Json?
+  /// Праздники: переносить выходной, совпавший с праздником, на следующий рабочий день (ст. 112 ТК РФ)
+  holidayAutoTransfer        Boolean  @default(true)
+  /// Справочник праздников заполнен значениями по умолчанию
+  holidaysInitialized        Boolean  @default(false)
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
 
@@ -800,6 +806,8 @@ model CalendarEvent {
   /// лимиты пар преподавателя в день (+1) и в неделю (+makeupExtraWeekly) после выхода увеличены
   makeupAfterReturn    Boolean           @default(false)
   makeupExtraWeekly    Int               @default(4)
+  /// День создан модулем «Праздники» для этого года (пересоздаётся при изменении справочника)
+  holidayYear          Int?
   notes                String?
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
@@ -812,7 +820,52 @@ model CalendarEvent {
 
   @@index([organizationId, startDate, endDate])
   @@index([educationalProgramId])
+  @@index([organizationId, holidayYear])
   @@map("calendar_events")
+}
+
+enum HolidayKind {
+  FEDERAL // нерабочий праздничный день по ТК РФ
+  REGIONAL // региональный праздник
+  CUSTOM // день, установленный организацией
+}
+
+/// Праздник: постоянный (месяц и день) или разовый (дата)
+model Holiday {
+  id             String      @id @default(uuid())
+  organizationId String
+  title          String
+  kind           HolidayKind @default(CUSTOM)
+  month          Int?
+  day            Int?
+  date           DateTime?   @db.Date
+  /// Выходной, совпавший с праздником, переносится на следующий рабочий день
+  transferable   Boolean     @default(false)
+  active         Boolean     @default(true)
+  notes          String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("holidays")
+}
+
+/// Перенос выходного дня (постановление Правительства или решение организации)
+model HolidayTransfer {
+  id             String   @id @default(uuid())
+  organizationId String
+  fromDate       DateTime @db.Date
+  toDate         DateTime @db.Date
+  basis          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, fromDate])
+  @@map("holiday_transfers")
 }
 
 /// Контрольные мероприятия (экзамены, зачёты) — отдельно от обычных пар

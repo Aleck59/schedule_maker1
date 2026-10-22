@@ -34,6 +34,15 @@ const CREDIT_FORMS: ControlForm[] = [
   ControlForm.COURSE_PROJECT,
 ];
 
+/** Нерабочие дни из модуля «Праздники» меняются только там — иначе пересчёт их перезапишет */
+function assertNotHolidayModule(e: CalendarEvent) {
+  if (e.holidayYear !== null) {
+    throw new BadRequestException(
+      'Этот день задан в разделе «Праздники» — измените праздник или перенос там',
+    );
+  }
+}
+
 @Injectable()
 export class CalendarService {
   constructor(
@@ -117,6 +126,7 @@ export class CalendarService {
       where: { id, organizationId: actor.organizationId },
     });
     if (!before) throw new NotFoundException('Период календарного графика не найден');
+    assertNotHolidayModule(before);
     await this.checkRelations(dto, actor);
     const start = dto.startDate ?? toDateStr(before.startDate);
     const end = dto.endDate ?? toDateStr(before.endDate);
@@ -148,6 +158,7 @@ export class CalendarService {
       where: { id, organizationId: actor.organizationId },
     });
     if (!before) throw new NotFoundException('Период календарного графика не найден');
+    assertNotHolidayModule(before);
     await this.prisma.calendarEvent.delete({ where: { id } });
     await this.audit.log(actor.id, 'DELETE', 'CalendarEvent', id, before, null);
     return { success: true };

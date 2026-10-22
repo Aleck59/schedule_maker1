@@ -24,6 +24,7 @@ import { AuthUser } from '../common/types/auth-user';
 import { addDaysStr, parseDate, toDateStr, todayInTimezone } from '../common/utils/dates';
 import { computePlannedLessons } from '../common/utils/hours';
 import { defaultBlocksSchedule } from '../planning/calendar-context';
+import { HolidaysService } from '../holidays/holidays.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MakeupTasksService } from '../schedule/makeup-tasks.service';
 import { SchedulePeriodsService } from '../schedule/schedule-periods.service';
@@ -37,8 +38,6 @@ import {
   CYCLES,
   DEMO_USERS,
   FEMALE_FIRST,
-  HOLIDAY_FIXED,
-  HOLIDAY_TRANSFERS,
   MALE_FIRST,
   MALE_LAST,
   ORGANIZATION,
@@ -236,32 +235,8 @@ async function main() {
   }
 
   // ------------------------------------------------------------------ календарь: праздники организации
-  const years = new Set<number>();
-  for (const p of programs) for (let y = p.admissionYear; y <= p.admissionYear + 4; y++) years.add(y);
-  const holidayRows: Prisma.CalendarEventCreateManyInput[] = [];
-  for (const y of [...years].sort()) {
-    for (const h of HOLIDAY_FIXED) {
-      holidayRows.push({
-        organizationId: org.id,
-        eventType: CalendarEventType.HOLIDAY,
-        title: h.title,
-        startDate: parseDate(`${y}-${h.md}`),
-        endDate: parseDate(`${y}-${h.md}`),
-        blocksSchedule: true,
-      });
-    }
-    for (const t of HOLIDAY_TRANSFERS[y] ?? []) {
-      holidayRows.push({
-        organizationId: org.id,
-        eventType: CalendarEventType.HOLIDAY,
-        title: t.title,
-        startDate: parseDate(t.date),
-        endDate: parseDate(t.date),
-        blocksSchedule: true,
-      });
-    }
-  }
-  await prisma.calendarEvent.createMany({ data: holidayRows });
+  // Модуль «Праздники»: федеральные праздники, переносы по постановлениям и ст. 112 ТК РФ
+  await app.get(HolidaysService).ensureInitialized(org.id);
   // Недоступность преподавателя по датам (курсы повышения квалификации)
   const main = programs[programs.length - 1];
   const sem = main.semesters.get(3)!;

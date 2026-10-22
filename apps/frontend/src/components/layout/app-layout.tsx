@@ -14,6 +14,7 @@ import {
   GraduationCap,
   LayoutDashboard,
   LogOut,
+  PartyPopper,
   Menu,
   Moon,
   RotateCcw,
@@ -77,6 +78,7 @@ const NAV: Array<{ section: string; items: NavItem[] }> = [
     items: [
       { to: '/programs', label: 'Учебные планы', icon: BookOpen, roles: STAFF },
       { to: '/calendar', label: 'Календарный график', icon: CalendarRange, roles: STAFF },
+      { to: '/holidays', label: 'Праздники', icon: PartyPopper, roles: STAFF },
       { to: '/workload', label: 'Нагрузка', icon: FileSpreadsheet, roles: STAFF },
     ],
   },
