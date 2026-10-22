@@ -37,6 +37,8 @@ export interface EffectiveSettings extends OrganizationSettings {
 
 @Injectable()
 export class SettingsService {
+  private readonly workingDaysListeners: Array<(organizationId: string) => Promise<void>> = [];
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -97,6 +99,11 @@ export class SettingsService {
     };
   }
 
+  /** Подписка на смену учебных дней недели (например, пересчёт переносов праздников) */
+  onWorkingDaysChanged(listener: (organizationId: string) => Promise<void>) {
+    this.workingDaysListeners.push(listener);
+  }
+
   async update(organizationId: string, dto: UpdateSettingsDto, actor: AuthUser) {
     const before = await this.getEffective(organizationId);
     if (dto.lateLessonNumber && dto.lessonsPerDay && dto.lateLessonNumber > dto.lessonsPerDay + 1) {
@@ -114,6 +121,9 @@ export class SettingsService {
     }
     const updated = await this.prisma.organizationSettings.update({ where: { organizationId }, data });
     await this.audit.log(actor.id, 'UPDATE', 'OrganizationSettings', updated.id, before, updated);
+    if (before.workingDays.join() !== updated.workingDays.join()) {
+      for (const listener of this.workingDaysListeners) await listener(organizationId);
+    }
     return this.getAll(organizationId);
   }
 

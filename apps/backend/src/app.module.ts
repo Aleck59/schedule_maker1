@@ -13,6 +13,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { GroupsModule } from './groups/groups.module';
+import { HolidaysModule } from './holidays/holidays.module';
 import { HealthController } from './health/health.controller';
 import { HourControlModule } from './hour-control/hour-control.module';
 import { PlanningModule } from './planning/planning.module';
@@ -49,6 +50,7 @@ import { ValidationModule } from './validation/validation.module';
     ClassroomsModule,
     AssignmentsModule,
     CalendarModule,
+    HolidaysModule,
     ScheduleModule,
     SchedulerModule,
     HourControlModule,
