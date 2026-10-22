@@ -21,6 +21,7 @@ const ProgramsPage = lazy(() => import('@/pages/ProgramsPage'));
 const ProgramDetailsPage = lazy(() => import('@/pages/ProgramDetailsPage'));
 const PlanImportPage = lazy(() => import('@/pages/PlanImportPage'));
 const CalendarGraphPage = lazy(() => import('@/pages/CalendarGraphPage'));
+const HolidaysPage = lazy(() => import('@/pages/HolidaysPage'));
 const WorkloadPage = lazy(() => import('@/pages/WorkloadPage'));
 const GroupsPage = lazy(() => import('@/pages/GroupsPage'));
 const GroupDetailsPage = lazy(() => import('@/pages/GroupDetailsPage'));
@@ -105,6 +106,7 @@ export default function App() {
                 <Route path="programs/import" element={page(<PlanImportPage />, EDITORS)} />
                 <Route path="programs/:id" element={page(<ProgramDetailsPage />, STAFF)} />
                 <Route path="calendar" element={page(<CalendarGraphPage />, STAFF)} />
+                <Route path="holidays" element={page(<HolidaysPage />, STAFF)} />
                 <Route path="workload" element={page(<WorkloadPage />, STAFF)} />
                 <Route path="groups" element={page(<GroupsPage />, STAFF)} />
                 <Route path="groups/:id" element={page(<GroupDetailsPage />, STAFF)} />
