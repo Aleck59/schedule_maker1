@@ -41,6 +41,7 @@ import { GuideBar } from '@/components/setup/guide-bar';
 import { useSetupStatus } from '@/components/setup/use-setup';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { AppLogo, useBranding } from '@/lib/branding';
 import { formatDateTime } from '@/lib/format';
 import { ROLE_LABELS } from '@/lib/labels';
 import { useApi, useApiMutation } from '@/lib/query';
@@ -129,14 +130,18 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     return { ...group, items };
   });
   const org = user?.organization?.shortName ?? 'Колледж';
+  const branding = useBranding();
   return (
     <nav className="flex h-full flex-col">
       <div className="flex items-center gap-3 px-5 pt-5 pb-4">
-        <div className="brand-gradient flex size-9 shrink-0 items-center justify-center rounded-xl text-white shadow-[0_6px_16px_-6px_oklch(0.5_0.22_272/0.7)]">
-          <CalendarDays className="size-[18px]" />
-        </div>
+        <AppLogo
+          className={cn('size-9 rounded-xl', !branding.appLogo && 'shadow-[0_6px_16px_-6px_oklch(0.5_0.22_272/0.7)]')}
+          iconClassName="size-[18px]"
+        />
         <div className="min-w-0">
-          <div className="text-foreground text-[15px] leading-tight font-semibold tracking-tight">Расписание</div>
+          <div className="text-foreground line-clamp-2 text-[15px] leading-tight font-semibold tracking-tight break-words" title={branding.appName}>
+            {branding.appName}
+          </div>
           <div className="text-sidebar-muted truncate text-xs leading-tight" title={org}>
             {org}
           </div>

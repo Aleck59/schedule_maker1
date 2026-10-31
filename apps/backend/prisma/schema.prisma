@@ -235,6 +235,10 @@ model Organization {
   shortName String?
   address   String?
   timezone  String   @default("Europe/Moscow")
+  /// Название программы (страница входа, меню, заголовок вкладки); пусто — «Расписание СПО и ВО»
+  appName   String?
+  /// Логотип программы — data URL картинки (PNG/JPEG/SVG/WebP), пусто — стандартный значок
+  appLogo   String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

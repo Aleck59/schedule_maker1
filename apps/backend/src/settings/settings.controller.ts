@@ -2,6 +2,7 @@ import { Body, Controller, Get, Patch, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { Public } from '../common/decorators/public.decorator';
 import { ALL_ROLES, Roles } from '../common/decorators/roles.decorator';
 import { AuthUser } from '../common/types/auth-user';
 import { ReplaceLessonTimesDto, UpdateOrganizationDto, UpdateSettingsDto } from './dto/settings.dto';
@@ -12,6 +13,13 @@ import { SettingsService } from './settings.service';
 @Controller('settings')
 export class SettingsController {
   constructor(private readonly settings: SettingsService) {}
+
+  @Get('branding')
+  @Public()
+  @ApiOperation({ summary: 'Название и логотип программы (без входа — для страницы входа)' })
+  branding() {
+    return this.settings.branding();
+  }
 
   @Get()
   @Roles(...ALL_ROLES)

@@ -65,6 +65,57 @@ describe('Расписание СПО (e2e)', () => {
     expect(refresh.status).toBe(401);
   });
 
+  it('название и логотип программы: открыты без входа, меняет только администратор', async () => {
+    const def = await http.get('/api/settings/branding').expect(200);
+    expect(def.body.appName).toBe('Расписание СПО и ВО');
+    expect(def.body.appLogo).toBeNull();
+    const logo = 'data:image/png;base64,iVBORw0KGgo=';
+    await http.patch('/api/settings/organization').set(auth('dispatcher')).send({ appName: 'X' }).expect(403);
+    const bad = await http
+      .patch('/api/settings/organization')
+      .set(auth('admin'))
+      .send({ appLogo: 'data:text/html;base64,PHNjcmlwdD4=' })
+      .expect(400);
+    expect(bad.body.message).toMatch(/Логотип/);
+    await http
+      .patch('/api/settings/organization')
+      .set(auth('admin'))
+      .send({ appName: '  Колледж  ', appLogo: logo })
+      .expect(200);
+    const custom = await http.get('/api/settings/branding').expect(200);
+    expect(custom.body).toMatchObject({ appName: 'Колледж', appLogo: logo });
+    // Пустые значения возвращают название и значок по умолчанию
+    await http
+      .patch('/api/settings/organization')
+      .set(auth('admin'))
+      .send({ appName: '', appLogo: '' })
+      .expect(200);
+    const reset = await http.get('/api/settings/branding').expect(200);
+    expect(reset.body).toMatchObject({ appName: 'Расписание СПО и ВО', appLogo: null });
+  });
+
+  it('тепловая карта аудиторий: занятость всех аудиторий за период', async () => {
+    await http.get('/api/classrooms/occupancy').set(auth('student')).expect(403);
+    await http.get('/api/classrooms/occupancy?from=2026-13-01').set(auth('manager')).expect(400);
+    const res = await http
+      .get('/api/classrooms/occupancy?from=2026-09-01&to=2026-12-31')
+      .set(auth('manager'))
+      .expect(200);
+    const rooms = res.body.rooms as Array<{
+      slotsTotal: number;
+      slotsUsed: number;
+      percent: number;
+      grid: Record<string, number>;
+    }>;
+    expect(rooms.length).toBeGreaterThan(0);
+    expect(rooms.some((r) => r.slotsUsed > 0)).toBe(true);
+    for (const r of rooms) {
+      expect(r.slotsUsed).toBeLessThanOrEqual(r.slotsTotal);
+      const gridSum = Object.values(r.grid).reduce((a, b) => a + b, 0);
+      expect(gridSum).toBe(r.slotsUsed);
+    }
+  });
+
   let periodId: string;
   let groupId: string;
   let jobId: string;
