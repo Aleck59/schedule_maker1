@@ -5,6 +5,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { startEventLoopWatchdog } from './common/event-loop-watchdog';
 import { createValidationPipe } from './common/validation';
 import { loadConfig } from './config/configuration';
 
@@ -41,6 +42,7 @@ async function bootstrap() {
   const app = await createApp();
   const config = loadConfig();
   await app.listen(config.port, '0.0.0.0');
+  startEventLoopWatchdog();
   Logger.log(`API запущен: http://localhost:${config.port}/api (Swagger: /api/docs)`, 'Bootstrap');
 }
 
