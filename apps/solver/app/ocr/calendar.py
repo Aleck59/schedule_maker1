@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 
 from .normalize import parse_int
+from .structure import monday_of_first_week
 from .table import Cell, ink_box
 from .tesseract import ocr_images
 
@@ -65,8 +66,7 @@ def _week_row(row: list[Cell]) -> list[Cell] | None:
 
 
 def _monday_of_first_week(year: int) -> dt.date:
-    sep1 = dt.date(year, 9, 1)
-    return sep1 - dt.timedelta(days=sep1.weekday())
+    return monday_of_first_week(year)
 
 
 def _guess_year(date_rows: list[list[tuple[int, int]]], hint: int | None) -> tuple[int | None, float]:

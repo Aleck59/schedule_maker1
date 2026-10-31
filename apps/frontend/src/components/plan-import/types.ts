@@ -108,6 +108,8 @@ export interface RecognizedCalendar {
 }
 
 export interface ScanResult {
+  /** plx / gosinsp — данные из файла учебного плана; нет — распознанный скан */
+  source?: 'plx' | 'gosinsp';
   title: Record<string, unknown>;
   calendar: RecognizedCalendar[];
   warnings: string[];
@@ -134,6 +136,10 @@ export interface ScanEngineStatus {
   tesseract: string | null;
   error: string | null;
   formats: string[];
+  /** Загрузка файлов .plx/.xml (не требует распознавания) */
+  fileImportAvailable?: boolean;
+  fileImportError?: string | null;
+  fileFormats?: string[];
 }
 
 export interface ApplyResult {

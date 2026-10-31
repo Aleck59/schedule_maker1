@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from .normalize import similar
+from .structure import LEVEL_BY_CODE, education_level  # noqa: F401 — повторный экспорт
 from .table import Cell
 
 CODE_RE = re.compile(r"\b(\d{2})[.,](\d{2})[.,](\d{2})\b")
@@ -116,16 +117,6 @@ def parse_title(cells: list[Cell], page_text: str) -> dict[str, object]:
     return result
 
 
-LEVEL_BY_CODE = {
-    "01": "SPO",
-    "02": "SPO",
-    "03": "BACHELOR",
-    "04": "MASTER",
-    "05": "SPECIALIST",
-    "06": "POSTGRADUATE",
-    "07": "POSTGRADUATE",
-    "08": "POSTGRADUATE",
-}
 HEADER_RE = re.compile(
     r"Учебный план\s+(?P<kind>[^'«\"]{0,60}?)\s*['«\"](?P<file>[^'»\"]{1,80})['»\"]\s*,\s*"
     r"код\s+(?:специальности|направления)\s+(?P<code>\d{2}\.\d{2}\.\d{2})"
@@ -133,12 +124,6 @@ HEADER_RE = re.compile(
     r"\s*,\s*год начала подготовки\s+(?P<year>20\d{2})",
     re.I,
 )
-
-
-def education_level(code: str | None) -> str | None:
-    """Уровень образования по коду специальности (направления): «38.02.01» — СПО, «38.03.01» — бакалавриат."""
-    m = CODE_RE.search(code or "")
-    return LEVEL_BY_CODE.get(m.group(2)) if m else None
 
 
 def parse_plan_header(text: str) -> dict[str, object]:
