@@ -10,7 +10,9 @@ import {
   IsString,
   Matches,
   Max,
+  MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 
@@ -169,6 +171,26 @@ export class UpdateOrganizationDto {
   @IsOptional()
   @IsString()
   timezone?: string;
+
+  @ApiPropertyOptional({
+    example: 'Расписание СПО и ВО',
+    description: 'Название программы: страница входа, меню, заголовок вкладки. Пустая строка — название по умолчанию',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80, { message: 'Название программы — не длиннее 80 символов' })
+  appName?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Логотип — data URL картинки (PNG, JPEG, SVG, WebP, GIF) до ~375 КБ. Пустая строка или null — стандартный значок',
+  })
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null && v !== '')
+  @Matches(/^data:image\/(png|jpeg|svg\+xml|webp|gif);base64,[A-Za-z0-9+/=]+$/, {
+    message: 'Логотип должен быть картинкой PNG, JPEG, SVG, WebP или GIF',
+  })
+  @MaxLength(500_000, { message: 'Логотип слишком большой — не более ~375 КБ' })
+  appLogo?: string | null;
 }
 
 const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
