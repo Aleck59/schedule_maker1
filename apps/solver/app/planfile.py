@@ -129,7 +129,12 @@ def _norm(text: str) -> str:
 
 def read_xml(data: bytes) -> ET.Element:
     """Разбор XML. Внешние сущности ElementTree не загружает; рекурсивные сущности ограничивает expat."""
-    if b"<!ENTITY" in data[:4096].upper():
+    head = data[:8192]
+    if head[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        head = head.decode("utf-16", errors="ignore").encode("utf-8")
+    elif head[:3] != b"\xef\xbb\xbf" and b"\x00" in head[:200]:
+        head = head.decode("utf-16-le", errors="ignore").encode("utf-8")
+    if b"<!ENTITY" in head.upper():
         raise PlanFileError("Файл содержит объявления сущностей XML — такие файлы не принимаются")
     try:
         return ET.fromstring(data)
@@ -616,6 +621,9 @@ def parse_plx(root: ET.Element, builder: PlanBuilder) -> None:
                         form_text = get(r, "ФормаОбучения", "Название", "Наименование")
     title["studyForm"] = study_form_of(form_text) or "FULL_TIME"
     months = parse_duration(get(plan, "СрокОбучения", "СрокПолученияОбразования"))
+    extra = num(get(plan, "СрокОбученияМесяцев"))
+    if months is not None and extra and re.fullmatch(r"\d+", get(plan, "СрокОбучения")):
+        months = int(num(get(plan, "СрокОбучения"))) * 12 + round(extra)  # «3» года + «6» месяцев
     if months is None:
         years_, months_ = num(get(plan, "СрокЛет", "СрокОбученияЛет")), num(get(plan, "СрокМесяцев"))
         if years_ or months_:
@@ -634,8 +642,15 @@ def parse_plx(root: ET.Element, builder: PlanBuilder) -> None:
             for r in rows:
                 title_ = get(r, "Название", "Наименование")
                 abbr = get(r, "Аббревиатура", "Сокращение")
+                kind = get(r, "КодТипРабот")
                 control = control_of(title_) or control_of(abbr)
-                work_types[get(r, "Код")] = (None if control else hour_key_of(title_, abbr), control)
+                if kind == "8":
+                    # «Специальные» виды (руководство, рецензирование, комиссия) — нагрузка преподавателя
+                    work_types[get(r, "Код")] = (None, None)
+                elif kind == "7" or control:
+                    work_types[get(r, "Код")] = (None, control or "OTHER")
+                else:
+                    work_types[get(r, "Код")] = (hour_key_of(title_, abbr), None)
 
     # Строки плана
     lines = own(table("ПланыСтроки"))
@@ -649,6 +664,8 @@ def parse_plx(root: ET.Element, builder: PlanBuilder) -> None:
         code_ = get(r, "ДисциплинаКод", "Индекс", "ИндексДисциплины", "НовИдДисциплины")
         name_ = get(r, "Дисциплина", "Наименование", "Название")
         if not code_ or not name_:
+            continue
+        if get(r, "СчитатьВПлане").lower() == "false":
             continue
         if "." not in code_ and not re.search(r"\d", code_):
             continue  # строка цикла («ОГСЭ», «Б1») — цикл определяется по индексу
@@ -664,25 +681,33 @@ def parse_plx(root: ET.Element, builder: PlanBuilder) -> None:
         if name == "планыстроки" or not rows:
             continue
         sample = rows[0]
-        if _key("КодОбъекта") in sample and (
-            _key("КодВидаРабот") in sample or _key("КодВидаКонтроля") in sample
+        if _key("КодОбъекта") in sample and any(
+            _key(f) in sample for f in ("КодВидаРабот", "КодВидаРаботы", "КодВидаКонтроля")
         ):
             hour_rows.extend(own(rows))
     kinds = {get(r, "КодТипаЧасов") for r in hour_rows}
     base_kind = "1" if "1" in kinds else None
+    hour_rows = [r for r in hour_rows if not base_kind or get(r, "КодТипаЧасов") in ("", base_kind)]
+    # Заочная форма: часы курса даны и итогом (Семестр), и по сессиям — берутся сессии
+    with_sessions = {
+        (get(r, "КодОбъекта"), get(r, "Курс")) for r in hour_rows if int(num(get(r, "Сессия"))) > 0
+    }
+    per_course = int(num(get(plan, "СеместровНаКурсе"))) or 2
     unknown_types: set[str] = set()
     for r in hour_rows:
         entry = entries.get(get(r, "КодОбъекта"))
         if entry is None:
             continue
-        if base_kind and get(r, "КодТипаЧасов") not in ("", base_kind):
-            continue  # интерактивные / электронные часы — часть основных
-        number = semester_of(
-            int(num(get(r, "Курс"))), int(num(get(r, "Семестр"))), int(num(get(r, "Сессия")))
-        )
+        course, semester_, session = (int(num(get(r, f))) for f in ("Курс", "Семестр", "Сессия"))
+        if session <= 0 and (get(r, "КодОбъекта"), get(r, "Курс")) in with_sessions:
+            continue
+        if per_course == 1 and session <= 0 and semester_ == 1:
+            semester_ = 0
+            session = 1
+        number = semester_of(course, semester_, session)
         if not number:
             continue
-        type_code = get(r, "КодВидаРабот", "КодВидаКонтроля")
+        type_code = get(r, "КодВидаРабот", "КодВидаРаботы", "КодВидаКонтроля")
         hour_key, control = work_types.get(type_code, ("other", None))
         if type_code not in work_types:
             unknown_types.add(type_code)
@@ -700,8 +725,29 @@ def parse_plx(root: ET.Element, builder: PlanBuilder) -> None:
     _plx_calendar(tables, builder, title.get("admissionYear"))
 
 
+# Коды видов деятельности графика АС «Учебные планы» (ячейки ПланыГрафикиЯчейки без справочника
+# обозначений). 1, 3, 11, 12, 13, 15 сверены с реальным файлом; остальные — по порядку легенды графика.
+PLX_ACTIVITY_CODES = {
+    "1": "",  # теоретическое обучение
+    "2": "Э",  # экзаменационная сессия
+    "3": "К",  # каникулы
+    "4": "У",  # учебная практика
+    "5": "П",  # производственная практика
+    "6": "У",  # научно-исследовательская работа
+    "7": "Пд",  # преддипломная практика
+    "8": "Д",  # подготовка ВКР
+    "9": "Пд",
+    "10": "Д",
+    "11": "Г",  # государственная итоговая аттестация
+    "12": "Э",  # промежуточная аттестация (сессия)
+    "13": "=",  # неделя отсутствует (обучение не ведётся)
+    "14": "С",
+    "15": "*",  # нерабочие праздничные дни
+}
+
+
 def _plx_calendar(tables: dict[str, list[Row]], builder: PlanBuilder, admission: int | None) -> None:
-    """Календарный график .plx: ячейки графика (курс, неделя, [день]) со ссылкой на вид деятельности."""
+    """Календарный график .plx: ячейки графика (курс, неделя, часть недели) с видом деятельности."""
     symbols: dict[str, str] = {}
     for name, rows in tables.items():
         if "справочник" in name and ("деятельност" in name or "график" in name or "обозначен" in name):
@@ -709,14 +755,15 @@ def _plx_calendar(tables: dict[str, list[Row]], builder: PlanBuilder, admission:
                 symbol = get(r, "Символ", "Обозначение", "Аббревиатура", "КраткоеНазвание")
                 if symbol:
                     symbols[get(r, "Код")] = symbol
+    unknown: set[str] = set()
     for name, rows in tables.items():
-        if "график" not in name or "справочник" in name or not rows:
+        if "график" not in name or "справочник" in name or not rows or admission is None:
             continue
         sample = rows[0]
         week_field = next((f for f in ("НомерНедели", "Неделя", "НомерНед") if _key(f) in sample), None)
         if not week_field or _key("Курс") not in sample:
             continue
-        per_day = _key("ДеньНедели") in sample or _key("НомерДня") in sample
+        # course → index дня (6 дней в неделе) → код
         grid: dict[int, dict[int, str]] = defaultdict(dict)
         for r in rows:
             course = int(num(get(r, "Курс")))
@@ -725,21 +772,37 @@ def _plx_calendar(tables: dict[str, list[Row]], builder: PlanBuilder, admission:
                 continue
             ref = get(r, "КодВидаДеятельности", "КодДеятельности", "КодОбозначения", "КодВидаГрафика")
             symbol = symbols.get(ref) or get(r, "Символ", "Обозначение")
-            if not symbol and not ref:
+            if symbol:
+                code = _graph_code(symbol)
+            elif ref in PLX_ACTIVITY_CODES:
+                code = PLX_ACTIVITY_CODES[ref]
+            elif ref:
+                unknown.add(ref)
+                code = "С"
+            else:
                 continue
-            code = _graph_code(symbol)
-            index = (
-                (week - 1) * 6 + int(num(get(r, "ДеньНедели", "НомерДня")) or 1) - 1 if per_day else week - 1
-            )
-            grid[course][index] = code
+            parts = int(num(get(r, "КоличествоЧастейВНеделе"))) or 1
+            part = int(num(get(r, "НомерЧастиНедели", "ДеньНедели", "НомерДня"))) or 1
+            base = (week - 1) * 6
+            if parts >= 6:
+                grid[course][base + min(part, 6) - 1] = code
+            else:
+                # Неделя делится на части (1 — вся неделя, 2 — по половинам, 3 — по два дня)
+                size = 6 // parts
+                for d in range((part - 1) * size, min(6, part * size)):
+                    grid[course][base + d] = code
         for course, cells in sorted(grid.items()):
-            if admission is None:
-                break
-            size = max(cells) + 1
-            codes = [cells.get(i, "") for i in range(size)]
-            builder.add_calendar_weeks(course, admission + course - 1, codes, per_day=per_day)
+            codes = [cells.get(i, "") for i in range(max(cells) + 1)]
+            if all(c in ("=", "*") for c in codes):
+                continue  # курса нет в плане (сокращённый срок)
+            builder.add_calendar_weeks(course, admission + course - 1, codes, per_day=True)
         if builder.calendar:
-            return
+            break
+    if unknown:
+        builder.warnings.append(
+            "Неизвестные обозначения календарного графика (поставлены как «прочее»): "
+            + ", ".join(sorted(unknown))
+        )
 
 
 # ---------------------------------------------------------------------------- .xml (GosInsp)
