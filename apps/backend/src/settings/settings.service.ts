@@ -29,6 +29,15 @@ export const DEFAULT_LESSON_TIMES: Array<{ lessonNumber: number; startTime: stri
   { lessonNumber: 6, startTime: '17:20', endTime: '18:50' },
 ];
 
+/** Название программы по умолчанию */
+export const DEFAULT_APP_NAME = 'Расписание СПО и ВО';
+
+/** Для журнала изменений: картинку логотипа не сохраняем целиком */
+function auditOrg<T extends { appLogo?: string | null } | null>(org: T): T {
+  if (!org?.appLogo) return org;
+  return { ...org, appLogo: `[логотип, ${Math.round(org.appLogo.length / 1024)} КБ]` };
+}
+
 export interface EffectiveSettings extends OrganizationSettings {
   weights: Record<string, number>;
   timezone: string;
@@ -135,10 +144,29 @@ export class SettingsService {
         throw new BadRequestException('Неизвестный часовой пояс');
       }
     }
+    const data: Prisma.OrganizationUpdateInput = { ...dto };
+    if (dto.appName !== undefined) data.appName = dto.appName?.trim() || null;
+    if (dto.appLogo !== undefined) data.appLogo = dto.appLogo || null;
     const before = await this.prisma.organization.findUnique({ where: { id: organizationId } });
-    const org = await this.prisma.organization.update({ where: { id: organizationId }, data: dto });
-    await this.audit.log(actor.id, 'UPDATE', 'Organization', org.id, before, org);
+    const org = await this.prisma.organization.update({ where: { id: organizationId }, data });
+    await this.audit.log(actor.id, 'UPDATE', 'Organization', org.id, auditOrg(before), auditOrg(org));
     return org;
+  }
+
+  /**
+   * Название и логотип программы — открыты без входа (страница входа).
+   * Программа рассчитана на одну организацию: берётся первая созданная.
+   */
+  async branding(): Promise<{ appName: string; appLogo: string | null; organizationName: string | null }> {
+    const org = await this.prisma.organization.findFirst({
+      orderBy: { createdAt: 'asc' },
+      select: { appName: true, appLogo: true, shortName: true, name: true },
+    });
+    return {
+      appName: org?.appName || DEFAULT_APP_NAME,
+      appLogo: org?.appLogo ?? null,
+      organizationName: org ? org.shortName || org.name : null,
+    };
   }
 
   async replaceLessonTimes(organizationId: string, dto: ReplaceLessonTimesDto, actor: AuthUser) {

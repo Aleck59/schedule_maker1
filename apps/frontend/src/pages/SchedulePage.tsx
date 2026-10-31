@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   CalendarPlus,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   FileSpreadsheet,
@@ -77,6 +78,7 @@ import {
 } from "@/lib/format";
 import { CANCELLATION_REASON_LABELS } from "@/lib/labels";
 import { useApi, useApiMutation } from "@/lib/query";
+import { cn } from "@/lib/utils";
 import type {
   CalendarEvent,
   Lesson,
@@ -121,7 +123,15 @@ export default function SchedulePage() {
   >({});
   const [bulkMode, setBulkMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [showValidation, setShowValidation] = useState(false);
+  const [showValidation, setShowValidationRaw] = useState(false);
+  // Панель с ошибками закрыта крестиком — до следующей проверки
+  const [validationDismissed, setValidationDismissed] = useState(false);
+  // Список несостыковок свёрнут под спойлер
+  const [issuesOpen, setIssuesOpen] = useState(false);
+  const setShowValidation = (show: boolean) => {
+    setShowValidationRaw(show);
+    setValidationDismissed(!show);
+  };
   const [showFixes, setShowFixes] = useState(false);
   const [unpublishOpen, setUnpublishOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
@@ -496,7 +506,9 @@ export default function SchedulePage() {
         onConfirm={() => unpublish.mutate(undefined)}
       />
 
-      {canEdit && (showValidation || errorsCount > 0) && validation.data && (
+      {canEdit &&
+        (showValidation || (errorsCount > 0 && !validationDismissed)) &&
+        validation.data && (
         <Alert
           variant={
             errorsCount
@@ -510,7 +522,10 @@ export default function SchedulePage() {
             <span>
               Проверка расписания: ошибок {errorsCount}, предупреждений{" "}
               {validation.data.filter((v) => v.severity === "WARNING").length}
-              {errorsCount > 0 && " — публикация заблокирована"}
+              {errorsCount > 0 &&
+                (period.status === "PUBLISHED"
+                  ? " — расписание уже опубликовано, исправьте ошибки"
+                  : " — публикация заблокирована")}
             </span>
             <span className="flex items-center gap-1">
               {validation.data.some(
@@ -536,8 +551,36 @@ export default function SchedulePage() {
             {validation.data.length === 0 ? (
               "Ошибок и предупреждений нет"
             ) : (
-              <div className="max-h-56 w-full overflow-y-auto">
-                <IssuesList issues={validation.data} max={100} />
+              <div className="w-full">
+                <button
+                  type="button"
+                  onClick={() => setIssuesOpen((v) => !v)}
+                  aria-expanded={issuesOpen}
+                  className="hover:bg-foreground/5 -ml-2 flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1 text-sm font-medium transition-colors"
+                >
+                  <ChevronDown
+                    className={cn(
+                      "size-4 transition-transform duration-300",
+                      issuesOpen && "rotate-180",
+                    )}
+                  />
+                  {issuesOpen ? "Скрыть несостыковки" : "Показать несостыковки"}
+                  <span className="opacity-70">({validation.data.length})</span>
+                </button>
+                <div
+                  className={cn(
+                    "grid transition-[grid-template-rows,opacity] duration-300 ease-out",
+                    issuesOpen
+                      ? "grid-rows-[1fr] opacity-100"
+                      : "grid-rows-[0fr] opacity-0",
+                  )}
+                >
+                  <div className="min-h-0 overflow-hidden">
+                    <div className="mt-2 max-h-56 overflow-y-auto pr-1">
+                      <IssuesList issues={validation.data} max={100} />
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </AlertDescription>

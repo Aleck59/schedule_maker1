@@ -144,6 +144,8 @@ export interface SettingsResponse {
     shortName: string | null;
     address: string | null;
     timezone: string;
+    appName: string | null;
+    appLogo: string | null;
   };
   settings: Settings;
   lessonTimes: LessonTime[];

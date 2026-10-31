@@ -8,6 +8,7 @@ import { LoadingState } from '@/components/common/states';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuthProvider, useAuth } from '@/lib/auth';
+import { BrandingHead } from '@/lib/branding';
 import { queryClient } from '@/lib/query';
 import type { UserRole } from '@/lib/types';
 import LoginPage from '@/pages/LoginPage';
@@ -28,6 +29,7 @@ const GroupDetailsPage = lazy(() => import('@/pages/GroupDetailsPage'));
 const TeachersPage = lazy(() => import('@/pages/TeachersPage'));
 const TeacherDetailsPage = lazy(() => import('@/pages/TeacherDetailsPage'));
 const ClassroomsPage = lazy(() => import('@/pages/ClassroomsPage'));
+const ClassroomsHeatmapPage = lazy(() => import('@/pages/ClassroomsHeatmapPage'));
 const ClassroomDetailsPage = lazy(() => import('@/pages/ClassroomDetailsPage'));
 const ReportsPage = lazy(() => import('@/pages/ReportsPage'));
 const MySchedulePage = lazy(() => import('@/pages/MySchedulePage'));
@@ -82,6 +84,7 @@ const page = (el: ReactNode, roles?: UserRole[]) => (
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <BrandingHead />
       <TooltipProvider>
         <AuthProvider>
           <BrowserRouter>
@@ -113,6 +116,7 @@ export default function App() {
                 <Route path="teachers" element={page(<TeachersPage />, STAFF)} />
                 <Route path="teachers/:id" element={page(<TeacherDetailsPage />, STAFF)} />
                 <Route path="classrooms" element={page(<ClassroomsPage />, STAFF)} />
+                <Route path="classrooms/heatmap" element={page(<ClassroomsHeatmapPage />, STAFF)} />
                 <Route path="classrooms/:id" element={page(<ClassroomDetailsPage />, STAFF)} />
                 <Route path="reports" element={page(<ReportsPage />, [...STAFF, 'TEACHER'])} />
                 <Route path="notifications" element={page(<NotificationsPage />)} />

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Compass, Plus, Save, Trash2 } from 'lucide-react';
+import { Compass, ImageUp, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import { Field } from '@/components/common/field';
 import { PageHeader } from '@/components/common/page-header';
@@ -18,7 +19,8 @@ import { useAuth } from '@/lib/auth';
 import { formatDateTime } from '@/lib/format';
 import { WEEKDAYS } from '@/lib/labels';
 import { useApi, useApiMutation } from '@/lib/query';
-import type { LessonTime, Settings } from '@/lib/types';
+import { AppLogo, DEFAULT_APP_NAME } from '@/lib/branding';
+import type { LessonTime, Settings, SettingsResponse } from '@/lib/types';
 
 const NUMERIC: Array<[keyof Settings, string, string?]> = [
   ['academicHourMinutes', 'Длительность академического часа, мин'],
@@ -98,7 +100,10 @@ export default function SettingsPage() {
           <BellsForm times={data.lessonTimes} editable={isAdmin} />
         </TabsContent>
         <TabsContent value="org">
-          <OrgForm org={data.organization} editable={isAdmin} />
+          <div className="grid items-start gap-4 xl:grid-cols-2">
+            <OrgForm org={data.organization} editable={isAdmin} />
+            <BrandingForm org={data.organization} editable={isAdmin} />
+          </div>
         </TabsContent>
         <TabsContent value="audit">
           <AuditLog />
@@ -268,14 +273,14 @@ function BellsForm({ times, editable }: { times: LessonTime[]; editable: boolean
   );
 }
 
-function OrgForm({ org, editable }: { org: { name: string; shortName: string | null; address: string | null; timezone: string }; editable: boolean }) {
+function OrgForm({ org, editable }: { org: SettingsResponse['organization']; editable: boolean }) {
   const [draft, setDraft] = useState({ name: org.name, shortName: org.shortName ?? '', address: org.address ?? '', timezone: org.timezone });
   const save = useApiMutation(() => api.patch('/settings/organization', draft), {
     success: 'Сведения об организации сохранены',
     invalidate: [['settings']],
   });
   return (
-    <Card className="max-w-2xl">
+    <Card>
       <CardHeader>
         <CardTitle>Образовательная организация</CardTitle>
       </CardHeader>
@@ -292,6 +297,117 @@ function OrgForm({ org, editable }: { org: { name: string; shortName: string | n
         <Field label="Часовой пояс" hint="Например, Europe/Moscow">
           <Input value={draft.timezone} disabled={!editable} onChange={(e) => setDraft({ ...draft, timezone: e.target.value })} />
         </Field>
+        {editable && (
+          <div>
+            <Button onClick={() => save.mutate(undefined)} disabled={save.isPending}>
+              {save.isPending ? <Spinner /> : <Save />} Сохранить
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Максимальный размер логотипа (data URL) — синхронно с проверкой на сервере */
+const MAX_LOGO_LENGTH = 500_000;
+
+/** Картинку из файла — в data URL; крупные растровые уменьшаются до 256 px по большей стороне */
+async function logoFromFile(file: File): Promise<string> {
+  if (!/^image\/(png|jpeg|svg\+xml|webp|gif)$/.test(file.type)) {
+    throw new Error('Подойдёт картинка PNG, JPEG, SVG, WebP или GIF');
+  }
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('Не удалось прочитать файл'));
+    reader.readAsDataURL(file);
+  });
+  if (file.type === 'image/svg+xml') {
+    if (dataUrl.length > MAX_LOGO_LENGTH) throw new Error('SVG-файл слишком большой — не более ~375 КБ');
+    return dataUrl;
+  }
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error('Файл не похож на картинку'));
+    el.src = dataUrl;
+  });
+  const LIMIT = 256;
+  if (img.width <= LIMIT && img.height <= LIMIT && dataUrl.length <= MAX_LOGO_LENGTH) return dataUrl;
+  const scale = Math.min(1, LIMIT / Math.max(img.width, img.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(img.width * scale));
+  canvas.height = Math.max(1, Math.round(img.height * scale));
+  canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+  const out = canvas.toDataURL('image/png');
+  if (out.length > MAX_LOGO_LENGTH) throw new Error('Логотип слишком большой даже после уменьшения');
+  return out;
+}
+
+function BrandingForm({ org, editable }: { org: SettingsResponse['organization']; editable: boolean }) {
+  const [appName, setAppName] = useState(org.appName ?? '');
+  const [appLogo, setAppLogo] = useState<string | null>(org.appLogo);
+  useEffect(() => {
+    setAppName(org.appName ?? '');
+    setAppLogo(org.appLogo);
+  }, [org.appName, org.appLogo]);
+  const save = useApiMutation(() => api.patch('/settings/organization', { appName: appName.trim(), appLogo: appLogo ?? '' }), {
+    success: 'Название и логотип сохранены',
+    invalidate: [['settings'], ['branding']],
+  });
+  const shownName = appName.trim() || DEFAULT_APP_NAME;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Название и логотип программы</CardTitle>
+        <CardDescription>Показываются на странице входа, в меню и на вкладке браузера</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <Field label="Название программы" hint={`Пусто — «${DEFAULT_APP_NAME}»`}>
+          <Input value={appName} maxLength={80} placeholder={DEFAULT_APP_NAME} disabled={!editable} onChange={(e) => setAppName(e.target.value)} />
+        </Field>
+        <Field label="Логотип" hint="PNG, JPEG, SVG, WebP или GIF. Лучше квадратный, на прозрачном фоне; крупные картинки уменьшаются до 256 px">
+          <div className="flex flex-wrap items-center gap-3">
+            <AppLogo logo={appLogo} className="size-14 rounded-2xl border border-border/70 bg-card" iconClassName="size-6" />
+            {editable && (
+              <>
+                <Button variant="outline" asChild>
+                  <label className="cursor-pointer">
+                    <ImageUp /> Загрузить
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/svg+xml,image/webp,image/gif"
+                      className="sr-only"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = '';
+                        if (!file) return;
+                        try {
+                          setAppLogo(await logoFromFile(file));
+                        } catch (err) {
+                          toast.error((err as Error).message);
+                        }
+                      }}
+                    />
+                  </label>
+                </Button>
+                {appLogo && (
+                  <Button variant="ghost" onClick={() => setAppLogo(null)}>
+                    <RotateCcw /> Стандартный значок
+                  </Button>
+                )}
+              </>
+            )}
+          </div>
+        </Field>
+        <div className="bg-muted/40 flex items-center gap-3 rounded-xl border border-border/70 p-3">
+          <AppLogo logo={appLogo} className="size-9 rounded-xl" iconClassName="size-[18px]" />
+          <div className="min-w-0">
+            <div className="line-clamp-2 text-[15px] leading-tight font-semibold tracking-tight break-words">{shownName}</div>
+            <div className="text-muted-foreground truncate text-xs">Так будет выглядеть в меню</div>
+          </div>
+        </div>
         {editable && (
           <div>
             <Button onClick={() => save.mutate(undefined)} disabled={save.isPending}>

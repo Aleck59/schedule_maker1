@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { CalendarDays, ClipboardCheck, LogIn, Sparkles, Users } from 'lucide-react';
+import { ClipboardCheck, LogIn, Sparkles, Users } from 'lucide-react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { Field } from '@/components/common/field';
@@ -12,20 +12,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { AppLogo, splitAppName, useBranding } from '@/lib/branding';
 
 const schema = z.object({
   email: z.string().min(1, 'Укажите email').email('Некорректный email'),
   password: z.string().min(1, 'Укажите пароль'),
 });
 type FormValues = z.infer<typeof schema>;
-
-const DEMO = [
-  { role: 'Диспетчер', email: 'dispatcher@college.ru', password: 'Dispatcher123!' },
-  { role: 'Администратор', email: 'admin@college.ru', password: 'Admin123!' },
-  { role: 'Преподаватель', email: 'teacher@college.ru', password: 'Teacher123!' },
-  { role: 'Студент', email: 'student@college.ru', password: 'Student123!' },
-  { role: 'Руководитель', email: 'director@college.ru', password: 'Director123!' },
-];
 
 const FEATURES = [
   { icon: Sparkles, title: 'Автосоставление', text: 'Расписание всех групп одной кнопкой, без накладок' },
@@ -35,6 +28,8 @@ const FEATURES = [
 
 export default function LoginPage() {
   const { user, login } = useAuth();
+  const branding = useBranding();
+  const [nameHead, nameTail] = splitAppName(branding.appName);
   const navigate = useNavigate();
   const location = useLocation();
   const [error, setError] = useState<string | null>(null);
@@ -57,12 +52,19 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center p-4">
       <div className="page-enter grid w-full max-w-5xl items-center gap-10 md:grid-cols-[1.15fr_1fr]">
         <div className="hidden flex-col md:flex">
-          <div className="brand-gradient mb-6 flex size-12 items-center justify-center rounded-2xl text-white shadow-[0_10px_30px_-10px_oklch(0.5_0.22_272/0.8)]">
-            <CalendarDays className="size-6" />
-          </div>
-          <h1 className="text-4xl leading-tight font-semibold tracking-tight">
-            Расписание <span className="text-gradient">СПО и ВО</span>
+          <AppLogo
+            className={
+              branding.appLogo
+                ? 'mb-6 size-16 rounded-2xl'
+                : 'mb-6 size-12 rounded-2xl shadow-[0_10px_30px_-10px_oklch(0.5_0.22_272/0.8)]'
+            }
+            iconClassName="size-6"
+          />
+          <h1 className="text-4xl leading-tight font-semibold tracking-tight text-balance">
+            {nameHead && <>{nameHead} </>}
+            <span className="text-gradient">{nameTail}</span>
           </h1>
+          {branding.organizationName && <div className="text-muted-foreground mt-2 text-sm font-medium">{branding.organizationName}</div>}
           <p className="text-muted-foreground mt-3 max-w-md text-[15px]">
             Учебные планы, нагрузка, календарный график и составление расписания с оптимизацией в одном месте.
           </p>
@@ -82,8 +84,9 @@ export default function LoginPage() {
         </div>
         <Card className="bg-card/85 shadow-lift backdrop-blur-xl">
           <CardHeader>
-            <div className="brand-gradient mb-2 flex size-10 items-center justify-center rounded-xl text-white md:hidden">
-              <CalendarDays className="size-5" />
+            <div className="mb-2 flex items-center gap-3 md:hidden">
+              <AppLogo className="size-10 rounded-xl" iconClassName="size-5" />
+              <span className="text-[15px] leading-tight font-semibold tracking-tight">{branding.appName}</span>
             </div>
             <CardTitle className="text-xl tracking-tight">Вход в систему</CardTitle>
             <CardDescription>Введите учётные данные вашей организации</CardDescription>
@@ -105,25 +108,6 @@ export default function LoginPage() {
                 {form.formState.isSubmitting ? <Spinner /> : <LogIn />} Войти
               </Button>
             </form>
-            <div className="mt-6 border-t pt-4">
-              <div className="text-muted-foreground mb-2 text-xs font-medium">Демонстрационные учётные записи</div>
-              <div className="grid gap-1">
-                {DEMO.map((d) => (
-                  <button
-                    key={d.email}
-                    type="button"
-                    className="hover:bg-accent flex cursor-pointer items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-xs transition-colors"
-                    onClick={() => {
-                      form.setValue('email', d.email);
-                      form.setValue('password', d.password);
-                    }}
-                  >
-                    <span className="font-medium">{d.role}</span>
-                    <span className="text-muted-foreground">{d.email}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
           </CardContent>
         </Card>
       </div>

@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { ClassroomType } from '@prisma/client';
 import { ReplaceAvailabilityDto } from '../common/dto/availability.dto';
@@ -44,6 +55,29 @@ export class ClassroomsController {
   @ApiOperation({ summary: 'Список корпусов' })
   buildings(@CurrentUser() user: AuthUser) {
     return this.classrooms.buildings(user);
+  }
+
+  @Get('occupancy')
+  @Roles(...STAFF_ROLES)
+  @ApiOperation({ summary: 'Тепловая карта занятости всех аудиторий за период' })
+  @ApiQuery({ name: 'from', required: false, description: 'По умолчанию — начало текущей недели' })
+  @ApiQuery({ name: 'to', required: false, description: 'По умолчанию — 4 недели от начала' })
+  @ApiQuery({ name: 'building', required: false })
+  occupancy(
+    @CurrentUser() user: AuthUser,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('building') building?: string,
+  ) {
+    const valid = (d?: string) =>
+      !d ||
+      (/^\d{4}-\d{2}-\d{2}$/.test(d) &&
+        !Number.isNaN(Date.parse(d)) &&
+        new Date(d).toISOString().startsWith(d));
+    if (!valid(from) || !valid(to)) {
+      throw new BadRequestException('Даты указываются в формате ГГГГ-ММ-ДД');
+    }
+    return this.classrooms.occupancy(user, { from, to, building });
   }
 
   @Post()
