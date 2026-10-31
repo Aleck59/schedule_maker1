@@ -3,6 +3,7 @@
     python -m app info                 — версии компонентов (JSON)
     python -m app solve < problem.json — решение задачи расписания, результат в stdout (JSON)
     python -m app recognize FILE...    — распознавание скана учебного плана (JSON)
+    python -m app import-plan FILE     — учебный план из файла «Планы» (.plx, .xml GosInsp) (JSON)
 
 Ход выполнения пишется в stderr строками ``PROGRESS {"fraction": 0.5, "message": "..."}``,
 диагностические сообщения — обычными строками журнала.
@@ -36,9 +37,21 @@ def write_json(data: object) -> None:
     sys.stdout.flush()
 
 
-def cmd_info(_: argparse.Namespace) -> int:
-    from .ocr.tesseract import tesseract_info
+def ocr_info() -> dict[str, object]:
+    """Готовность распознавания сканов; без OpenCV/NumPy остальные команды (решатель, файлы .plx/.xml) работают."""
+    try:
+        from .ocr.tesseract import tesseract_info
+    except ImportError as exc:  # pragma: no cover - зависит от окружения
+        return {
+            "ready": False,
+            "version": None,
+            "languages": [],
+            "error": f"Не установлены модули распознавания: {exc}",
+        }
+    return tesseract_info()
 
+
+def cmd_info(_: argparse.Namespace) -> int:
     info: dict[str, object] = {
         "version": os.getenv("APP_VERSION", __version__),
         "python": sys.version.split()[0],
@@ -49,7 +62,7 @@ def cmd_info(_: argparse.Namespace) -> int:
         info["ortools"] = ortools.__version__
     except ImportError:  # pragma: no cover - зависит от окружения
         info["ortools"] = None
-    info["ocr"] = tesseract_info()
+    info["ocr"] = ocr_info()
     write_json(info)
     return 0
 
@@ -90,6 +103,14 @@ def cmd_recognize(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_import_plan(args: argparse.Namespace) -> int:
+    from .planfile import import_plan_file
+
+    progress(0.1, "Чтение файла учебного плана")
+    write_json(import_plan_file(args.file))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=os.getenv("LOG_LEVEL", "INFO"),
@@ -103,6 +124,9 @@ def main(argv: list[str] | None = None) -> int:
     rec = sub.add_parser("recognize", help="распознать скан учебного плана (PDF, JPG, PNG)")
     rec.add_argument("files", nargs="+")
     rec.set_defaults(func=cmd_recognize)
+    imp = sub.add_parser("import-plan", help="загрузить учебный план из файла .plx или .xml (GosInsp)")
+    imp.add_argument("file")
+    imp.set_defaults(func=cmd_import_plan)
     args = parser.parse_args(argv)
     try:
         return args.func(args)

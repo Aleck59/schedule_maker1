@@ -1,4 +1,6 @@
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import request from 'supertest';
 import { createApp } from '../src/main';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -731,6 +733,92 @@ describe('Расписание СПО (e2e)', () => {
       status: 'APPLIED',
       programId,
     });
+  });
+
+  it('импорт учебного плана из файлов .plx и .xml (GosInsp): чтение, черновик и создание плана', async () => {
+    const fixtures = join(__dirname, '../../solver/tests/fixtures');
+    const status = await http.get('/api/curriculum-scans/status').set(auth('dispatcher')).expect(200);
+    expect(status.body.fileFormats).toEqual(['.plx', '.xml']);
+    expect(status.body.fileImportAvailable).toBe(true);
+
+    const mixed = await http
+      .post('/api/curriculum-scans')
+      .set(auth('dispatcher'))
+      .attach('files', readFileSync(join(fixtures, 'plan-spo.plx')), 'plan.plx')
+      .attach('files', Buffer.from('%PDF-1.4'), 'scan.pdf')
+      .expect(400);
+    expect(mixed.body.message).toMatch(/по одному/);
+
+    const waitReady = async (id: string) => {
+      for (let i = 0; i < 100; i++) {
+        const res = await http.get(`/api/curriculum-scans/${id}`).set(auth('dispatcher')).expect(200);
+        if (res.body.status !== 'PROCESSING') return res.body;
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      throw new Error('Файл учебного плана не прочитан за 20 с');
+    };
+
+    const broken = await http
+      .post('/api/curriculum-scans')
+      .set(auth('dispatcher'))
+      .attach('files', Buffer.from('<root><a/></root>'), 'other.xml')
+      .expect(201);
+    const failed = await waitReady(broken.body.id);
+    expect(failed.status).toBe('FAILED');
+    expect(failed.error).toMatch(/не похож на учебный план/);
+
+    const uploaded = await http
+      .post('/api/curriculum-scans')
+      .set(auth('dispatcher'))
+      .attach('files', readFileSync(join(fixtures, 'plan-spo.plx')), 'plan-isp.plx')
+      .expect(201);
+    const ready = await waitReady(uploaded.body.id);
+    expect(ready.status).toBe('READY');
+    expect(ready.resultJson.source).toBe('plx');
+    const draft = ready.draft;
+    expect(draft.specialty).toMatchObject({
+      code: '09.02.07',
+      qualification: 'Программист',
+      educationLevel: 'SPO',
+    });
+    expect(draft.program).toMatchObject({ admissionYear: 2025, studyForm: 'FULL_TIME', durationMonths: 46 });
+    expect(draft.semesters).toHaveLength(8);
+
+    const applied = await http
+      .post(`/api/curriculum-scans/${uploaded.body.id}/apply`)
+      .set(auth('dispatcher'))
+      .send({
+        ...draft,
+        items: draft.items.map(({ issues: _issues, ...item }: { issues: string[] }) => item),
+      })
+      .expect(200);
+    expect(applied.body.created).toMatchObject({ semesters: 8, items: 6 });
+    const prisma = app.get(PrismaService);
+    const items = await prisma.curriculumItem.findMany({
+      where: { educationalProgramId: applied.body.programId },
+      include: { semesterItems: { include: { semester: true } } },
+    });
+    const os = items.find((i) => i.code === 'ОП.01')!;
+    expect(os.semesterItems[0]).toMatchObject({
+      lectureHours: 30,
+      laboratoryHours: 40,
+      controlForm: 'EXAM',
+    });
+    expect(os.semesterItems[0].semester.number).toBe(3);
+    const module = items.find((i) => i.code === 'ПМ.01')!;
+    expect(module.semesterItems.map((s) => s.controlForm)).toEqual(['QUALIFICATION_EXAM']);
+
+    // .xml GosInsp в кодировке windows-1251 с календарным графиком
+    const xml = await http
+      .post('/api/curriculum-scans')
+      .set(auth('dispatcher'))
+      .attach('files', readFileSync(join(fixtures, 'plan-spo-gosinsp.xml')), 'plan.xml')
+      .expect(201);
+    const xmlReady = await waitReady(xml.body.id);
+    expect(xmlReady.resultJson.source).toBe('gosinsp');
+    expect(xmlReady.draft.specialty.code).toBe('40.02.04');
+    expect(xmlReady.draft.semesters[0]).toMatchObject({ startDate: '2026-09-01', endDate: '2027-01-17' });
+    expect(xmlReady.draft.periods.length).toBeGreaterThan(5);
   });
 
   it('уровень образования специальности определяется по коду', async () => {

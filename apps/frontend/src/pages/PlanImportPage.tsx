@@ -29,20 +29,22 @@ import { useApi, useApiMutation } from '@/lib/query';
 import { cn } from '@/lib/utils';
 
 const STEPS = [
-  { title: 'Загрузка скана', description: 'PDF или фото страниц' },
-  { title: 'Распознавание', description: 'Около минуты' },
+  { title: 'Загрузка плана', description: '.plx, .xml, PDF или фото' },
+  { title: 'Обработка', description: 'Файл — секунды, скан — около минуты' },
   { title: 'Общие сведения', description: 'Специальность, план' },
   { title: 'Календарный график', description: 'Семестры, сессии, каникулы' },
   { title: 'Дисциплины и часы', description: 'По семестрам' },
   { title: 'Создание', description: 'Группа и итог' },
 ];
 const STATUS: Record<CurriculumScan['status'], { label: string; variant: 'info' | 'success' | 'destructive' | 'muted' }> = {
-  PROCESSING: { label: 'Распознаётся', variant: 'info' },
+  PROCESSING: { label: 'Обрабатывается', variant: 'info' },
   READY: { label: 'Ожидает проверки', variant: 'success' },
   FAILED: { label: 'Ошибка', variant: 'destructive' },
   APPLIED: { label: 'План создан', variant: 'muted' },
 };
-const ACCEPT = '.pdf,.jpg,.jpeg,.png,.tif,.tiff,.bmp,.webp';
+const PLAN_FILE_EXT = ['.plx', '.xml'];
+const ACCEPT = `${PLAN_FILE_EXT.join(',')},.pdf,.jpg,.jpeg,.png,.tif,.tiff,.bmp,.webp`;
+const isPlanFile = (name: string) => PLAN_FILE_EXT.some((ext) => name.toLowerCase().endsWith(ext));
 
 /** Данные для запроса: без служебных полей распознавания (фрагменты скана, замечания) */
 function payload(draft: Draft) {
@@ -73,22 +75,31 @@ function UploadStep({ status, onUploaded }: { status?: ScanEngineStatus; onUploa
     if (!list) return;
     setFiles((prev) => [...prev, ...Array.from(list)].slice(0, 40));
   };
-  const unavailable = status && !status.available;
+  const planFiles = files.filter((f) => isPlanFile(f.name));
+  const planFile = planFiles.length > 0;
+  const mixed = planFile && files.length > 1;
+  const fileImportAvailable = status?.fileImportAvailable ?? status?.available;
+  const unavailable = status && (planFile ? !fileImportAvailable : !status.available);
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Загрузите скан учебного плана</CardTitle>
+        <CardTitle>Загрузите учебный план</CardTitle>
         <CardDescription>
-          Система распознает титульный лист, календарный учебный график и план по семестрам, проверит суммы часов и предложит
-          данные для проверки. Ничего не создаётся, пока вы не подтвердите данные.
+          Файл программы «Планы» (.plx или .xml GosInsp — те же, что загружаются в 1С:Университет) читается полностью: титул,
+          календарный учебный график, дисциплины, модули и практики с часами и формами контроля по семестрам. Скан (PDF или фото)
+          распознаётся с проверкой сумм часов. Ничего не создаётся, пока вы не подтвердите данные.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {unavailable && (
-          <Alert variant="destructive">
+        {status && !status.available && (!planFile || !fileImportAvailable) && (
+          <Alert variant={fileImportAvailable ? 'warning' : 'destructive'}>
             <TriangleAlert />
-            <AlertTitle>Распознавание недоступно</AlertTitle>
-            <AlertDescription>{status.error}</AlertDescription>
+            <AlertTitle>{fileImportAvailable ? 'Распознавание сканов недоступно' : 'Импорт недоступен'}</AlertTitle>
+            <AlertDescription>
+              {fileImportAvailable
+                ? `${status.error ? `${status.error.replace(/\.$/, '')}. ` : ''}Файлы .plx и .xml загружаются без распознавания.`
+                : (status.fileImportError ?? status.error)}
+            </AlertDescription>
           </Alert>
         )}
         <div
@@ -114,8 +125,8 @@ function UploadStep({ status, onUploaded }: { status?: ScanEngineStatus; onUploa
           <Upload className="text-muted-foreground size-9" />
           <div className="font-medium">Перетащите файлы сюда или нажмите, чтобы выбрать</div>
           <div className="text-muted-foreground max-w-xl text-sm">
-            PDF со сканом (можно многостраничный) или фотографии страниц JPG/PNG. Нужны: титульный лист, календарный график и
-            страницы «план по семестрам» (часы по видам занятий).
+            Файл учебного плана .plx (АС «Учебные планы») или .xml (GosInsp) — по одному. Или PDF со сканом (можно
+            многостраничный) или фотографии страниц JPG/PNG: титульный лист, календарный график и «план по семестрам».
           </div>
           <input ref={input} type="file" multiple accept={ACCEPT} className="hidden" onChange={(e) => add(e.target.files)} />
         </div>
@@ -131,15 +142,18 @@ function UploadStep({ status, onUploaded }: { status?: ScanEngineStatus; onUploa
                 </Badge>
               ))}
             </div>
-            <Button onClick={() => upload.mutate(files)} disabled={upload.isPending || unavailable}>
-              {upload.isPending ? <Spinner /> : <ScanLine />} Распознать
+            {mixed && (
+              <div className="text-destructive text-sm">Файл .plx или .xml загружается отдельно — уберите остальные файлы.</div>
+            )}
+            <Button onClick={() => upload.mutate(files)} disabled={upload.isPending || unavailable || mixed}>
+              {upload.isPending ? <Spinner /> : planFile ? <FileUp /> : <ScanLine />} {planFile ? 'Загрузить план' : 'Распознать'}
             </Button>
           </div>
         )}
         <div className="text-muted-foreground grid gap-1 text-xs sm:grid-cols-3">
+          <div>• .plx / .xml — самый точный способ: данные берутся из файла без распознавания</div>
           <div>• Сканируйте с разрешением от 300 dpi, страница целиком</div>
           <div>• Фото — без сильного наклона и бликов</div>
-          <div>• Таблицы распознаются по линиям сетки</div>
         </div>
       </CardContent>
     </Card>
@@ -149,7 +163,7 @@ function UploadStep({ status, onUploaded }: { status?: ScanEngineStatus; onUploa
 function RecentScans({ onOpen }: { onOpen: (id: string) => void }) {
   const scans = useApi<CurriculumScan[]>(['scans'], '/curriculum-scans');
   const remove = useApiMutation((id: string) => api.delete(`/curriculum-scans/${id}`), {
-    success: 'Скан удалён',
+    success: 'Загрузка удалена',
     invalidate: [['scans']],
   });
   if (!scans.data?.length) return null;
@@ -189,12 +203,12 @@ function RecentScans({ onOpen }: { onOpen: (id: string) => void }) {
                   {s.status !== 'PROCESSING' && (
                     <Confirm
                       trigger={
-                        <Button variant="ghost" size="icon-sm" aria-label="Удалить скан">
+                        <Button variant="ghost" size="icon-sm" aria-label="Удалить загрузку">
                           <Trash2 />
                         </Button>
                       }
-                      title="Удалить скан?"
-                      description="Распознанные данные будут удалены. Созданный по скану учебный план останется."
+                      title="Удалить загрузку?"
+                      description="Загруженные данные будут удалены. Созданный по ним учебный план останется."
                       destructive
                       confirmText="Удалить"
                       onConfirm={() => remove.mutate(s.id)}
@@ -316,8 +330,8 @@ export default function PlanImportPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Импорт учебного плана со скана"
-        description="Загрузите скан — система сама создаст специальность, учебный план, семестры, дисциплины с часами и календарный график"
+        title="Импорт учебного плана"
+        description="Загрузите файл .plx/.xml или скан — система сама создаст специальность, учебный план, семестры, дисциплины с часами и календарный график"
         actions={
           scanId && (
             <Button variant="outline" onClick={() => open(null)}>
@@ -342,9 +356,9 @@ export default function PlanImportPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Spinner /> Распознавание: {s.fileNames.join(', ')}
+              <Spinner /> {s.fileNames.some(isPlanFile) ? 'Чтение файла' : 'Распознавание'}: {s.fileNames.join(', ')}
             </CardTitle>
-            <CardDescription>Можно закрыть страницу — распознавание продолжится, скан будет в списке «Загруженные ранее».</CardDescription>
+            <CardDescription>Можно закрыть страницу — обработка продолжится, файл будет в списке «Загруженные ранее».</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             <Progress value={Math.round(s.progress * 100)} />
@@ -358,10 +372,14 @@ export default function PlanImportPage() {
       {s?.status === 'FAILED' && (
         <Alert variant="destructive">
           <TriangleAlert />
-          <AlertTitle>Не удалось распознать скан</AlertTitle>
+          <AlertTitle>{s.fileNames.some(isPlanFile) ? 'Не удалось прочитать файл учебного плана' : 'Не удалось распознать скан'}</AlertTitle>
           <AlertDescription>
             <div>{s.error}</div>
-            <div className="mt-2">Попробуйте загрузить скан лучшего качества (от 300 dpi) или фотографии страниц по отдельности.</div>
+            <div className="mt-2">
+              {s.fileNames.some(isPlanFile)
+                ? 'Проверьте, что это выгрузка из программы «Планы» (.plx) или GosInsp (.xml), либо загрузите скан плана в PDF.'
+                : 'Попробуйте загрузить скан лучшего качества (от 300 dpi) или фотографии страниц по отдельности.'}
+            </div>
             <Button className="mt-3" variant="outline" size="sm" onClick={() => open(null)}>
               Загрузить другой файл
             </Button>
@@ -372,7 +390,7 @@ export default function PlanImportPage() {
       {s?.status === 'APPLIED' && !result && (
         <Alert variant="success">
           <CircleCheck />
-          <AlertTitle>По этому скану уже создан учебный план</AlertTitle>
+          <AlertTitle>По этой загрузке уже создан учебный план</AlertTitle>
           <AlertDescription>
             <Button className="mt-2" size="sm" asChild>
               <Link to={`/programs/${s.programId}`}>Открыть учебный план</Link>
@@ -385,7 +403,20 @@ export default function PlanImportPage() {
 
       {s?.status === 'READY' && draft && !result && (
         <>
-          {s.resultJson?.stats && (
+          {s.resultJson?.stats && s.resultJson.source && (
+            <div className="flex flex-wrap gap-2 text-sm">
+              <Badge variant="info" className="h-7">
+                {s.resultJson.source === 'plx' ? 'Файл .plx (АС «Учебные планы»)' : 'Файл .xml (GosInsp)'}
+              </Badge>
+              <Badge variant="info" className="h-7">
+                Строк плана: {s.resultJson.stats.items}
+              </Badge>
+              <Badge variant={s.resultJson.warnings.length ? 'warning' : 'success'} className="h-7">
+                Замечаний: {s.resultJson.warnings.length}
+              </Badge>
+            </div>
+          )}
+          {s.resultJson?.stats && !s.resultJson.source && (
             <div className="flex flex-wrap gap-2 text-sm">
               <Badge variant="info" className="h-7">
                 Страниц: {s.resultJson.stats.pages}

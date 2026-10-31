@@ -26,6 +26,18 @@ from .normalize import (
 from .pdftext import fill_cells, page_text
 from .semesters import HOUR_FIELDS, RawRow, SemesterPage, parse_semester_page
 from .sessions import Session, parse_session_schedule
+from .structure import (
+    KEEP_OUTSIDE_SESSIONS,
+    PROFESSIONAL_KINDS,
+    graph_days,
+    graph_periods,
+    graph_runs,
+    is_required,
+    kind_of,
+    last_study_day,
+    module_code,
+    split_semesters,
+)
 from .table import Cell, crop_png, detect_cells, detect_cells_map, ocr_cells
 from .tesseract import ocr_text, tesseract_info
 from .title import education_level, is_title_page, parse_plan_header, parse_title
@@ -34,85 +46,9 @@ log = logging.getLogger("engine.ocr")
 
 Progress = Callable[[float, str], None]
 
-CODE_TYPES = {
-    "": "THEORETICAL_TRAINING",
-    "Э": "EXAM_SESSION",
-    "К": "VACATION",
-    "У": "EDUCATIONAL_PRACTICE",
-    "П": "INDUSTRIAL_PRACTICE",
-    "Пд": "PRE_DIPLOMA_PRACTICE",
-    "Д": "DIPLOMA_PREPARATION",
-    "Г": "FINAL_ATTESTATION",
-    "*": "HOLIDAY",
-    "С": "OTHER",
-}
-# Коды графика, которые сохраняются у заочной формы вне сессий
-KEEP_OUTSIDE_SESSIONS = {"К", "У", "П", "Пд", "Д", "Г", "*", "="}
-PERIOD_TITLES = {"С": "Межсессионный период (самостоятельная работа)"}
-PROFESSIONAL_KINDS = {
-    "MODULE",
-    "MODULE_EXAM",
-    "INTERDISCIPLINARY_COURSE",
-    "EDUCATIONAL_PRACTICE",
-    "INDUSTRIAL_PRACTICE",
-    "PRE_DIPLOMA_PRACTICE",
-}
-
 
 def _data_url(png: bytes) -> str:
     return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
-
-
-VO_PRACTICE_KINDS = {
-    "У": "EDUCATIONAL_PRACTICE",
-    "Н": "EDUCATIONAL_PRACTICE",
-    "П": "INDUSTRIAL_PRACTICE",
-    "Пд": "PRE_DIPLOMA_PRACTICE",
-}
-
-
-def kind_of(code: str, name: str, all_codes: set[str]) -> str:
-    if is_vo_index(code):
-        if any(other.startswith(code + ".") for other in all_codes):
-            return "GROUP"
-        if code.startswith("Б2"):
-            m = re.search(r"\((\w+)\)$", code)
-            return VO_PRACTICE_KINDS.get(m.group(1) if m else "", "INDUSTRIAL_PRACTICE")
-        if code.startswith("Б3"):
-            return "FINAL_ATTESTATION"
-        if code.startswith("ФТД"):
-            return "ELECTIVE"
-        return "DISCIPLINE"
-    prefix = index_prefix(code)
-    if code.endswith("(К)") or "экзамен по модулю" in name.lower():
-        return "MODULE_EXAM"
-    kinds = {
-        "ПМ": "MODULE",
-        "МДК": "INTERDISCIPLINARY_COURSE",
-        "УП": "EDUCATIONAL_PRACTICE",
-        "ПП": "INDUSTRIAL_PRACTICE",
-        "ПДП": "PRE_DIPLOMA_PRACTICE",
-        "ГИА": "FINAL_ATTESTATION",
-        "ФТД": "ELECTIVE",
-    }
-    if prefix in kinds:
-        return kinds[prefix]
-    if any(other.startswith(code + ".") for other in all_codes):
-        return "GROUP"
-    return "DISCIPLINE"
-
-
-def is_required(code: str, kind: str) -> bool:
-    """Обязательна ли дисциплина для группы: факультативы и вторые и далее дисциплины по выбору — нет."""
-    if kind == "ELECTIVE":
-        return False
-    m = re.search(r"\.ДВ\.\d{2}\.(\d{2})$", code)
-    return not (m and int(m.group(1)) > 1)
-
-
-def module_code(code: str) -> str | None:
-    m = re.match(r"^(?:МДК|УП|ПП|ПМ)\.(\d{1,2})\.", code)
-    return f"ПМ.{int(m.group(1)):02d}" if m else None
 
 
 def repair_codes(codes: list[str]) -> dict[str, str]:
@@ -493,63 +429,22 @@ class Recognizer:
 
     @staticmethod
     def _days(table: dict[str, Any]) -> list[tuple[dt.date, str]]:
-        year = table["startYear"]
-        start, end = dt.date(year, 9, 1), dt.date(year + 1, 8, 31)
-        days = []
-        for week in table["weeks"]:
-            monday = dt.date.fromisoformat(week["monday"])
-            for d, code in enumerate(week["days"]):
-                day = monday + dt.timedelta(days=d)
-                if start <= day <= end:
-                    days.append((day, code))
-        return days
+        return graph_days(table)
 
     @staticmethod
     def _split(days: list[tuple[dt.date, str]]) -> dt.date:
-        """Конец первого семестра: окончание зимних каникул (или аттестации), иначе 31 января."""
-        runs = Recognizer._runs(days)
-        for code in ("К", "Э"):
-            for code_, start, end in runs:
-                if code_ == code and (start.month in (12, 1, 2)):
-                    # Первый семестр завершается вместе с периодом (до воскресенья)
-                    return end + dt.timedelta(days=(6 - end.weekday()) % 7)
-        year = days[0][0].year
-        return dt.date(year + 1, 1, 31)
+        return split_semesters(days)
 
     @staticmethod
     def _last_study_day(days: list[tuple[dt.date, str]]) -> dt.date:
-        for day, code in reversed(days):
-            if code != "=":
-                return day
-        return days[-1][0]
+        return last_study_day(days)
 
     @staticmethod
     def _runs(days: list[tuple[dt.date, str]]) -> list[tuple[str, dt.date, dt.date]]:
-        runs: list[tuple[str, dt.date, dt.date]] = []
-        for day, code in days:
-            if runs and runs[-1][0] == code and (day - runs[-1][2]).days <= 2:
-                runs[-1] = (code, runs[-1][1], day)
-            else:
-                runs.append((code, day, day))
-        return runs
+        return graph_runs(days)
 
     def _periods(self, course: int, days: list[tuple[dt.date, str]]) -> list[dict[str, Any]]:
-        result = []
-        for code, start, end in self._runs(days):
-            if code in ("", "="):
-                continue
-            result.append(
-                {
-                    "course": course,
-                    "code": code,
-                    "title": PERIOD_TITLES.get(code),
-                    "type": CODE_TYPES.get(code, "OTHER"),
-                    "startDate": start.isoformat(),
-                    "endDate": end.isoformat(),
-                    "weeks": round(sum(1 for d, c in days if start <= d <= end and c == code) / 6, 2),
-                }
-            )
-        return result
+        return graph_periods(course, days)
 
     # ------------------------------------------------------------------ итог
     def result(self, started: float) -> dict[str, Any]:

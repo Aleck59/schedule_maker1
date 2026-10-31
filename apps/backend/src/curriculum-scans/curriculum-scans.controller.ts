@@ -19,7 +19,7 @@ import { AuthUser } from '../common/types/auth-user';
 import { CurriculumScansService } from './curriculum-scans.service';
 import { ApplyScanDto } from './dto/curriculum-scan.dto';
 
-@ApiTags('Импорт учебного плана со скана')
+@ApiTags('Импорт учебного плана (скан, .plx, .xml)')
 @ApiBearerAuth()
 @Controller('curriculum-scans')
 export class CurriculumScansController {
@@ -27,7 +27,7 @@ export class CurriculumScansController {
 
   @Get('status')
   @Roles(...EDITOR_ROLES)
-  @ApiOperation({ summary: 'Доступность распознавания (Tesseract OCR, русский язык)' })
+  @ApiOperation({ summary: 'Доступность распознавания сканов (Tesseract OCR) и загрузки файлов .plx/.xml' })
   status() {
     return this.scans.status();
   }
@@ -42,7 +42,8 @@ export class CurriculumScansController {
   @Post()
   @Roles(...EDITOR_ROLES)
   @ApiOperation({
-    summary: 'Загрузить скан учебного плана (PDF или фотографии страниц) — распознавание выполняется в фоне',
+    summary:
+      'Загрузить учебный план: файл .plx/.xml программы «Планы» (GosInsp, 1С:Университет) или скан (PDF, фото страниц) — обработка в фоне',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({

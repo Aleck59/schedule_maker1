@@ -31,7 +31,15 @@ import { SettingsService } from '../settings/settings.service';
 import { ApplyScanDto, ScanHoursDto, ScanItemDto, ScanItemKind } from './dto/curriculum-scan.dto';
 
 export const SCAN_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.webp'];
+/** Файлы программы «Планы» (ММИС, GosInsp), совместимые с 1С:Университет: .plx и .xml */
+export const PLAN_FILE_EXTENSIONS = ['.plx', '.xml'];
 const RECOGNITION_TIMEOUT_MS = 30 * 60 * 1000;
+const PLAN_FILE_TIMEOUT_MS = 2 * 60 * 1000;
+
+/** Источник данных: скан (распознавание) или файл учебного плана */
+export function isPlanFile(name: string) {
+  return PLAN_FILE_EXTENSIONS.includes(extname(name).toLowerCase());
+}
 
 const ITEM_TYPES: Partial<Record<ScanItemKind, CurriculumItemType>> = {
   DISCIPLINE: CurriculumItemType.DISCIPLINE,
@@ -51,6 +59,8 @@ const PRACTICE_KINDS: ScanItemKind[] = [
 
 /** Результат распознавания (формат Python-модуля, см. apps/solver/app/ocr/plan.py) */
 export interface RecognizedPlan {
+  /** plx — АС «Учебные планы», gosinsp — XML GosInsp; нет — распознанный скан */
+  source?: 'plx' | 'gosinsp';
   title: Record<string, string | number | undefined>;
   semesters: Array<{
     number: number;
@@ -246,6 +256,10 @@ export class CurriculumScansService implements OnModuleInit {
       languages: info.ocr?.languages ?? [],
       error: info.available ? (info.ocr?.error ?? null) : (info.error ?? 'Python-модуль недоступен'),
       formats: SCAN_EXTENSIONS,
+      // Файлы .plx/.xml читаются без распознавания — нужен только Python-модуль
+      fileImportAvailable: Boolean(info.available),
+      fileImportError: info.available ? null : (info.error ?? 'Python-модуль недоступен'),
+      fileFormats: PLAN_FILE_EXTENSIONS,
     };
   }
 
@@ -293,25 +307,37 @@ export class CurriculumScansService implements OnModuleInit {
   }
 
   async upload(files: Express.Multer.File[], actor: AuthUser) {
-    if (!files.length) throw new BadRequestException('Загрузите файл учебного плана (PDF или изображения)');
-    for (const f of files) {
-      const ext = extname(f.originalname).toLowerCase();
-      if (!SCAN_EXTENSIONS.includes(ext)) {
+    if (!files.length) {
+      throw new BadRequestException('Загрузите файл учебного плана (.plx, .xml, PDF или изображения)');
+    }
+    const names = files.map((f) => Buffer.from(f.originalname, 'latin1').toString('utf8'));
+    for (const name of names) {
+      const ext = extname(name).toLowerCase();
+      if (!SCAN_EXTENSIONS.includes(ext) && !PLAN_FILE_EXTENSIONS.includes(ext)) {
         throw new BadRequestException(
-          `Файл «${f.originalname}» не поддерживается. Допустимые форматы: PDF, JPG, PNG, TIFF, BMP, WEBP`,
+          `Файл «${name}» не поддерживается. Допустимые форматы: PLX, XML, PDF, JPG, PNG, TIFF, BMP, WEBP`,
         );
       }
     }
+    const planFile = names.some(isPlanFile);
+    if (planFile && files.length > 1) {
+      throw new BadRequestException('Файл учебного плана .plx или .xml загружается по одному, без сканов');
+    }
     const status = await this.status();
-    if (!status.available) {
+    if (planFile && !status.fileImportAvailable) {
+      throw new ServiceUnavailableException(
+        `Загрузка файлов учебного плана недоступна: ${status.fileImportError}`,
+      );
+    }
+    if (!planFile && !status.available) {
       throw new ServiceUnavailableException(`Распознавание сканов недоступно: ${status.error}`);
     }
     const scan = await this.prisma.curriculumScan.create({
       data: {
         organizationId: actor.organizationId,
         createdById: actor.id,
-        fileNames: files.map((f) => Buffer.from(f.originalname, 'latin1').toString('utf8')),
-        message: 'В очереди на распознавание',
+        fileNames: names,
+        message: planFile ? 'В очереди на чтение файла' : 'В очереди на распознавание',
       },
     });
     const dir = join(tmpdir(), 'curriculum-scans', scan.id);
@@ -323,19 +349,25 @@ export class CurriculumScansService implements OnModuleInit {
       paths.push(path);
     }
     await this.audit.log(actor.id, 'UPLOAD', 'CurriculumScan', scan.id, null, { files: scan.fileNames });
-    this.chain = this.chain.then(() => this.process(scan.id, paths, dir));
+    if (planFile) {
+      // Чтение файла занимает доли секунды — без очереди распознавания
+      void this.process(scan.id, paths, dir, true);
+    } else {
+      this.chain = this.chain.then(() => this.process(scan.id, paths, dir, false));
+    }
     return scan;
   }
 
-  private async process(id: string, paths: string[], dir: string): Promise<void> {
+  private async process(id: string, paths: string[], dir: string, planFile: boolean): Promise<void> {
     let lastWrite = 0;
     try {
       await this.prisma.curriculumScan.update({
         where: { id },
-        data: { message: 'Распознавание', progress: 0.01 },
+        data: { message: planFile ? 'Чтение файла учебного плана' : 'Распознавание', progress: 0.01 },
       });
-      const result = await this.engine.run<Prisma.InputJsonValue>(['recognize', ...paths], {
-        timeoutMs: RECOGNITION_TIMEOUT_MS,
+      const args = planFile ? ['import-plan', paths[0]] : ['recognize', ...paths];
+      const result = await this.engine.run<Prisma.InputJsonValue>(args, {
+        timeoutMs: planFile ? PLAN_FILE_TIMEOUT_MS : RECOGNITION_TIMEOUT_MS,
         onProgress: (fraction, message) => {
           const now = Date.now();
           if (now - lastWrite < 800) return;
@@ -350,17 +382,23 @@ export class CurriculumScansService implements OnModuleInit {
         data: {
           status: CurriculumScanStatus.READY,
           progress: 1,
-          message: 'Распознавание завершено — проверьте данные',
+          message: planFile
+            ? 'Файл прочитан — проверьте данные'
+            : 'Распознавание завершено — проверьте данные',
           resultJson: result,
         },
       });
     } catch (e) {
       const message = (e as Error).message;
-      this.logger.warn(`Скан ${id}: ошибка распознавания: ${message}`);
+      this.logger.warn(`Скан ${id}: ошибка ${planFile ? 'чтения файла' : 'распознавания'}: ${message}`);
       await this.prisma.curriculumScan
         .update({
           where: { id },
-          data: { status: CurriculumScanStatus.FAILED, error: message, message: 'Ошибка распознавания' },
+          data: {
+            status: CurriculumScanStatus.FAILED,
+            error: message,
+            message: planFile ? 'Ошибка чтения файла' : 'Ошибка распознавания',
+          },
         })
         .catch(() => undefined);
     } finally {
@@ -413,6 +451,10 @@ export class CurriculumScansService implements OnModuleInit {
     const perLesson = settings.academicHoursPerLesson;
     const items = dto.items.filter((i) => i.include !== false);
     const totalSemesters = Math.max(...dto.semesters.map((s) => s.number));
+    const source = (scan.resultJson as unknown as RecognizedPlan | null)?.source;
+    const sourceLabel = source
+      ? `файла учебного плана (${scan.fileNames[0] ?? source})`
+      : 'скана учебного плана';
     const counts = { semesters: 0, cycles: 0, items: 0, semesterItems: 0, calendarEvents: 0 };
 
     const created = await this.prisma.$transaction(
@@ -618,7 +660,7 @@ export class CurriculumScansService implements OnModuleInit {
               startDate: parseDate(p.startDate),
               endDate: parseDate(p.endDate),
               blocksSchedule: defaultBlocksSchedule(p.type),
-              notes: 'Импортировано из скана учебного плана',
+              notes: `Импортировано из ${sourceLabel}`.slice(0, 500),
             },
           });
           counts.calendarEvents++;
@@ -673,7 +715,7 @@ export class CurriculumScansService implements OnModuleInit {
     );
     const result: ApplyScanResult = { ...created, created: counts };
     await this.audit.log(actor.id, 'IMPORT', 'EducationalProgram', created.programId, null, {
-      source: 'scan',
+      source: source ?? 'scan',
       scanId: id,
       ...counts,
     });
