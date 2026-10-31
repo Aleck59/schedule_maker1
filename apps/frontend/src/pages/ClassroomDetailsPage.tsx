@@ -16,10 +16,10 @@ import { usePeriods, useSettings } from '@/hooks/use-reference';
 import { api, downloadFile, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { addDays, formatDate, today, weekStart } from '@/lib/format';
+import { heatColor, heatTextColor } from '@/lib/heat';
 import { CLASSROOM_TYPE_LABELS, WEEKDAYS_SHORT } from '@/lib/labels';
 import { useApi, useApiMutation } from '@/lib/query';
 import type { Classroom } from '@/lib/types';
-import { cn } from '@/lib/utils';
 import { ClassroomDialog } from './ClassroomsPage';
 
 interface Occupancy {
@@ -147,8 +147,8 @@ export default function ClassroomDetailsPage() {
                             return (
                               <td key={i} className="p-0.5">
                                 <div
-                                  className={cn('flex h-8 w-14 items-center justify-center rounded border', ratio > 0.5 && 'text-white')}
-                                  style={{ background: v ? `color-mix(in oklab, var(--primary) ${Math.round(15 + ratio * 85)}%, transparent)` : undefined }}
+                                  className="flex h-8 w-14 items-center justify-center rounded-md font-medium tabular-nums ring-1 ring-black/5"
+                                  style={{ background: heatColor(ratio), color: heatTextColor(ratio) }}
                                 >
                                   {v || ''}
                                 </div>

@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Plus } from 'lucide-react';
+import { Flame, Plus } from 'lucide-react';
 import { Controller, useForm } from 'react-hook-form';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { DataTable } from '@/components/common/data-table';
 import { Field } from '@/components/common/field';
@@ -83,11 +83,18 @@ export default function ClassroomsPage() {
         title="Аудиторный фонд"
         description="Аудитории, лаборатории, компьютерные классы и спортивные залы"
         actions={
-          canEdit && (
-            <Button onClick={() => setOpen(true)}>
-              <Plus /> Аудитория
+          <>
+            <Button variant="outline" asChild>
+              <Link to="/classrooms/heatmap">
+                <Flame /> Тепловая карта
+              </Link>
             </Button>
-          )
+            {canEdit && (
+              <Button onClick={() => setOpen(true)}>
+                <Plus /> Аудитория
+              </Button>
+            )}
+          </>
         }
       />
       {classrooms.isLoading ? (
