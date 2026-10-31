@@ -242,17 +242,18 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  settings         OrganizationSettings?
-  lessonTimes      LessonTime[]
-  users            User[]
-  teachers         Teacher[]
-  classrooms       Classroom[]
-  programs         EducationalProgram[]
-  schedulePeriods  SchedulePeriod[]
-  calendarEvents   CalendarEvent[]
-  curriculumScans  CurriculumScan[]
-  holidays         Holiday[]
-  holidayTransfers HolidayTransfer[]
+  settings           OrganizationSettings?
+  lessonTimes        LessonTime[]
+  users              User[]
+  teachers           Teacher[]
+  classrooms         Classroom[]
+  programs           EducationalProgram[]
+  schedulePeriods    SchedulePeriod[]
+  calendarEvents     CalendarEvent[]
+  curriculumScans    CurriculumScan[]
+  holidays           Holiday[]
+  holidayTransfers   HolidayTransfer[]
+  permanentSchedules PermanentSchedule[]
 
   @@map("organizations")
 }
@@ -477,6 +478,7 @@ model StudentGroup {
   assignments      GroupCurriculumAssignment[]
   calendarEvents   CalendarEvent[]
   lessons          ScheduleLesson[]
+  permanentLessons PermanentLesson[]
   users            User[]
   makeupTasks      MakeupTask[]
   assessmentEvents AssessmentEvent[]
@@ -600,6 +602,7 @@ model SemesterCurriculumItem {
   semester         Semester                    @relation(fields: [semesterId], references: [id], onDelete: Cascade)
   assignments      GroupCurriculumAssignment[]
   lessons          ScheduleLesson[]
+  permanentLessons PermanentLesson[]
   makeupTasks      MakeupTask[]
   assessmentEvents AssessmentEvent[]
 
@@ -639,6 +642,7 @@ model GroupCurriculumAssignment {
   teacher            Teacher?               @relation(fields: [teacherId], references: [id], onDelete: SetNull)
   preferredClassroom Classroom?             @relation(fields: [preferredClassroomId], references: [id], onDelete: SetNull)
   lessons            ScheduleLesson[]
+  permanentLessons   PermanentLesson[]
 
   @@index([studentGroupId, semesterCurriculumItemId])
   @@index([teacherId])
@@ -684,6 +688,7 @@ model Teacher {
   availabilityRules         TeacherAvailabilityRule[]
   assignments               GroupCurriculumAssignment[]
   lessons                   ScheduleLesson[]
+  permanentLessons          PermanentLesson[]
   conductedLessons          ConductedLesson[]           @relation("ConductedActualTeacher")
   substitutionsAsOriginal   TeacherSubstitution[]       @relation("SubstitutionOriginal")
   substitutionsAsSubstitute TeacherSubstitution[]       @relation("SubstitutionSubstitute")
@@ -761,6 +766,7 @@ model Classroom {
   organization     Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   availability     ClassroomAvailability[]
   lessons          ScheduleLesson[]
+  permanentLessons PermanentLesson[]
   conductedLessons ConductedLesson[]
   preferredFor     GroupCurriculumAssignment[]
   assessmentEvents AssessmentEvent[]
@@ -1166,4 +1172,74 @@ model CurriculumScan {
 
   @@index([organizationId, createdAt])
   @@map("curriculum_scans")
+}
+
+/// Постоянное расписание (типовая неделя для руководства): равномерная сетка без учёта
+/// недоступности и лимитов преподавателей. Хранится отдельно от рабочего расписания по датам.
+model PermanentSchedule {
+  id              String               @id @default(uuid())
+  organizationId  String
+  title           String
+  /// Дата, на которую определены текущие семестры групп
+  date            DateTime             @db.Date
+  /// Семестры групп, по нагрузке которых составлена сетка
+  semesterIds     String[]             @default([])
+  /// Уровни образования и учебные планы (пусто — все)
+  educationLevels EducationLevel[]     @default([])
+  programIds      String[]             @default([])
+  approvedAt      DateTime?
+  approvedById    String?
+  notes           String?
+  /// Состояние последнего формирования сетки
+  jobStatus       GenerationJobStatus?
+  progress        Int                  @default(0)
+  message         String?
+  /// Параметры, итоги и нераспределённые пары последнего формирования
+  resultJson      Json?
+  generatedAt     DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lessons      PermanentLesson[]
+
+  @@index([organizationId])
+  @@map("permanent_schedules")
+}
+
+/// Пара постоянного расписания: день недели × номер пары (с чётностью недели — числитель/знаменатель)
+model PermanentLesson {
+  id                       String     @id @default(uuid())
+  permanentScheduleId      String
+  /// 1 — понедельник ... 7 — воскресенье
+  weekday                  Int
+  lessonNumber             Int
+  /// ANY — каждую неделю, ODD — числитель (нечётные недели), EVEN — знаменатель (чётные)
+  weekParity               WeekParity @default(ANY)
+  studentGroupId           String
+  subgroupNumber           Int?
+  semesterCurriculumItemId String
+  assignmentId             String?
+  teacherId                String?
+  classroomId              String?
+  lessonType               LessonType
+  /// Ключ потока (объединённые группы)
+  streamKey                String?
+  /// Изменено вручную
+  isManual                 Boolean    @default(false)
+  createdAt                DateTime   @default(now())
+  updatedAt                DateTime   @updatedAt
+
+  schedule     PermanentSchedule          @relation(fields: [permanentScheduleId], references: [id], onDelete: Cascade)
+  studentGroup StudentGroup               @relation(fields: [studentGroupId], references: [id], onDelete: Cascade)
+  semesterItem SemesterCurriculumItem     @relation(fields: [semesterCurriculumItemId], references: [id], onDelete: Cascade)
+  assignment   GroupCurriculumAssignment? @relation(fields: [assignmentId], references: [id], onDelete: SetNull)
+  teacher      Teacher?                   @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  classroom    Classroom?                 @relation(fields: [classroomId], references: [id], onDelete: SetNull)
+
+  @@index([permanentScheduleId, weekday, lessonNumber])
+  @@index([studentGroupId])
+  @@index([teacherId])
+  @@index([classroomId])
+  @@map("permanent_lessons")
 }

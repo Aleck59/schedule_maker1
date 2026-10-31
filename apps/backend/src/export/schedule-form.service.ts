@@ -1,11 +1,11 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { EducationLevel, LessonStatus, Prisma, SchedulePeriodStatus } from '@prisma/client';
 import ExcelJS from 'exceljs';
 import { AuthUser } from '../common/types/auth-user';
 import { addDaysStr, eachDay, isoWeekday, parseDate, toDateStr, weekStart } from '../common/utils/dates';
 import { STUDY_FORM_LABELS } from '../common/utils/labels';
 import { PrismaService } from '../prisma/prisma.service';
-import { SettingsService } from '../settings/settings.service';
+import { EffectiveSettings, SettingsService } from '../settings/settings.service';
 import { PdfService } from './pdf.service';
 import {
   EDUCATION_BASE_TEXT,
@@ -33,6 +33,22 @@ export interface ScheduleFormSheetInfo {
   profile: string | null;
   groupCodes: string[];
 }
+
+/** Занятие для печатной формы (из рабочего или постоянного расписания) */
+interface RawFormRow {
+  studentGroupId: string;
+  date: string;
+  lessonNumber: number;
+  subgroupNumber: number | null;
+  itemName: string;
+  teacherName: string | null;
+  classroom: string | null;
+  lessonType: string;
+}
+
+/** Условная неделя для постоянного расписания: 1 января 2024 г. — понедельник */
+const NOMINAL_MONDAY = '2024-01-01';
+const PARITY_SUFFIX: Record<string, string> = { ODD: ' (числ.)', EVEN: ' (знам.)' };
 
 const BORDER: Partial<ExcelJS.Borders> = {
   top: { style: 'thin' },
@@ -87,7 +103,60 @@ export class ScheduleFormService {
       },
       include,
     });
-    const rows = [...own, ...published];
+    const rows: RawFormRow[] = [...own, ...published].map((l) => ({
+      studentGroupId: l.studentGroupId,
+      date: toDateStr(l.date),
+      lessonNumber: l.lessonNumber,
+      subgroupNumber: l.subgroupNumber,
+      itemName: l.semesterItem.curriculumItem.name,
+      teacherName: l.teacher?.fullName ?? null,
+      classroom: l.classroom?.code ?? null,
+      lessonType: l.lessonType,
+    }));
+    return this.assemble(actor, settings, days, rows, range);
+  }
+
+  /** Постоянное расписание: дни условной недели, у пар по числителю/знаменателю — пометка */
+  private async loadPermanent(actor: AuthUser, scheduleId: string) {
+    const schedule = await this.prisma.permanentSchedule.findFirst({
+      where: { id: scheduleId, organizationId: actor.organizationId },
+      include: {
+        lessons: {
+          include: {
+            semesterItem: { select: { curriculumItem: { select: { name: true } } } },
+            teacher: { select: { fullName: true } },
+            classroom: { select: { code: true } },
+          },
+        },
+      },
+    });
+    if (!schedule) throw new NotFoundException('Постоянное расписание не найдено');
+    const settings = await this.settings.getEffective(actor.organizationId);
+    const days = [...settings.workingDays]
+      .sort((a, b) => a - b)
+      .map((w) => addDaysStr(NOMINAL_MONDAY, w - 1));
+    const rows: RawFormRow[] = schedule.lessons.map((l) => ({
+      studentGroupId: l.studentGroupId,
+      date: addDaysStr(NOMINAL_MONDAY, l.weekday - 1),
+      lessonNumber: l.lessonNumber,
+      subgroupNumber: l.subgroupNumber,
+      itemName: l.semesterItem.curriculumItem.name + (PARITY_SUFFIX[l.weekParity] ?? ''),
+      teacherName: l.teacher?.fullName ?? null,
+      classroom: l.classroom?.code ?? null,
+      lessonType: l.lessonType,
+    }));
+    const range = { gte: schedule.date, lte: schedule.date };
+    const data = await this.assemble(actor, settings, days, rows, range);
+    return { ...data, schedule, hasParity: schedule.lessons.some((l) => l.weekParity !== 'ANY') };
+  }
+
+  private async assemble(
+    actor: AuthUser,
+    settings: EffectiveSettings,
+    days: string[],
+    rows: RawFormRow[],
+    range: { gte: Date; lte: Date },
+  ) {
     const groups = await this.prisma.studentGroup.findMany({
       where: { id: { in: [...new Set(rows.map((l) => l.studentGroupId))] } },
       include: {
@@ -108,13 +177,13 @@ export class ScheduleFormService {
       if (!g) continue;
       lessons.push({
         sheetKey: keyOf(g),
-        date: toDateStr(l.date),
+        date: l.date,
         lessonNumber: l.lessonNumber,
         groupId: l.studentGroupId,
         subgroupNumber: l.subgroupNumber,
-        itemName: l.semesterItem.curriculumItem.name,
-        teacherName: l.teacher?.fullName ?? null,
-        classroom: l.classroom?.code ?? null,
+        itemName: l.itemName,
+        teacherName: l.teacherName,
+        classroom: l.classroom,
         lessonType: l.lessonType,
       });
     }
@@ -153,6 +222,15 @@ export class ScheduleFormService {
 
   async sheets(actor: AuthUser, query: ScheduleFormQuery): Promise<ScheduleFormSheetInfo[]> {
     const { sheets } = await this.load(actor, query);
+    return this.sheetInfos(sheets);
+  }
+
+  async permanentSheets(actor: AuthUser, scheduleId: string): Promise<ScheduleFormSheetInfo[]> {
+    const { sheets } = await this.loadPermanent(actor, scheduleId);
+    return this.sheetInfos(sheets);
+  }
+
+  private sheetInfos(sheets: Awaited<ReturnType<ScheduleFormService['assemble']>>['sheets']) {
     return [...sheets.values()]
       .map(({ meta, groups, specialtyId }) => ({
         key: meta.key,
@@ -172,6 +250,35 @@ export class ScheduleFormService {
 
   async build(actor: AuthUser, query: ScheduleFormQuery): Promise<FormSheet[]> {
     const data = await this.load(actor, query);
+    const result = this.render(data, query);
+    if (result.length === 0) throw new BadRequestException('На выбранной неделе нет занятий для печати');
+    return result;
+  }
+
+  /** Печатная форма постоянного расписания: дни недели без дат, утверждаемый бланк */
+  async buildPermanent(
+    actor: AuthUser,
+    scheduleId: string,
+    query: Pick<ScheduleFormQuery, 'keys' | 'lessonTypes'>,
+  ): Promise<{ title: string; sheets: FormSheet[] }> {
+    const data = await this.loadPermanent(actor, scheduleId);
+    const weekLabel = data.hasParity
+      ? 'числ. — числитель (нечётные недели), знам. — знаменатель (чётные недели)'
+      : null;
+    const sheets = this.render(data, { ...query, weekLabel: weekLabel ?? undefined }).map((sheet) => ({
+      ...sheet,
+      titleLines: sheet.titleLines.map((t, i) => (i === 0 ? 'Постоянное расписание занятий' : t)),
+      year: data.schedule.date.getUTCFullYear(),
+      days: sheet.days.map((d) => ({ ...d, dateLabel: '' })),
+    }));
+    if (sheets.length === 0) throw new BadRequestException('В постоянном расписании нет пар для печати');
+    return { title: data.schedule.title, sheets };
+  }
+
+  private render(
+    data: Awaited<ReturnType<ScheduleFormService['assemble']>>,
+    query: Pick<ScheduleFormQuery, 'keys' | 'lessonTypes' | 'weekLabel'>,
+  ): FormSheet[] {
     const result: FormSheet[] = [];
     const ordered = [...data.sheets.values()].sort(
       (a, b) =>
@@ -193,7 +300,6 @@ export class ScheduleFormService {
         }),
       );
     }
-    if (result.length === 0) throw new BadRequestException('На выбранной неделе нет занятий для печати');
     return result;
   }
 

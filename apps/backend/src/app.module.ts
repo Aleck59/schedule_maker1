@@ -18,6 +18,7 @@ import { HealthController } from './health/health.controller';
 import { HourControlModule } from './hour-control/hour-control.module';
 import { PlanningModule } from './planning/planning.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { PermanentScheduleModule } from './permanent-schedule/permanent-schedule.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProgramsModule } from './programs/programs.module';
 import { ReportsModule } from './reports/reports.module';
@@ -53,6 +54,7 @@ import { ValidationModule } from './validation/validation.module';
     HolidaysModule,
     ScheduleModule,
     SchedulerModule,
+    PermanentScheduleModule,
     HourControlModule,
     ReportsModule,
     ExportModule,
