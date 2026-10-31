@@ -174,7 +174,8 @@ export class UpdateOrganizationDto {
 
   @ApiPropertyOptional({
     example: 'Расписание СПО и ВО',
-    description: 'Название программы: страница входа, меню, заголовок вкладки. Пустая строка — название по умолчанию',
+    description:
+      'Название программы: страница входа, меню, заголовок вкладки. Пустая строка — название по умолчанию',
   })
   @IsOptional()
   @IsString()
@@ -182,7 +183,8 @@ export class UpdateOrganizationDto {
   appName?: string | null;
 
   @ApiPropertyOptional({
-    description: 'Логотип — data URL картинки (PNG, JPEG, SVG, WebP, GIF) до ~375 КБ. Пустая строка или null — стандартный значок',
+    description:
+      'Логотип — data URL картинки (PNG, JPEG, SVG, WebP, GIF) до ~375 КБ. Пустая строка или null — стандартный значок',
   })
   @IsOptional()
   @ValidateIf((_o, v) => v !== null && v !== '')

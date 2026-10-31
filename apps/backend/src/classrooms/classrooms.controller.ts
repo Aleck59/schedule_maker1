@@ -1,4 +1,15 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { ClassroomType } from '@prisma/client';
 import { ReplaceAvailabilityDto } from '../common/dto/availability.dto';
@@ -59,7 +70,10 @@ export class ClassroomsController {
     @Query('building') building?: string,
   ) {
     const valid = (d?: string) =>
-      !d || (/^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d)) && new Date(d).toISOString().startsWith(d));
+      !d ||
+      (/^\d{4}-\d{2}-\d{2}$/.test(d) &&
+        !Number.isNaN(Date.parse(d)) &&
+        new Date(d).toISOString().startsWith(d));
     if (!valid(from) || !valid(to)) {
       throw new BadRequestException('Даты указываются в формате ГГГГ-ММ-ДД');
     }

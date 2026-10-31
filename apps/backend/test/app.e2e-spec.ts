@@ -75,11 +75,19 @@ describe('Расписание СПО (e2e)', () => {
       .send({ appLogo: 'data:text/html;base64,PHNjcmlwdD4=' })
       .expect(400);
     expect(bad.body.message).toMatch(/Логотип/);
-    await http.patch('/api/settings/organization').set(auth('admin')).send({ appName: '  Колледж  ', appLogo: logo }).expect(200);
+    await http
+      .patch('/api/settings/organization')
+      .set(auth('admin'))
+      .send({ appName: '  Колледж  ', appLogo: logo })
+      .expect(200);
     const custom = await http.get('/api/settings/branding').expect(200);
     expect(custom.body).toMatchObject({ appName: 'Колледж', appLogo: logo });
     // Пустые значения возвращают название и значок по умолчанию
-    await http.patch('/api/settings/organization').set(auth('admin')).send({ appName: '', appLogo: '' }).expect(200);
+    await http
+      .patch('/api/settings/organization')
+      .set(auth('admin'))
+      .send({ appName: '', appLogo: '' })
+      .expect(200);
     const reset = await http.get('/api/settings/branding').expect(200);
     expect(reset.body).toMatchObject({ appName: 'Расписание СПО и ВО', appLogo: null });
   });
@@ -87,8 +95,16 @@ describe('Расписание СПО (e2e)', () => {
   it('тепловая карта аудиторий: занятость всех аудиторий за период', async () => {
     await http.get('/api/classrooms/occupancy').set(auth('student')).expect(403);
     await http.get('/api/classrooms/occupancy?from=2026-13-01').set(auth('manager')).expect(400);
-    const res = await http.get('/api/classrooms/occupancy?from=2026-09-01&to=2026-12-31').set(auth('manager')).expect(200);
-    const rooms = res.body.rooms as Array<{ slotsTotal: number; slotsUsed: number; percent: number; grid: Record<string, number> }>;
+    const res = await http
+      .get('/api/classrooms/occupancy?from=2026-09-01&to=2026-12-31')
+      .set(auth('manager'))
+      .expect(200);
+    const rooms = res.body.rooms as Array<{
+      slotsTotal: number;
+      slotsUsed: number;
+      percent: number;
+      grid: Record<string, number>;
+    }>;
     expect(rooms.length).toBeGreaterThan(0);
     expect(rooms.some((r) => r.slotsUsed > 0)).toBe(true);
     for (const r of rooms) {

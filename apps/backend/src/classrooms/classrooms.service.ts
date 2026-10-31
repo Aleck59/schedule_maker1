@@ -3,7 +3,16 @@ import { ClassroomType, LessonStatus, Prisma } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { ReplaceAvailabilityDto } from '../common/dto/availability.dto';
 import { AuthUser } from '../common/types/auth-user';
-import { addDaysStr, diffDays, eachDay, isoWeekday, parseDate, toDateStr, todayInTimezone, weekStart } from '../common/utils/dates';
+import {
+  addDaysStr,
+  diffDays,
+  eachDay,
+  isoWeekday,
+  parseDate,
+  toDateStr,
+  todayInTimezone,
+  weekStart,
+} from '../common/utils/dates';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { CreateClassroomDto, UpdateClassroomDto } from './dto/classrooms.dto';
@@ -30,7 +39,16 @@ export class ClassroomsService {
     const rooms = await this.prisma.classroom.findMany({
       where: { organizationId: actor.organizationId, building: params.building || undefined },
       orderBy: [{ building: 'asc' }, { code: 'asc' }],
-      select: { id: true, code: true, name: true, building: true, floor: true, capacity: true, classroomType: true, isActive: true },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        building: true,
+        floor: true,
+        capacity: true,
+        classroomType: true,
+        isActive: true,
+      },
     });
     const lessons = await this.prisma.scheduleLesson.findMany({
       where: {
@@ -51,17 +69,16 @@ export class ClassroomsService {
       set.add(`${toDateStr(l.date)}#${l.lessonNumber}`);
     }
     const weekdays = [...new Set(days.map((d) => isoWeekday(d)))].sort();
-    const lessonsPerDay = Math.max(
-      settings.lessonsPerDay,
-      ...lessons.map((l) => l.lessonNumber),
-    );
+    const lessonsPerDay = Math.max(settings.lessonsPerDay, ...lessons.map((l) => l.lessonNumber));
     return {
       range: { from, to },
       days,
       weekdays,
       lessonsPerDay,
       // Сколько раз каждый день недели встречается в периоде (знаменатель для ячейки «день × пара»)
-      weekdayCounts: Object.fromEntries(weekdays.map((w) => [w, days.filter((d) => isoWeekday(d) === w).length])),
+      weekdayCounts: Object.fromEntries(
+        weekdays.map((w) => [w, days.filter((d) => isoWeekday(d) === w).length]),
+      ),
       rooms: rooms.map((room) => {
         const slots = used.get(room.id) ?? new Set<string>();
         const grid: Record<string, number> = {};
