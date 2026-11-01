@@ -1440,4 +1440,86 @@ describe('Расписание СПО (e2e)', () => {
       .expect(200);
     expect(xlsx.headers['content-type']).toContain('spreadsheetml');
   });
+
+  it('формы отчётов: свой бланк с полями, строка данных размножается, выгрузка Excel и PDF', async () => {
+    const content = {
+      rowCount: 4,
+      colCount: 3,
+      colWidths: [30, 12, 12],
+      cells: {
+        '0:0': { v: '{{org.name}}: {{report.title}}', s: { b: true } },
+        '1:0': { v: 'Преподаватель' },
+        '1:1': { v: 'План, ч' },
+        '2:0': { v: '{{row.#}}. {{row.teacher}}', s: { bd: 'trbl' } },
+        '2:1': { v: '{{row.planned}}' },
+        '3:0': { v: 'Итого' },
+        '3:1': { v: '{{sum.planned}}' },
+      },
+      merges: [{ r: 0, c: 0, rs: 1, cs: 3 }],
+      repeatRow: 2,
+      dataSource: 'teacher-workload',
+    };
+    // Руководитель смотрит, но не создаёт; преподавателю формы недоступны
+    await http.post('/api/report-forms').set(auth('manager')).send({ name: 'x', content }).expect(403);
+    await http.get('/api/report-forms').set(auth('teacher')).expect(403);
+    const bad = await http
+      .post('/api/report-forms')
+      .set(auth('dispatcher'))
+      .send({ name: 'x', content: { ...content, merges: [{ r: 1, c: 0, rs: 2, cs: 1 }] } })
+      .expect(400);
+    expect(bad.body.message).toMatch(/повторяющ/);
+
+    const created = await http
+      .post('/api/report-forms')
+      .set(auth('dispatcher'))
+      .send({ name: 'Нагрузка для бухгалтерии', content })
+      .expect(201);
+    expect(created.body.dataSource).toBe('teacher-workload');
+    const list = await http.get('/api/report-forms').set(auth('manager')).expect(200);
+    expect(list.body.some((f: { id: string }) => f.id === created.body.id)).toBe(true);
+    const sources = await http.get('/api/report-forms/sources').set(auth('manager')).expect(200);
+    expect(
+      sources.body.sources.find((s: { type: string }) => s.type === 'teacher-workload').columns.length,
+    ).toBeGreaterThan(3);
+
+    const sheet = await http
+      .post('/api/report-forms/render')
+      .set(auth('manager'))
+      .send({ content })
+      .expect(201);
+    const teachers = await http.get('/api/reports/teacher-workload').set(auth('manager')).expect(200);
+    const n = teachers.body.rows.length;
+    expect(sheet.body.rows).toHaveLength(3 + n);
+    expect(sheet.body.rows[2][0].v).toBe(`1. ${teachers.body.rows[0].teacher}`);
+    const total = teachers.body.rows.reduce((a: number, r: { planned: number }) => a + r.planned, 0);
+    expect(sheet.body.rows[2 + n][1].v).toBeCloseTo(total);
+    expect(sheet.body.unknownFields).toEqual([]);
+
+    const pdf = await http
+      .post('/api/report-forms/export')
+      .set(auth('manager'))
+      .send({ content, name: 'Нагрузка', format: 'pdf' })
+      .buffer(true)
+      .parse((res, cb) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => cb(null, Buffer.concat(chunks)));
+      })
+      .expect(201);
+    expect((pdf.body as Buffer).subarray(0, 4).toString()).toBe('%PDF');
+    const xlsx = await http
+      .post('/api/report-forms/export')
+      .set(auth('manager'))
+      .send({ content, format: 'xlsx' })
+      .expect(201);
+    expect(xlsx.headers['content-type']).toContain('spreadsheetml');
+
+    await http
+      .put(`/api/report-forms/${created.body.id}`)
+      .set(auth('dispatcher'))
+      .send({ name: 'Новое имя', content })
+      .expect(200);
+    await http.delete(`/api/report-forms/${created.body.id}`).set(auth('dispatcher')).expect(200);
+    await http.get(`/api/report-forms/${created.body.id}`).set(auth('manager')).expect(404);
+  });
 });

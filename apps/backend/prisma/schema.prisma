@@ -254,6 +254,7 @@ model Organization {
   holidays           Holiday[]
   holidayTransfers   HolidayTransfer[]
   permanentSchedules PermanentSchedule[]
+  reportForms        ReportForm[]
 
   @@map("organizations")
 }
@@ -1242,4 +1243,24 @@ model PermanentLesson {
   @@index([teacherId])
   @@index([classroomId])
   @@map("permanent_lessons")
+}
+
+/// Пользовательская форма отчёта: лист «как в Excel» с полями-подстановками из источника данных
+model ReportForm {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  description    String?
+  /// Тип отчёта-источника данных (group-schedule, teacher-workload, …) или null — статичная форма
+  dataSource     String?
+  /// Содержимое листа: ячейки, оформление, объединения, повторяющаяся строка (см. report-form.ts)
+  content        Json
+  createdById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("report_forms")
 }
