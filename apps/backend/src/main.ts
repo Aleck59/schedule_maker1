@@ -6,6 +6,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { startEventLoopWatchdog } from './common/event-loop-watchdog';
+import { appVersion } from './common/utils/app-version';
 import { createValidationPipe } from './common/validation';
 import { loadConfig } from './config/configuration';
 
@@ -27,7 +28,7 @@ export async function createApp(options: { quiet?: boolean } = {}): Promise<Nest
       'REST API системы автоматизированного составления расписания СПО и высшего образования: учебные планы, ' +
         'нагрузка, календарный график, генерация расписания (OR-Tools CP-SAT), контроль часов и отчёты.',
     )
-    .setVersion(process.env.APP_VERSION ?? 'dev')
+    .setVersion(appVersion())
     .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, swagger);
