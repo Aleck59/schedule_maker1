@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json.schemastore.org/semantic-release.json",
+  "branches": ["main", "master"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "conventionalcommits",
+        "releaseRules": [
+          { "type": "refactor", "release": "patch" },
+          { "type": "perf", "release": "patch" },
+          { "type": "revert", "release": "patch" }
+        ]
+      }
+    ],
+    [
+      "@semantic-release/release-notes-generator",
+      {
+        "preset": "conventionalcommits",
+        "presetConfig": {
+          "types": [
+            { "type": "feat", "section": "Новые возможности" },
+            { "type": "fix", "section": "Исправления" },
+            { "type": "perf", "section": "Производительность" },
+            { "type": "refactor", "section": "Рефакторинг" },
+            { "type": "revert", "section": "Откат изменений" },
+            { "type": "docs", "section": "Документация", "hidden": true },
+            { "type": "test", "section": "Тесты", "hidden": true },
+            { "type": "build", "section": "Сборка", "hidden": true },
+            { "type": "ci", "section": "CI/CD", "hidden": true },
+            { "type": "chore", "hidden": true },
+            { "type": "style", "hidden": true }
+          ]
+        }
+      }
+    ],
+    [
+      "@semantic-release/changelog",
+      {
+        "changelogFile": "CHANGELOG.md",
+        "changelogTitle": "# Журнал изменений\n\nФормируется автоматически по сообщениям коммитов (Conventional Commits)."
+      }
+    ],
+    [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "node scripts/set-version.mjs ${nextRelease.version}",
+        "successCmd": "node scripts/release-output.mjs ${nextRelease.version}"
+      }
+    ],
+    [
+      "@semantic-release/git",
+      {
+        "assets": [
+          "CHANGELOG.md",
+          "package.json",
+          "package-lock.json",
+          "apps/backend/package.json",
+          "apps/frontend/package.json",
+          "apps/solver/app/__init__.py"
+        ],
+        "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+      }
+    ],
+    "@semantic-release/github"
+  ]
+}
