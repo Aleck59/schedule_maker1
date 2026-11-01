@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  CalendarClock,
   CalendarPlus,
   ChevronDown,
   ChevronLeft,
@@ -19,7 +20,7 @@ import {
   X,
   Wand2,
 } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Confirm } from "@/components/common/confirm";
 import { PageHeader } from "@/components/common/page-header";
@@ -383,6 +384,10 @@ export default function SchedulePage() {
     }
   };
 
+  // Постоянное расписание (типовая неделя) открывается отсюда, отдельного пункта меню нет
+  const showPermanent =
+    !!user && ["ADMIN", "DISPATCHER", "MANAGER"].includes(user.role);
+
   if (periods.isLoading) return <LoadingState rows={8} />;
   if (periods.error)
     return (
@@ -393,6 +398,15 @@ export default function SchedulePage() {
       <EmptyState
         title="Периоды расписания не созданы"
         description="Составьте расписание в разделе «Составление» — периоды создадутся автоматически"
+        action={
+          showPermanent && (
+            <Button variant="outline" asChild>
+              <Link to="/schedule/permanent">
+                <CalendarClock /> Постоянное расписание
+              </Link>
+            </Button>
+          )
+        }
       />
     );
   }
@@ -422,6 +436,13 @@ export default function SchedulePage() {
               />
             </div>
             <PeriodStatusBadge status={period.status} />
+            {showPermanent && (
+              <Button variant="outline" asChild>
+                <Link to="/schedule/permanent">
+                  <CalendarClock /> Постоянное
+                </Link>
+              </Button>
+            )}
             {canEdit && (
               <>
                 <Button

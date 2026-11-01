@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
+  ArrowLeft,
   BadgeCheck,
   CalendarClock,
   ChevronDown,
@@ -20,20 +21,19 @@ import { PageHeader } from '@/components/common/page-header';
 import { SimpleSelect } from '@/components/common/simple-select';
 import { StatCard } from '@/components/common/stat-card';
 import { EmptyState, ErrorState, LoadingState, Spinner } from '@/components/common/states';
+import { PermanentCreateForm } from '@/components/permanent/permanent-create-form';
 import { PrintFormDialog } from '@/components/schedule/print-form-dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useClassrooms, useTeachers } from '@/hooks/use-reference';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { formatDate, formatDateTime, formatNumber, shortName, today, weekdayName } from '@/lib/format';
+import { formatDate, formatDateTime, formatNumber, shortName, weekdayName } from '@/lib/format';
 import { EDUCATION_LEVEL_LABELS, LESSON_TYPE_SHORT } from '@/lib/labels';
 import { useApi, useApiMutation } from '@/lib/query';
 import { cn } from '@/lib/utils';
@@ -151,13 +151,20 @@ export default function PermanentSchedulePage() {
     <div className="space-y-6">
       <PageHeader
         title="Постоянное расписание"
-        description="Типовая неделя для руководства: нагрузка семестра распределена равномерно, недоступность, пожелания и лимиты преподавателей не учитываются. Рабочее расписание по датам со всеми ограничениями составляется отдельно в разделе «Составление» и от этой сетки не зависит."
+        description="Типовая неделя для руководства: нагрузка семестра распределена равномерно, недоступность, пожелания и лимиты преподавателей не учитываются. Рабочее расписание по датам со всеми ограничениями от этой сетки не зависит."
         actions={
-          canEdit && (
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus /> Новое постоянное расписание
+          <>
+            <Button variant="outline" asChild>
+              <Link to="/schedule">
+                <ArrowLeft /> Рабочее расписание
+              </Link>
             </Button>
-          )
+            {canEdit && (
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus /> Новое постоянное расписание
+              </Button>
+            )}
+          </>
         }
       />
 
@@ -713,32 +720,6 @@ function CreateDialog({
   onOpenChange: (open: boolean) => void;
   onCreated: (id: string) => void;
 }) {
-  const [title, setTitle] = useState('');
-  const [date, setDate] = useState(today());
-  const [levels, setLevels] = useState<string[]>([]);
-  useEffect(() => {
-    if (open) {
-      setTitle(`Постоянное расписание на ${formatDate(today())}`);
-      setDate(today());
-      setLevels([]);
-    }
-  }, [open]);
-  const create = useApiMutation(
-    () =>
-      api.post<{ id: string }>('/permanent-schedules', {
-        title,
-        date,
-        educationLevels: levels.length ? levels : undefined,
-      }),
-    {
-      success: 'Создано, сетка формируется',
-      invalidate: [['permanent-schedules']],
-      onSuccess: (r) => {
-        onOpenChange(false);
-        onCreated(r.id);
-      },
-    },
-  );
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
@@ -749,35 +730,18 @@ function CreateDialog({
             типовой неделе равномерно. Недоступность, пожелания и лимиты преподавателей не учитываются.
           </DialogDescription>
         </DialogHeader>
-        <Field label="Название">
-          <Input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
-        </Field>
-        <Field label="Дата" hint="Любой день семестра, для которого составляется сетка">
-          <Input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />
-        </Field>
-        <Field label="Уровни образования" hint="Ничего не выбрано — все группы">
-          <div className="flex flex-wrap gap-x-4 gap-y-2 pt-1">
-            {Object.entries(EDUCATION_LEVEL_LABELS).map(([value, label]) => (
-              <label key={value} className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={levels.includes(value)}
-                  onCheckedChange={(v) =>
-                    setLevels((prev) => (v ? [...prev, value] : prev.filter((x) => x !== value)))
-                  }
-                />
-                {label}
-              </label>
-            ))}
-          </div>
-        </Field>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Отмена
-          </Button>
-          <Button onClick={() => create.mutate(undefined)} disabled={!title.trim() || create.isPending}>
-            {create.isPending && <Spinner />} Создать и сформировать
-          </Button>
-        </DialogFooter>
+        <PermanentCreateForm
+          resetKey={open}
+          onCreated={(id) => {
+            onOpenChange(false);
+            onCreated(id);
+          }}
+          extraActions={
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Отмена
+            </Button>
+          }
+        />
       </DialogContent>
     </Dialog>
   );

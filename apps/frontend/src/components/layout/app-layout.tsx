@@ -6,7 +6,6 @@ import {
   BookOpen,
   Building2,
   CalendarCheck2,
-  CalendarClock,
   CalendarDays,
   CalendarRange,
   Compass,
@@ -70,10 +69,17 @@ const NAV: Array<{ section: string; items: NavItem[] }> = [
       { to: '/my', label: 'Моё расписание', icon: CalendarCheck2, roles: ['TEACHER', 'STUDENT'] },
       { to: '/schedule', label: 'Расписание', icon: CalendarDays, roles: [...STAFF, 'TEACHER'] },
       { to: '/generation', label: 'Составление', icon: Sparkles, roles: EDITORS },
-      { to: '/permanent', label: 'Постоянное расписание', icon: CalendarClock, roles: STAFF },
       { to: '/hour-control', label: 'Выполнение часов', icon: ClipboardCheck, roles: STAFF },
       { to: '/makeup', label: 'Отработки', icon: RotateCcw, roles: [...EDITORS, 'TEACHER'] },
       { to: '/reports', label: 'Отчёты', icon: BarChart3, roles: [...STAFF, 'TEACHER'] },
+    ],
+  },
+  {
+    section: 'Справочники',
+    items: [
+      { to: '/groups', label: 'Группы', icon: GraduationCap, roles: STAFF },
+      { to: '/teachers', label: 'Преподаватели', icon: Users, roles: STAFF },
+      { to: '/classrooms', label: 'Аудитории', icon: Building2, roles: STAFF },
     ],
   },
   {
@@ -83,14 +89,6 @@ const NAV: Array<{ section: string; items: NavItem[] }> = [
       { to: '/calendar', label: 'Календарный график', icon: CalendarRange, roles: STAFF },
       { to: '/holidays', label: 'Праздники', icon: PartyPopper, roles: STAFF },
       { to: '/workload', label: 'Нагрузка', icon: FileSpreadsheet, roles: STAFF },
-    ],
-  },
-  {
-    section: 'Справочники',
-    items: [
-      { to: '/groups', label: 'Группы', icon: GraduationCap, roles: STAFF },
-      { to: '/teachers', label: 'Преподаватели', icon: Users, roles: STAFF },
-      { to: '/classrooms', label: 'Аудитории', icon: Building2, roles: STAFF },
     ],
   },
   {

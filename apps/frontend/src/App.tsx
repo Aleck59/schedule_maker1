@@ -104,7 +104,8 @@ export default function App() {
                 <Route path="schedule" element={page(<SchedulePage />, [...STAFF, 'TEACHER'])} />
                 <Route path="generation" element={page(<GenerationPage />, EDITORS)} />
                 <Route path="generation/preview/:jobId" element={page(<GenerationPreviewPage />, EDITORS)} />
-                <Route path="permanent" element={page(<PermanentSchedulePage />, STAFF)} />
+                <Route path="schedule/permanent" element={page(<PermanentSchedulePage />, STAFF)} />
+                <Route path="permanent" element={<Navigate to="/schedule/permanent" replace />} />
                 <Route path="hour-control" element={page(<HourControlPage />, STAFF)} />
                 <Route path="makeup" element={page(<MakeupPage />, [...EDITORS, 'TEACHER'])} />
                 <Route path="programs" element={page(<ProgramsPage />, STAFF)} />
