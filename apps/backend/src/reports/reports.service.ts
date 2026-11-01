@@ -136,6 +136,144 @@ export const REPORT_TYPES: Array<{ type: string; title: string; description: str
   },
 ];
 
+const SCHEDULE_COLUMNS: ReportColumn[] = [
+  { key: 'date', header: 'Дата', type: 'date', width: 12 },
+  { key: 'weekday', header: 'День', width: 6 },
+  { key: 'lesson', header: 'Пара', type: 'number', width: 6 },
+  { key: 'time', header: 'Время', width: 12 },
+  { key: 'group', header: 'Группа', width: 14 },
+  { key: 'discipline', header: 'Дисциплина', width: 40 },
+  { key: 'type', header: 'Вид', width: 14 },
+  { key: 'teacher', header: 'Преподаватель', width: 28 },
+  { key: 'room', header: 'Аудитория', width: 10 },
+  { key: 'status', header: 'Статус', width: 14 },
+];
+
+const WORKLOAD_COLUMNS: ReportColumn[] = [
+  { key: 'teacher', header: 'Преподаватель', width: 30 },
+  { key: 'department', header: 'Цикловая комиссия', width: 30 },
+  { key: 'planned', header: 'План, ч', type: 'number', width: 10 },
+  { key: 'scheduled', header: 'В расписании, ч', type: 'number', width: 12 },
+  { key: 'conducted', header: 'Проведено, ч', type: 'number', width: 12 },
+  { key: 'substituted', header: 'В т.ч. замены, ч', type: 'number', width: 12 },
+  { key: 'percent', header: 'Выполнение', type: 'percent', width: 10 },
+  { key: 'week', header: 'Пар на текущей неделе', type: 'number', width: 12 },
+  { key: 'limit', header: 'Лимит в неделю', type: 'number', width: 10 },
+  { key: 'overload', header: 'Недель с перегрузкой', type: 'number', width: 12 },
+  { key: 'groups', header: 'Группы', width: 20 },
+];
+
+const PLAN_EXECUTION_COLUMNS: ReportColumn[] = [
+  { key: 'group', header: 'Группа', width: 14 },
+  { key: 'semester', header: 'Семестр', type: 'number', width: 8 },
+  { key: 'discipline', header: 'Дисциплина', width: 40 },
+  { key: 'lecPlan', header: 'Лек. план', type: 'number', width: 8 },
+  { key: 'lecSch', header: 'Лек. в расп.', type: 'number', width: 8 },
+  { key: 'lecDone', header: 'Лек. пров.', type: 'number', width: 8 },
+  { key: 'prPlan', header: 'Практ. план', type: 'number', width: 8 },
+  { key: 'prSch', header: 'Практ. в расп.', type: 'number', width: 8 },
+  { key: 'prDone', header: 'Практ. пров.', type: 'number', width: 8 },
+  { key: 'labPlan', header: 'Лаб. план', type: 'number', width: 8 },
+  { key: 'labSch', header: 'Лаб. в расп.', type: 'number', width: 8 },
+  { key: 'labDone', header: 'Лаб. пров.', type: 'number', width: 8 },
+  { key: 'plan', header: 'Всего план', type: 'number', width: 9 },
+  { key: 'scheduled', header: 'В расписании', type: 'number', width: 10 },
+  { key: 'conducted', header: 'Проведено', type: 'number', width: 10 },
+  { key: 'remaining', header: 'Остаток', type: 'number', width: 9 },
+  { key: 'deficit', header: 'Дефицит', type: 'number', width: 9 },
+  { key: 'excess', header: 'Превышение', type: 'number', width: 10 },
+  { key: 'forecast', header: 'Прогноз, %', type: 'percent', width: 10 },
+  { key: 'status', header: 'Статус', width: 12 },
+];
+
+const CANCELLATIONS_COLUMNS: ReportColumn[] = [
+  { key: 'date', header: 'Дата', type: 'date', width: 12 },
+  { key: 'lesson', header: 'Пара', type: 'number', width: 6 },
+  { key: 'group', header: 'Группа', width: 14 },
+  { key: 'discipline', header: 'Дисциплина', width: 40 },
+  { key: 'teacher', header: 'Преподаватель', width: 28 },
+  { key: 'hours', header: 'Часы', type: 'number', width: 6 },
+  { key: 'reason', header: 'Причина', width: 26 },
+  { key: 'makeup', header: 'Отработка', width: 22 },
+  { key: 'makeupDate', header: 'Дата отработки', width: 14 },
+];
+
+const MOVES_COLUMNS: ReportColumn[] = [
+  { key: 'fromDate', header: 'Было: дата', type: 'date', width: 12 },
+  { key: 'fromLesson', header: 'Было: пара', type: 'number', width: 8 },
+  { key: 'toDate', header: 'Стало: дата', type: 'date', width: 12 },
+  { key: 'toLesson', header: 'Стало: пара', type: 'number', width: 8 },
+  { key: 'group', header: 'Группа', width: 14 },
+  { key: 'discipline', header: 'Дисциплина', width: 40 },
+  { key: 'teacher', header: 'Преподаватель', width: 28 },
+  { key: 'status', header: 'Статус нового занятия', width: 16 },
+  { key: 'reason', header: 'Причина', width: 30 },
+];
+
+const SUBSTITUTIONS_COLUMNS: ReportColumn[] = [
+  { key: 'date', header: 'Дата', type: 'date', width: 12 },
+  { key: 'lesson', header: 'Пара', type: 'number', width: 6 },
+  { key: 'group', header: 'Группа', width: 14 },
+  { key: 'discipline', header: 'Дисциплина', width: 36 },
+  { key: 'original', header: 'Преподаватель по расписанию', width: 28 },
+  { key: 'substitute', header: 'Заменяющий преподаватель', width: 28 },
+  { key: 'reason', header: 'Причина', width: 26 },
+  { key: 'approvedBy', header: 'Оформил', width: 24 },
+];
+
+const PRACTICE_COLUMNS: ReportColumn[] = [
+  { key: 'group', header: 'Группа', width: 12 },
+  { key: 'semester', header: 'Семестр', type: 'number', width: 8 },
+  { key: 'code', header: 'Индекс', width: 10 },
+  { key: 'name', header: 'Практика', width: 30 },
+  { key: 'kind', header: 'Вид', width: 24 },
+  { key: 'place', header: 'Место проведения', width: 18 },
+  { key: 'hours', header: 'Часов', type: 'number', width: 8 },
+  { key: 'period', header: 'Период по графику', width: 26 },
+  { key: 'scheduled', header: 'В расписании, ч', type: 'number', width: 12 },
+  { key: 'conducted', header: 'Проведено, ч', type: 'number', width: 12 },
+  { key: 'control', header: 'Форма контроля', width: 18 },
+];
+
+const ASSESSMENTS_COLUMNS: ReportColumn[] = [
+  { key: 'group', header: 'Группа', width: 12 },
+  { key: 'semester', header: 'Семестр', type: 'number', width: 8 },
+  { key: 'discipline', header: 'Дисциплина', width: 44 },
+  { key: 'control', header: 'Форма контроля', width: 24 },
+  { key: 'date', header: 'Дата', type: 'date', width: 12 },
+  { key: 'teacher', header: 'Преподаватель', width: 28 },
+  { key: 'room', header: 'Аудитория', width: 10 },
+  { key: 'state', header: 'Состояние', width: 18 },
+];
+
+const UTILIZATION_COLUMNS: ReportColumn[] = [
+  { key: 'code', header: 'Аудитория', width: 10 },
+  { key: 'name', header: 'Наименование', width: 36 },
+  { key: 'building', header: 'Корпус', width: 18 },
+  { key: 'type', header: 'Тип', width: 18 },
+  { key: 'capacity', header: 'Мест', type: 'number', width: 6 },
+  { key: 'available', header: 'Доступно слотов', type: 'number', width: 10 },
+  { key: 'used', header: 'Занято слотов', type: 'number', width: 10 },
+  { key: 'percent', header: 'Загрузка, %', type: 'percent', width: 10 },
+  { key: 'busiest', header: 'Самый загруженный день', width: 16 },
+];
+
+/** Столбцы каждого отчёта — нужны и для построения, и для редактора форм (поля-подстановки) */
+export const REPORT_COLUMNS: Record<string, ReportColumn[]> = {
+  'group-schedule': SCHEDULE_COLUMNS,
+  'teacher-schedule': SCHEDULE_COLUMNS,
+  'classroom-schedule': SCHEDULE_COLUMNS,
+  'teacher-workload': WORKLOAD_COLUMNS,
+  'plan-execution': PLAN_EXECUTION_COLUMNS,
+  'hour-deficit': PLAN_EXECUTION_COLUMNS,
+  cancellations: CANCELLATIONS_COLUMNS,
+  moves: MOVES_COLUMNS,
+  substitutions: SUBSTITUTIONS_COLUMNS,
+  practice: PRACTICE_COLUMNS,
+  assessments: ASSESSMENTS_COLUMNS,
+  'classroom-utilization': UTILIZATION_COLUMNS,
+};
+
 const HOUR_STATUS_LABELS: Record<string, string> = {
   NORMAL: 'Норма',
   RISK: 'Риск',
@@ -222,18 +360,7 @@ export class ReportsService {
       type,
       title: `${REPORT_TYPES.find((r) => r.type === type)?.title}: ${subject}`,
       subtitle: `${formatDateRu(params.from!)} — ${formatDateRu(params.to!)}`,
-      columns: [
-        { key: 'date', header: 'Дата', type: 'date', width: 12 },
-        { key: 'weekday', header: 'День', width: 6 },
-        { key: 'lesson', header: 'Пара', type: 'number', width: 6 },
-        { key: 'time', header: 'Время', width: 12 },
-        { key: 'group', header: 'Группа', width: 14 },
-        { key: 'discipline', header: 'Дисциплина', width: 40 },
-        { key: 'type', header: 'Вид', width: 14 },
-        { key: 'teacher', header: 'Преподаватель', width: 28 },
-        { key: 'room', header: 'Аудитория', width: 10 },
-        { key: 'status', header: 'Статус', width: 14 },
-      ],
+      columns: SCHEDULE_COLUMNS,
       rows: lessons.map((l) => ({
         date: l.date,
         weekday: weekdayName(l.weekday, true),
@@ -263,19 +390,7 @@ export class ReportsService {
       type: 'teacher-workload',
       title: 'Нагрузка преподавателей',
       subtitle: params.semesterId ? 'За выбранный семестр' : 'За все семестры',
-      columns: [
-        { key: 'teacher', header: 'Преподаватель', width: 30 },
-        { key: 'department', header: 'Цикловая комиссия', width: 30 },
-        { key: 'planned', header: 'План, ч', type: 'number', width: 10 },
-        { key: 'scheduled', header: 'В расписании, ч', type: 'number', width: 12 },
-        { key: 'conducted', header: 'Проведено, ч', type: 'number', width: 12 },
-        { key: 'substituted', header: 'В т.ч. замены, ч', type: 'number', width: 12 },
-        { key: 'percent', header: 'Выполнение', type: 'percent', width: 10 },
-        { key: 'week', header: 'Пар на текущей неделе', type: 'number', width: 12 },
-        { key: 'limit', header: 'Лимит в неделю', type: 'number', width: 10 },
-        { key: 'overload', header: 'Недель с перегрузкой', type: 'number', width: 12 },
-        { key: 'groups', header: 'Группы', width: 20 },
-      ],
+      columns: WORKLOAD_COLUMNS,
       rows: data.map((t) => ({
         teacher: t.fullName,
         department: t.department ?? '',
@@ -317,28 +432,7 @@ export class ReportsService {
     return {
       type: onlyProblems ? 'hour-deficit' : 'plan-execution',
       title: onlyProblems ? 'Дефицит и превышение часов' : 'Выполнение учебного плана',
-      columns: [
-        { key: 'group', header: 'Группа', width: 14 },
-        { key: 'semester', header: 'Семестр', type: 'number', width: 8 },
-        { key: 'discipline', header: 'Дисциплина', width: 40 },
-        { key: 'lecPlan', header: 'Лек. план', type: 'number', width: 8 },
-        { key: 'lecSch', header: 'Лек. в расп.', type: 'number', width: 8 },
-        { key: 'lecDone', header: 'Лек. пров.', type: 'number', width: 8 },
-        { key: 'prPlan', header: 'Практ. план', type: 'number', width: 8 },
-        { key: 'prSch', header: 'Практ. в расп.', type: 'number', width: 8 },
-        { key: 'prDone', header: 'Практ. пров.', type: 'number', width: 8 },
-        { key: 'labPlan', header: 'Лаб. план', type: 'number', width: 8 },
-        { key: 'labSch', header: 'Лаб. в расп.', type: 'number', width: 8 },
-        { key: 'labDone', header: 'Лаб. пров.', type: 'number', width: 8 },
-        { key: 'plan', header: 'Всего план', type: 'number', width: 9 },
-        { key: 'scheduled', header: 'В расписании', type: 'number', width: 10 },
-        { key: 'conducted', header: 'Проведено', type: 'number', width: 10 },
-        { key: 'remaining', header: 'Остаток', type: 'number', width: 9 },
-        { key: 'deficit', header: 'Дефицит', type: 'number', width: 9 },
-        { key: 'excess', header: 'Превышение', type: 'number', width: 10 },
-        { key: 'forecast', header: 'Прогноз, %', type: 'percent', width: 10 },
-        { key: 'status', header: 'Статус', width: 12 },
-      ],
+      columns: PLAN_EXECUTION_COLUMNS,
       rows: filtered.map((r) => ({
         group: `${r.groupCode}${r.subgroupNumber ? ` (п/г ${r.subgroupNumber})` : ''}`,
         semester: r.semesterNumber,
@@ -408,17 +502,7 @@ export class ReportsService {
       type: 'cancellations',
       title: 'Отменённые занятия',
       subtitle: `${formatDateRu(params.from!)} — ${formatDateRu(params.to!)}`,
-      columns: [
-        { key: 'date', header: 'Дата', type: 'date', width: 12 },
-        { key: 'lesson', header: 'Пара', type: 'number', width: 6 },
-        { key: 'group', header: 'Группа', width: 14 },
-        { key: 'discipline', header: 'Дисциплина', width: 40 },
-        { key: 'teacher', header: 'Преподаватель', width: 28 },
-        { key: 'hours', header: 'Часы', type: 'number', width: 6 },
-        { key: 'reason', header: 'Причина', width: 26 },
-        { key: 'makeup', header: 'Отработка', width: 22 },
-        { key: 'makeupDate', header: 'Дата отработки', width: 14 },
-      ],
+      columns: CANCELLATIONS_COLUMNS,
       rows: lessons.map((l) => {
         const task = l.makeupTasks[0];
         return {
@@ -464,17 +548,7 @@ export class ReportsService {
       type: 'moves',
       title: 'Переносы занятий',
       subtitle: `${formatDateRu(params.from!)} — ${formatDateRu(params.to!)}`,
-      columns: [
-        { key: 'fromDate', header: 'Было: дата', type: 'date', width: 12 },
-        { key: 'fromLesson', header: 'Было: пара', type: 'number', width: 8 },
-        { key: 'toDate', header: 'Стало: дата', type: 'date', width: 12 },
-        { key: 'toLesson', header: 'Стало: пара', type: 'number', width: 8 },
-        { key: 'group', header: 'Группа', width: 14 },
-        { key: 'discipline', header: 'Дисциплина', width: 40 },
-        { key: 'teacher', header: 'Преподаватель', width: 28 },
-        { key: 'status', header: 'Статус нового занятия', width: 16 },
-        { key: 'reason', header: 'Причина', width: 30 },
-      ],
+      columns: MOVES_COLUMNS,
       rows: lessons.map((l) => {
         const next = l.derivedLessons[0];
         return {
@@ -518,16 +592,7 @@ export class ReportsService {
       type: 'substitutions',
       title: 'Замены преподавателей',
       subtitle: `${formatDateRu(params.from!)} — ${formatDateRu(params.to!)}`,
-      columns: [
-        { key: 'date', header: 'Дата', type: 'date', width: 12 },
-        { key: 'lesson', header: 'Пара', type: 'number', width: 6 },
-        { key: 'group', header: 'Группа', width: 14 },
-        { key: 'discipline', header: 'Дисциплина', width: 36 },
-        { key: 'original', header: 'Преподаватель по расписанию', width: 28 },
-        { key: 'substitute', header: 'Заменяющий преподаватель', width: 28 },
-        { key: 'reason', header: 'Причина', width: 26 },
-        { key: 'approvedBy', header: 'Оформил', width: 24 },
-      ],
+      columns: SUBSTITUTIONS_COLUMNS,
       rows: subs.map((s) => ({
         date: toDateStr(s.scheduleLesson.date),
         lesson: s.scheduleLesson.lessonNumber,
@@ -617,19 +682,7 @@ export class ReportsService {
     return {
       type: 'practice',
       title: 'Отчёт по практике',
-      columns: [
-        { key: 'group', header: 'Группа', width: 12 },
-        { key: 'semester', header: 'Семестр', type: 'number', width: 8 },
-        { key: 'code', header: 'Индекс', width: 10 },
-        { key: 'name', header: 'Практика', width: 30 },
-        { key: 'kind', header: 'Вид', width: 24 },
-        { key: 'place', header: 'Место проведения', width: 18 },
-        { key: 'hours', header: 'Часов', type: 'number', width: 8 },
-        { key: 'period', header: 'Период по графику', width: 26 },
-        { key: 'scheduled', header: 'В расписании, ч', type: 'number', width: 12 },
-        { key: 'conducted', header: 'Проведено, ч', type: 'number', width: 12 },
-        { key: 'control', header: 'Форма контроля', width: 18 },
-      ],
+      columns: PRACTICE_COLUMNS,
       rows,
       summary: [{ label: 'Практик', value: rows.length }],
     };
@@ -681,16 +734,7 @@ export class ReportsService {
     return {
       type: 'assessments',
       title: 'Контрольные мероприятия',
-      columns: [
-        { key: 'group', header: 'Группа', width: 12 },
-        { key: 'semester', header: 'Семестр', type: 'number', width: 8 },
-        { key: 'discipline', header: 'Дисциплина', width: 44 },
-        { key: 'control', header: 'Форма контроля', width: 24 },
-        { key: 'date', header: 'Дата', type: 'date', width: 12 },
-        { key: 'teacher', header: 'Преподаватель', width: 28 },
-        { key: 'room', header: 'Аудитория', width: 10 },
-        { key: 'state', header: 'Состояние', width: 18 },
-      ],
+      columns: ASSESSMENTS_COLUMNS,
       rows,
       summary: [
         { label: 'Контрольных мероприятий', value: rows.length },
@@ -757,17 +801,7 @@ export class ReportsService {
       type: 'classroom-utilization',
       title: 'Занятость аудиторного фонда',
       subtitle: `${formatDateRu(params.from)} — ${formatDateRu(params.to)}`,
-      columns: [
-        { key: 'code', header: 'Аудитория', width: 10 },
-        { key: 'name', header: 'Наименование', width: 36 },
-        { key: 'building', header: 'Корпус', width: 18 },
-        { key: 'type', header: 'Тип', width: 18 },
-        { key: 'capacity', header: 'Мест', type: 'number', width: 6 },
-        { key: 'available', header: 'Доступно слотов', type: 'number', width: 10 },
-        { key: 'used', header: 'Занято слотов', type: 'number', width: 10 },
-        { key: 'percent', header: 'Загрузка, %', type: 'percent', width: 10 },
-        { key: 'busiest', header: 'Самый загруженный день', width: 16 },
-      ],
+      columns: UTILIZATION_COLUMNS,
       rows,
       summary: [
         { label: 'Аудиторий', value: rows.length },

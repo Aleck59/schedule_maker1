@@ -166,24 +166,39 @@ export const api = {
 
 /** Скачивание файла (PDF/Excel) с авторизацией */
 export async function downloadFile(path: string, query?: RequestOptions['query'], fallbackName = 'файл') {
-  const token = tokenStore.access;
-  let res = await fetch(buildUrl(path, query), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-  if (res.status === 401 && (await refreshTokens())) {
-    res = await fetch(buildUrl(path, query), { headers: { Authorization: `Bearer ${tokenStore.access}` } });
-  }
+  await download(buildUrl(path, query), undefined, fallbackName);
+}
+
+/** Скачивание файла, который сервер формирует по телу POST-запроса */
+export async function downloadPost(path: string, body: unknown, fallbackName = 'файл') {
+  await download(buildUrl(path), body, fallbackName);
+}
+
+async function download(url: string, body: unknown, fallbackName: string) {
+  const send = (token: string | null) =>
+    fetch(url, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  let res = await send(tokenStore.access);
+  if (res.status === 401 && (await refreshTokens())) res = await send(tokenStore.access);
   if (!res.ok) throw await toError(res);
   const disposition = res.headers.get('Content-Disposition') ?? '';
   const match = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
   const name = match ? decodeURIComponent(match[1]) : fallbackName;
   const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
+  const href = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url;
+  a.href = href;
   a.download = name;
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  setTimeout(() => URL.revokeObjectURL(href), 5000);
 }
 
 export function errorMessage(e: unknown): string {

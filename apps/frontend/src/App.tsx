@@ -33,6 +33,8 @@ const ClassroomsPage = lazy(() => import('@/pages/ClassroomsPage'));
 const ClassroomsHeatmapPage = lazy(() => import('@/pages/ClassroomsHeatmapPage'));
 const ClassroomDetailsPage = lazy(() => import('@/pages/ClassroomDetailsPage'));
 const ReportsPage = lazy(() => import('@/pages/ReportsPage'));
+const ReportFormsPage = lazy(() => import('@/pages/ReportFormsPage'));
+const ReportFormEditorPage = lazy(() => import('@/pages/ReportFormEditorPage'));
 const MySchedulePage = lazy(() => import('@/pages/MySchedulePage'));
 const MakeupPage = lazy(() => import('@/pages/MakeupPage'));
 const NotificationsPage = lazy(() => import('@/pages/NotificationsPage'));
@@ -121,6 +123,8 @@ export default function App() {
                 <Route path="classrooms/heatmap" element={page(<ClassroomsHeatmapPage />, STAFF)} />
                 <Route path="classrooms/:id" element={page(<ClassroomDetailsPage />, STAFF)} />
                 <Route path="reports" element={page(<ReportsPage />, [...STAFF, 'TEACHER'])} />
+                <Route path="reports/forms" element={page(<ReportFormsPage />, STAFF)} />
+                <Route path="reports/forms/:id" element={page(<ReportFormEditorPage />, STAFF)} />
                 <Route path="notifications" element={page(<NotificationsPage />)} />
                 <Route path="settings" element={page(<SettingsPage />, EDITORS)} />
                 <Route path="users" element={page(<UsersPage />, ['ADMIN'])} />

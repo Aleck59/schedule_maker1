@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { FileSpreadsheet, FileText, Play } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { FileSpreadsheet, FileText, Play, Sheet } from 'lucide-react';
 import { toast } from 'sonner';
 import { DataTable } from '@/components/common/data-table';
 import { Field } from '@/components/common/field';
@@ -161,7 +162,19 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Отчёты" description="Сводные отчёты с выгрузкой в Excel и PDF" />
+      <PageHeader
+        title="Отчёты"
+        description="Сводные отчёты с выгрузкой в Excel и PDF"
+        actions={
+          !isTeacher && (
+            <Button variant="outline" asChild>
+              <Link to="/reports/forms">
+                <Sheet /> Формы отчётов
+              </Link>
+            </Button>
+          )
+        }
+      />
       {types.isLoading ? (
         <LoadingState rows={4} />
       ) : types.error ? (

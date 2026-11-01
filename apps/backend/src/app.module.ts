@@ -21,6 +21,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { PermanentScheduleModule } from './permanent-schedule/permanent-schedule.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProgramsModule } from './programs/programs.module';
+import { ReportFormsModule } from './report-forms/report-forms.module';
 import { ReportsModule } from './reports/reports.module';
 import { ScheduleModule } from './schedule/schedule.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
@@ -57,6 +58,7 @@ import { ValidationModule } from './validation/validation.module';
     PermanentScheduleModule,
     HourControlModule,
     ReportsModule,
+    ReportFormsModule,
     ExportModule,
     DashboardModule,
   ],
