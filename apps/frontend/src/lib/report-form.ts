@@ -17,6 +17,10 @@ export interface FormCellStyle {
   /** Границы: набор сторон t, r, b, l */
   bd?: string;
   fmt?: CellFormat;
+  /** Текст повёрнут на 90° (подписи дней) */
+  rot?: boolean;
+  /** Склеивать с такой же ячейкой справа (общая пара групп) */
+  join?: boolean;
 }
 
 export interface FormCell {
@@ -68,6 +72,8 @@ export interface FormSource {
   description: string;
   params: string[];
   columns: SourceColumn[];
+  /** Поля источника, если он не табличный (бланк расписания) */
+  fields?: Array<{ key: string; label: string }>;
 }
 
 export interface FormSources {
@@ -463,3 +469,11 @@ export function renderedText(cell: RenderedCell): string {
   }
   return cell.v;
 }
+
+export type BlankLayout = 'rooms' | 'types' | 'header-room';
+
+export const BLANK_LAYOUTS: Array<{ value: BlankLayout; label: string; hint: string }> = [
+  { value: 'rooms', label: 'Очная: пара + аудитория у каждой группы', hint: 'Как бланки 40.02.04 и 38.02.01' },
+  { value: 'types', label: 'Очная: пара + вид занятия + аудитория', hint: 'Как бланки 09.02.07 и 09.02.12' },
+  { value: 'header-room', label: 'Заочная: аудитория в шапке группы', hint: 'Как бланки заочного отделения' },
+];

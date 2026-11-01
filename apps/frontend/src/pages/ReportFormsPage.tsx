@@ -13,7 +13,19 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { formatDate } from '@/lib/format';
 import { useApi, useApiMutation } from '@/lib/query';
-import { emptyForm, formFromSource, type FormSources, type ReportFormRecord } from '@/lib/report-form';
+import {
+  BLANK_LAYOUTS,
+  emptyForm,
+  formFromSource,
+  type BlankLayout,
+  type FormSources,
+  type ReportFormContent,
+  type ReportFormRecord,
+} from '@/lib/report-form';
+import { GroupsPicker } from '@/components/report-forms/source-params';
+import { useGroups } from '@/hooks/use-reference';
+
+const SCHEDULE_WEEK = 'schedule-week';
 
 type FormListItem = Omit<ReportFormRecord, 'content'>;
 
@@ -27,13 +39,26 @@ export default function ReportFormsPage() {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [start, setStart] = useState<string | null>(null);
+  const [blankGroups, setBlankGroups] = useState('');
+  const [layout, setLayout] = useState<BlankLayout>('rooms');
+  const [pairs, setPairs] = useState('4');
+  const isBlank = start === SCHEDULE_WEEK;
+  const groups = useGroups(creating && isBlank);
 
   const sourceTitle = (type: string | null) => (type ? (sources.data?.sources.find((s) => s.type === type)?.title ?? type) : 'Без источника');
 
   const create = useApiMutation(
-    () => {
+    async () => {
       const source = sources.data?.sources.find((s) => s.type === start);
-      const content = source ? formFromSource(source) : emptyForm();
+      const content = isBlank
+        ? await api.post<ReportFormContent>('/report-forms/schedule-blank', {
+            groupIds: blankGroups.split(',').filter(Boolean),
+            layout,
+            pairs: Number(pairs),
+          })
+        : source
+          ? formFromSource(source)
+          : emptyForm();
       return api.post<ReportFormRecord>('/report-forms', { name: name.trim() || source?.title || 'Новая форма', content });
     },
     {
@@ -66,6 +91,7 @@ export default function ReportFormsPage() {
                 onClick={() => {
                   setName('');
                   setStart(null);
+                  setBlankGroups('');
                   setCreating(true);
                 }}
               >
@@ -142,21 +168,51 @@ export default function ReportFormsPage() {
             <Field label="Название">
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Например, «Ведомость нагрузки для бухгалтерии»" autoFocus />
             </Field>
-            <Field label="Начать с" hint={start ? 'Шапка, заголовки столбцов и строка данных будут заполнены' : 'Пустой лист 30 × 10'}>
+            <Field
+              label="Начать с"
+              hint={
+                isBlank
+                  ? 'Грифы, заголовок по специальности, дни × пары × группы — как бумажный бланк'
+                  : start
+                    ? 'Шапка, заголовки столбцов и строка данных будут заполнены'
+                    : 'Пустой лист 30 × 10'
+              }
+            >
               <SimpleSelect
                 value={start}
                 onChange={setStart}
                 allowEmpty
                 emptyLabel="Пустого листа"
-                options={(sources.data?.sources ?? []).map((s) => ({ value: s.type, label: `Отчёта «${s.title}»` }))}
+                options={(sources.data?.sources ?? []).map((s) =>
+                  s.type === SCHEDULE_WEEK
+                    ? { value: s.type, label: 'Бланка расписания (дни × пары × группы)' }
+                    : { value: s.type, label: `Отчёта «${s.title}»` },
+                )}
               />
             </Field>
+            {isBlank && (
+              <>
+                <Field label="Группы — столбцы бланка по порядку" hint="Обычно группы одной специальности, формы обучения и базы образования" required>
+                  <GroupsPicker
+                    value={blankGroups}
+                    options={(groups.data ?? []).map((g) => ({ value: g.id, label: g.code }))}
+                    onChange={setBlankGroups}
+                  />
+                </Field>
+                <Field label="Вид бланка" hint={BLANK_LAYOUTS.find((l) => l.value === layout)?.hint}>
+                  <SimpleSelect value={layout} onChange={(v) => setLayout((v as BlankLayout) ?? 'rooms')} options={BLANK_LAYOUTS} />
+                </Field>
+                <Field label="Строк на день (пар)">
+                  <SimpleSelect value={pairs} onChange={(v) => setPairs(v ?? '4')} options={['3', '4', '5', '6'].map((v) => ({ value: v, label: v }))} />
+                </Field>
+              </>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreating(false)}>
               Отмена
             </Button>
-            <Button onClick={() => create.mutate(undefined)} disabled={create.isPending}>
+            <Button onClick={() => create.mutate(undefined)} disabled={create.isPending || (isBlank && !blankGroups)}>
               Создать и открыть
             </Button>
           </DialogFooter>

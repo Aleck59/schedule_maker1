@@ -7,8 +7,13 @@ import { EDITOR_ROLES, Roles } from '../common/decorators/roles.decorator';
 import { AuthUser } from '../common/types/auth-user';
 import { PdfService } from '../export/pdf.service';
 import { sendFile } from '../export/send-file';
-import { ExportReportFormDto, RenderReportFormDto, SaveReportFormDto } from './dto/report-form.dto';
-import { formToExcel, formToPdfDefinition } from './form-writers';
+import {
+  ExportReportFormDto,
+  RenderReportFormDto,
+  SaveReportFormDto,
+  ScheduleBlankDto,
+} from './dto/report-form.dto';
+import { formToExcel, formToPdf } from './form-writers';
 import { ReportFormsService } from './report-forms.service';
 
 /** Формы отчётов доступны составителям и руководству (преподавателю — только свой отчёт на странице «Отчёты») */
@@ -37,6 +42,13 @@ export class ReportFormsController {
     return this.forms.sources();
   }
 
+  @Post('schedule-blank')
+  @Roles(...VIEW_ROLES)
+  @ApiOperation({ summary: 'Готовый бланк расписания по выбранным группам (дни × пары × группы)' })
+  scheduleBlank(@Body() dto: ScheduleBlankDto, @CurrentUser() user: AuthUser) {
+    return this.forms.scheduleBlank(dto, user);
+  }
+
   @Post('render')
   @Roles(...VIEW_ROLES)
   @ApiOperation({ summary: 'Заполнить форму данными (предпросмотр, в т.ч. несохранённой формы)' })
@@ -53,7 +65,7 @@ export class ReportFormsController {
     if (dto.format === 'pdf') {
       return sendFile(
         res,
-        await this.pdf.render(formToPdfDefinition(sheet, name)),
+        await formToPdf(sheet, name, (def) => this.pdf.render(def)),
         `${name}.pdf`,
         'application/pdf',
       );

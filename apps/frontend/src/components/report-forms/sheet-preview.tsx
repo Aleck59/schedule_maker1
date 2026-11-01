@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react';
 import { cellKey, colPx, DEFAULT_ROW_HEIGHT, renderedText, rowPx, type RenderedSheet } from '@/lib/report-form';
 import { cn } from '@/lib/utils';
-import { cellCss } from './sheet-editor';
+import { cellCss, VERTICAL } from './sheet-editor';
 
 const LINE = '1px solid #1f2937';
 
@@ -45,7 +45,7 @@ export function SheetPreview({ sheet }: { sheet: RenderedSheet }) {
                 };
                 return (
                   <td key={c} rowSpan={span?.rs} colSpan={span?.cs} className={cn('px-1 leading-tight', !span && !cell.s?.wrap && !style.borderRight && cells[c + 1]?.v == null ? 'overflow-visible' : 'overflow-hidden')} style={style}>
-                    {renderedText(cell)}
+                    {cell.s?.rot ? <span style={VERTICAL}>{renderedText(cell)}</span> : renderedText(cell)}
                   </td>
                 );
               })}

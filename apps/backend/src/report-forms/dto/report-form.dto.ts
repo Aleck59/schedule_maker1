@@ -1,5 +1,19 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsNotEmpty, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsObject,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class SaveReportFormDto {
   @ApiProperty({ example: 'Ведомость нагрузки для бухгалтерии' })
@@ -41,4 +55,32 @@ export class ExportReportFormDto extends RenderReportFormDto {
   @IsOptional()
   @IsIn(['xlsx', 'pdf'], { message: 'Формат: xlsx или pdf' })
   format?: 'xlsx' | 'pdf';
+}
+
+export class ScheduleBlankDto {
+  @ApiProperty({ type: [String], description: 'Группы — столбцы бланка, по порядку' })
+  @IsArray()
+  @ArrayMinSize(1, { message: 'Выберите хотя бы одну группу' })
+  @ArrayMaxSize(12, { message: 'Не больше 12 групп на одном бланке' })
+  @IsUUID('all', { each: true })
+  groupIds: string[];
+
+  @ApiPropertyOptional({ enum: ['rooms', 'types', 'header-room'] })
+  @IsOptional()
+  @IsIn(['rooms', 'types', 'header-room'])
+  layout?: 'rooms' | 'types' | 'header-room';
+
+  @ApiPropertyOptional({ description: 'Строк (пар) на день' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(8)
+  pairs?: number;
+
+  @ApiPropertyOptional({ description: 'Грифов над таблицей: 1–3' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(3)
+  approvals?: number;
 }

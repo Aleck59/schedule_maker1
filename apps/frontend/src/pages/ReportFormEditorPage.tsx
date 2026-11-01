@@ -136,7 +136,7 @@ function Editor({ record }: { record: ReportFormRecord }) {
 
   const fieldGroups = useMemo(() => {
     const groups: Array<{ title: string; hint?: string; items: Array<{ key: string; label: string }> }> = [];
-    if (source) {
+    if (source && source.columns.length > 0) {
       groups.push({
         title: 'Строка данных',
         hint: 'Ставьте в строку, отмеченную как «Строка данных» — она повторится для каждой записи',
@@ -152,7 +152,14 @@ function Editor({ record }: { record: ReportFormRecord }) {
         ],
       });
     }
-    groups.push({ title: 'Общие', items: (sources.data?.common ?? []).filter((f) => source || f.key !== 'count') });
+    if (source?.fields?.length) {
+      groups.push({
+        title: 'Поля бланка',
+        hint: 'g1, g2… — группы по порядку; d1…d6 — дни недели; p1, p2… — номер пары. Например {{g2.d3.p1.room}}',
+        items: source.fields,
+      });
+    }
+    groups.push({ title: 'Общие', items: (sources.data?.common ?? []).filter((f) => (source && source.columns.length > 0) || f.key !== 'count') });
     const q = filter.trim().toLowerCase();
     return groups
       .map((g) => ({ ...g, items: q ? g.items.filter((i) => i.label.toLowerCase().includes(q) || i.key.toLowerCase().includes(q)) : g.items }))
@@ -297,7 +304,7 @@ function Editor({ record }: { record: ReportFormRecord }) {
               <p className="text-muted-foreground text-xs">
                 Щёлкните поле — оно встанет в выделенную ячейку. Можно писать и вручную: <code>{'{{row.teacher}}'}</code>
               </p>
-              {source && !readOnly && (
+              {source && source.columns.length > 0 && !readOnly && (
                 <Button variant="outline" size="sm" className="w-full" onClick={() => sheet.current?.insertTable(source.columns)} title="С выделенной ячейки: строка заголовков и под ней строка данных">
                   <TableProperties /> Вставить таблицу целиком
                 </Button>

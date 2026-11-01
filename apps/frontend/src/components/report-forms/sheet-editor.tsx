@@ -18,6 +18,8 @@ import {
   Split,
   Trash2,
   Type,
+  RotateCcwSquare,
+  Link2,
   Underline,
   Undo2,
   WrapText,
@@ -203,7 +205,7 @@ export function SheetEditor({
     onChange(fn(form));
   };
 
-  const toggle = (k: 'b' | 'i' | 'u' | 'wrap') => {
+  const toggle = (k: 'b' | 'i' | 'u' | 'wrap' | 'rot' | 'join') => {
     const on = !activeStyle[k];
     apply((f) => patchStyle(f, sel, (s) => ({ ...s, [k]: on })));
   };
@@ -464,6 +466,17 @@ export function SheetEditor({
         </Tool>
         <Tool title="Переносить по словам" active={!!activeStyle.wrap} onClick={() => toggle('wrap')} disabled={readOnly}>
           <WrapText />
+        </Tool>
+        <Tool title="Повернуть текст (снизу вверх) — для подписей дней" active={!!activeStyle.rot} onClick={() => toggle('rot')} disabled={readOnly}>
+          <RotateCcwSquare />
+        </Tool>
+        <Tool
+          title="Склеивать с такой же ячейкой справа — общая пара нескольких групп печатается одной строкой"
+          active={!!activeStyle.join}
+          onClick={() => toggle('join')}
+          disabled={readOnly}
+        >
+          <Link2 />
         </Tool>
         <Sep />
         <DropdownMenu>
@@ -812,6 +825,9 @@ export function cellCss(s: FormCellStyle | undefined): CSSProperties {
   };
 }
 
+/** Текст снизу вверх, как подписи дней недели в бланке */
+export const VERTICAL: CSSProperties = { writingMode: 'vertical-rl', transform: 'rotate(180deg)', display: 'inline-block', whiteSpace: 'pre' };
+
 const LINE = '1px solid #1f2937';
 const GRID = '1px solid color-mix(in oklch, var(--border) 85%, transparent)';
 
@@ -912,6 +928,10 @@ const SheetRow = memo(function SheetRow({
               }
             }}
           />
+        ) : cell?.s?.rot ? (
+          <span style={VERTICAL}>
+            <CellText text={cell?.v} />
+          </span>
         ) : (
           <CellText text={cell?.v} />
         )}

@@ -61,7 +61,7 @@ describe('печатная форма расписания', () => {
         groupId: 'g2',
         lessonNumber: 2,
         itemName: 'Теория государства и права',
-        teacherName: 'Магомедов А Т',
+        teacherName: 'Иванов П Т',
       }),
     ]);
     const [first, second] = sheet.days[0].rows;
@@ -123,6 +123,8 @@ describe('печатная форма расписания', () => {
   it('сокращает ФИО и нормализует настройки бланка', () => {
     expect(shortTeacherName('Исламова Сабина Хасановна')).toBe('Исламова С.Х.');
     expect(shortTeacherName('Петров')).toBe('Петров');
+    expect(shortTeacherName('Иванов П.Т.')).toBe('Иванов П.Т.');
+    expect(shortTeacherName('Иванов П. Т.')).toBe('Иванов П.Т.');
     const settings = normalizePrintForm({
       approvals: [{ heading: 'УТВЕРЖДАЮ', position: 'И.о. директора', name: 'Абдулаева И.А.', extra: 1 }],
       profiles: { s1: ' Социально-экономический ', s2: '' },
