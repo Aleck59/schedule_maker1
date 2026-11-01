@@ -3,6 +3,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
+  CalendarClock,
+  CalendarDays,
   CalendarPlus,
   CheckCircle2,
   ChevronRight,
@@ -14,13 +16,14 @@ import {
   XCircle,
 } from 'lucide-react';
 import { Controller, useForm } from 'react-hook-form';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { z } from 'zod';
 import { Confirm } from '@/components/common/confirm';
 import { Field } from '@/components/common/field';
 import { AllGroupsPlanCard, LEVEL_FILTER_OPTIONS, type LevelFilter, levelsOf } from '@/components/generation/all-groups';
 import { type RerunPatch, type RerunSettings, UnplacedList } from '@/components/generation/unplaced';
 import { PageHeader } from '@/components/common/page-header';
+import { PermanentCreateForm } from '@/components/permanent/permanent-create-form';
 import { SimpleSelect } from '@/components/common/simple-select';
 import { EmptyState, ErrorState, LoadingState, Spinner } from '@/components/common/states';
 import { JobStatusBadge, PeriodStatusBadge } from '@/components/common/status-badge';
@@ -113,6 +116,8 @@ export default function GenerationPage() {
   const [applyResult, setApplyResult] = useState<ApplyResult | null>(null);
   // Охват: один учебный план (период) или все группы организации
   const scope = params.get('scope') === 'period' || params.has('period') ? 'period' : 'all';
+  // Что составлять: рабочее расписание по датам или постоянное (типовая неделя для руководства)
+  const kind: ScheduleKind = params.get('kind') === 'permanent' ? 'permanent' : 'working';
   const [allDate, setAllDate] = useState(today());
   const [levelFilter, setLevelFilter] = useState<LevelFilter>('ALL');
   const plan = useApi<AllGroupsPlan>(['all-groups-plan', allDate], scope === 'all' ? `/generation/all/plan?date=${allDate}` : null);
@@ -241,6 +246,7 @@ export default function GenerationPage() {
         title="Составление расписания"
         description="По учебным планам, календарному графику, нагрузке и ограничениям преподавателей"
         actions={
+          kind === 'working' && (
           <div className="bg-muted inline-flex h-9 rounded-md p-0.5">
             {(
               [
@@ -261,10 +267,21 @@ export default function GenerationPage() {
               </button>
             ))}
           </div>
+          )
         }
       />
 
-      {scope === 'period' && !period ? (
+      <KindPicker
+        value={kind}
+        onChange={(next) => {
+          setApplyResult(null);
+          setParams(next === 'permanent' ? { kind: 'permanent' } : {}, { replace: true });
+        }}
+      />
+
+      {kind === 'permanent' ? (
+        <PermanentGenerationPanel />
+      ) : scope === 'period' && !period ? (
         <EmptyState
           title="Нет периодов расписания"
           description="Создайте период расписания для семестра, затем запустите генерацию"
@@ -498,6 +515,128 @@ export default function GenerationPage() {
         </div>
       )}
       <CreatePeriodDialog open={createOpen} onOpenChange={setCreateOpen} onCreated={(id) => setParams({ period: id }, { replace: true })} />
+    </div>
+  );
+}
+
+type ScheduleKind = 'working' | 'permanent';
+
+const KIND_OPTIONS: Array<{ value: ScheduleKind; title: string; text: string; icon: typeof CalendarDays }> = [
+  {
+    value: 'working',
+    title: 'Рабочее расписание',
+    text: 'По датам семестра со всеми ограничениями: недоступность, пожелания и лимиты преподавателей',
+    icon: CalendarDays,
+  },
+  {
+    value: 'permanent',
+    title: 'Постоянное расписание',
+    text: 'Типовая неделя для руководства (числитель/знаменатель), рабочее расписание не меняется',
+    icon: CalendarClock,
+  },
+];
+
+/** Выбор, какое расписание составлять */
+function KindPicker({ value, onChange }: { value: ScheduleKind; onChange: (v: ScheduleKind) => void }) {
+  return (
+    <div role="radiogroup" aria-label="Что составлять" className="grid gap-3 sm:grid-cols-2">
+      {KIND_OPTIONS.map((o) => {
+        const active = o.value === value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => onChange(o.value)}
+            className={cn(
+              'lift bg-card flex items-start gap-3 rounded-xl border px-4 py-3 text-left transition',
+              active ? 'border-primary ring-primary/30 ring-2' : 'hover:border-primary/40',
+            )}
+          >
+            <span
+              className={cn(
+                'mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border-2',
+                active ? 'border-primary' : 'border-muted-foreground/40',
+              )}
+            >
+              {active && <span className="bg-primary size-2 rounded-full" />}
+            </span>
+            <span className="min-w-0">
+              <span className="flex items-center gap-2 text-sm font-medium">
+                <o.icon className="text-primary size-4" /> {o.title}
+              </span>
+              <span className="text-muted-foreground mt-0.5 block text-xs">{o.text}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+interface PermanentBrief {
+  id: string;
+  title: string;
+  date: string;
+  approvedAt: string | null;
+  jobStatus: string;
+}
+
+/** Автосоставление постоянного расписания: та же форма, что на странице постоянного расписания */
+function PermanentGenerationPanel() {
+  const navigate = useNavigate();
+  const list = useApi<PermanentBrief[]>(['permanent-schedules'], '/permanent-schedules');
+  return (
+    <div className="grid gap-5 xl:grid-cols-[400px_1fr]">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Новое постоянное расписание</CardTitle>
+          <CardDescription>
+            Для каждой группы берётся семестр, идущий на выбранную дату, и его нагрузка раскладывается по типовой неделе
+            равномерно. Недоступность, пожелания и лимиты преподавателей не учитываются, запрещены только накладки.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PermanentCreateForm
+            submitLabel="Составить постоянное расписание"
+            onCreated={(id) => navigate(`/schedule/permanent?id=${id}`)}
+          />
+        </CardContent>
+      </Card>
+      <Card className="gap-2 py-4">
+        <CardHeader className="px-4">
+          <CardTitle className="text-base">Составленные ранее</CardTitle>
+          <CardDescription>Открываются в разделе «Расписание» → «Постоянное»</CardDescription>
+        </CardHeader>
+        <CardContent className="px-2">
+          {list.isLoading ? (
+            <LoadingState rows={3} />
+          ) : (list.data ?? []).length === 0 ? (
+            <p className="text-muted-foreground px-2 py-3 text-sm">Постоянное расписание ещё не составлялось</p>
+          ) : (
+            <div className="space-y-0.5">
+              {list.data!.map((s) => (
+                <Link
+                  key={s.id}
+                  to={`/schedule/permanent?id=${s.id}`}
+                  className="hover:bg-muted/60 flex items-center justify-between gap-3 rounded-lg px-2 py-2 text-sm transition-colors"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{s.title}</span>
+                    <span className="text-muted-foreground text-xs">на {formatDate(s.date)}</span>
+                  </span>
+                  {s.approvedAt ? (
+                    <Badge variant="success">Утверждено</Badge>
+                  ) : s.jobStatus === 'QUEUED' || s.jobStatus === 'RUNNING' ? (
+                    <Badge variant="info">Формируется</Badge>
+                  ) : null}
+                </Link>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
