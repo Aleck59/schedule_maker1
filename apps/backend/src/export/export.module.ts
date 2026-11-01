@@ -11,6 +11,6 @@ import { ScheduleFormService } from './schedule-form.service';
   imports: [ScheduleModule, HourControlModule, GroupsModule],
   controllers: [ExportController],
   providers: [PdfService, ExcelService, ScheduleFormService],
-  exports: [PdfService, ExcelService],
+  exports: [PdfService, ExcelService, ScheduleFormService],
 })
 export class ExportModule {}

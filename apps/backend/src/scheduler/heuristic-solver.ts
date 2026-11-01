@@ -251,6 +251,26 @@ export interface HeuristicOptions {
    * пары досаживаются по оставшимся неделям и выполняется доводка окон
    */
   initial?: SolverPlacement[];
+  /**
+   * Только шаблон недели (постоянное расписание для руководства): без развёртки по датам.
+   * Дата размещения — «T<день недели>», дробный темп даёт пары по числителю/знаменателю.
+   */
+  templateOnly?: boolean;
+}
+
+/**
+ * Число пар дисциплины в типовой неделе по темпу (пар в неделю): целая часть каждую неделю,
+ * дробная от ¼ до ¾ — одна пара через неделю (числитель/знаменатель), больше ¾ — ещё пара каждую неделю
+ */
+export function weeklySlots(rate: number, required: number): { weekly: number; biweekly: boolean } {
+  if (required <= 0 || rate <= 0) return { weekly: 0, biweekly: false };
+  let weekly = Math.floor(rate + 1e-9);
+  const frac = rate - weekly;
+  let biweekly = false;
+  if (frac >= 0.75 - 1e-9) weekly++;
+  else if (frac >= 0.25 - 1e-9) biweekly = true;
+  if (weekly === 0 && !biweekly) biweekly = true;
+  return { weekly: Math.min(weekly, required), biweekly };
 }
 
 export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions = {}): SolverResult {
@@ -833,6 +853,178 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
 
   const repairLimit = options.repairLimit ?? 60;
   let timeExceeded = false;
+
+  /** Постоянное расписание: одна типовая неделя, пары «через неделю» объединяются в числитель/знаменатель */
+  const solveTemplateOnly = (): SolverResult => {
+    const templateDays: DayRef[] = problem.workingDays.map((w) => ({ key: `T${w}`, weekday: w, week: -1 }));
+    daysByWeek.set(-1, templateDays);
+    const st = makeState();
+    const targets = new Map<DemandState, number>();
+    const biweekly = new Set<DemandState>();
+    let skipped = 0;
+    for (const ds of demands) {
+      // Практика и консультации проводятся по датам — в типовую неделю не входят
+      if (ds.d.allowedDates !== null || ds.availableWeeks.length === 0) {
+        skipped++;
+        continue;
+      }
+      const weekdays = new Set<number>();
+      for (const key of ds.allowedDays) {
+        const ref = dayRefByDate.get(key);
+        if (ref) weekdays.add(ref.weekday);
+      }
+      const base = { ...ds, allowedDays: new Set([...weekdays].map((w) => `T${w}`)), placed: 0 };
+      const slots = weeklySlots(ds.rate, ds.d.lessonsRequired);
+      if (slots.weekly > 0) targets.set(base, slots.weekly);
+      if (slots.biweekly) {
+        const half = { ...base, placed: 0 };
+        targets.set(half, 1);
+        biweekly.add(half);
+      }
+    }
+    solveWeek(st, templateDays, targets, repairLimit * 4);
+    if (settings.maximizePlacement) {
+      const rest = new Map<DemandState, number>();
+      for (const [ds, t] of targets) if (ds.placed < t) rest.set(ds, t - ds.placed);
+      if (rest.size > 0) {
+        const before = st.placements.length;
+        relaxed = true;
+        solveWeek(st, templateDays, rest, repairLimit * 4);
+        // Аудиторий не хватает на всю сетку — пара ставится без аудитории, её назначат вручную
+        let withoutRoom = 0;
+        for (const [ds, t] of targets) {
+          while (ds.placed < t) {
+            let best: { day: DayRef; lesson: number; cost: number } | null = null;
+            for (const day of templateDays) {
+              if (!ds.allowedDays.has(day.key)) continue;
+              for (let lesson = 1; lesson <= lessonsPerDay; lesson++) {
+                if (!slotAllowed(ds, day, lesson) || !teacherFree(st, ds, day, lesson)) continue;
+                if (!groupFree(st, ds, day, lesson)) continue;
+                const cost = slotCost(st, ds, day, lesson);
+                if (!best || cost < best.cost) best = { day, lesson, cost };
+              }
+            }
+            if (!best) break;
+            st.apply({ demand: ds, day: best.day, lesson: best.lesson, roomId: null, fixed: false });
+            ds.placed++;
+            withoutRoom++;
+          }
+        }
+        relaxed = false;
+        log.push(
+          `Расстановка по максимуму: дополнительно поставлено ${st.placements.length - before} пар` +
+            (withoutRoom ? `, из них ${withoutRoom} без аудитории (свободных подходящих аудиторий нет)` : ''),
+        );
+      }
+    }
+    options.onProgress?.(0.7, 'Доводка окон');
+    if (settings.avoidWindows) {
+      const until = Date.now() + Math.min(20, Math.max(3, problem.timeLimitSeconds / 4)) * 1000;
+      let moved = compact(st, until);
+      for (let round = 0; round < 3 && Date.now() < until; round++) {
+        const shifted = shiftDays(st, until);
+        if (shifted === 0) break;
+        moved += shifted + compact(st, until);
+      }
+      if (moved > 0) log.push(`Доводка: переставлено ${moved} пар, чтобы убрать окна`);
+    }
+
+    // Пары «через неделю» одной группы (подгруппы) объединяются в один слот: числитель / знаменатель
+    const parity = new Map<Placed, 'ODD' | 'EVEN'>();
+    const merged: Array<{ p: Placed; day: DayRef; lesson: number; roomId: string | null }> = [];
+    const halves = st.placements.filter((p) => biweekly.has(p.demand));
+    const audience = (p: Placed) =>
+      `${[...p.demand.d.groupIds].sort().join(',')}#${p.demand.d.subgroupNumber ?? ''}`;
+    const taken = new Set<Placed>();
+    for (const a of halves) {
+      if (taken.has(a)) continue;
+      taken.add(a);
+      parity.set(a, 'ODD');
+      for (const b of halves) {
+        if (taken.has(b) || audience(b) !== audience(a)) continue;
+        const sameTeacher = b.demand.d.teacherId === a.demand.d.teacherId;
+        st.remove(b);
+        const teacherOk =
+          sameTeacher || !st.teacherSlot.has(`${b.demand.d.teacherId}#${a.day.key}#${a.lesson}`);
+        let roomId: string | null = null;
+        if (teacherOk) {
+          const options = roomIdsFor(b.demand, a.day, a.lesson);
+          if (a.roomId && options.includes(a.roomId)) roomId = a.roomId;
+          else
+            roomId =
+              options.find((id) => {
+                const r = roomsById.get(id);
+                return !!r && roomFree(st, r, a.day, a.lesson);
+              }) ?? null;
+        }
+        // Без аудитории объединяются только при расстановке по максимуму
+        if (teacherOk && (roomId || settings.maximizePlacement)) {
+          taken.add(b);
+          merged.push({ p: b, day: a.day, lesson: a.lesson, roomId });
+          if (!sameTeacher) st.teacherSlot.add(`${b.demand.d.teacherId}#${a.day.key}#${a.lesson}`);
+          if (roomId && roomId !== a.roomId) st.roomSlot.set(`${roomId}#${a.day.key}#${a.lesson}`, 1);
+          break;
+        }
+        const back = st.apply({
+          demand: b.demand,
+          day: b.day,
+          lesson: b.lesson,
+          roomId: b.roomId,
+          fixed: false,
+        });
+        halves[halves.indexOf(b)] = back;
+      }
+    }
+    if (merged.length > 0) log.push(`Числитель/знаменатель: объединено ${merged.length} пар «через неделю»`);
+
+    const placements: SolverPlacement[] = [
+      ...st.placements.map((p) => ({
+        demandId: p.demand.d.id,
+        date: p.day.key,
+        lessonNumber: p.lesson,
+        roomId: p.roomId,
+        ...(parity.has(p) ? { parity: parity.get(p)! } : {}),
+      })),
+      ...merged.map((m) => ({
+        demandId: m.p.demand.d.id,
+        date: m.day.key,
+        lessonNumber: m.lesson,
+        roomId: m.roomId,
+        parity: 'EVEN' as const,
+      })),
+    ];
+    placements.sort((a, b) => a.date.localeCompare(b.date) || a.lessonNumber - b.lessonNumber);
+    // Счёт в парах недели: пара через неделю — половина
+    const weight = (ds: DemandState) => (biweekly.has(ds) ? 0.5 : 1);
+    const unplacedBy = new Map<string, number>();
+    for (const [ds, t] of targets) {
+      if (ds.placed < t)
+        unplacedBy.set(ds.d.id, (unplacedBy.get(ds.d.id) ?? 0) + (t - ds.placed) * weight(ds));
+    }
+    const required = [...targets].reduce((a, [ds, t]) => a + t * weight(ds), 0);
+    const placedWeekly = placements.reduce((a, p) => a + (p.parity ? 0.5 : 1), 0);
+    log.push(
+      `Типовая неделя: ${placedWeekly} пар из ${required}` +
+        (skipped ? `; практика и консультации по датам (${skipped}) в сетку не входят` : ''),
+    );
+    options.onProgress?.(1, 'Готово');
+    return {
+      status:
+        placements.length === 0 && required > 0 ? 'EMPTY' : unplacedBy.size > 0 ? 'PARTIAL' : 'FEASIBLE',
+      solver: 'heuristic',
+      placements,
+      unplaced: [...unplacedBy].map(([demandId, count]) => ({ demandId, count })),
+      stats: {
+        requiredLessons: required,
+        placedLessons: placedWeekly,
+        durationMs: Date.now() - started,
+        weeks: weeks.length,
+        objective: null,
+      },
+      log,
+    };
+  };
+  if (options.templateOnly) return solveTemplateOnly();
 
   if (options.initial) {
     // --- Доработка готового решения: занятия переносятся в состояние с проверкой ограничений

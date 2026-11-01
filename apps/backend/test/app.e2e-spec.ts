@@ -1336,4 +1336,108 @@ describe('Расписание СПО (e2e)', () => {
       expect(clash.body.message).toMatch(/Преподаватель в эту пару уже принимает/);
     }
   });
+
+  it('постоянное расписание для руководства: отдельно от рабочего, без накладок, утверждение и печать', async () => {
+    const prisma = app.get(PrismaService);
+    const internalBefore = await prisma.scheduleLesson.count();
+    await http.get('/api/permanent-schedules').set(auth('teacher')).expect(403);
+    await http
+      .post('/api/permanent-schedules')
+      .set(auth('manager'))
+      .send({ title: 'Постоянное', date: '2026-02-10' })
+      .expect(403);
+    const created = await http
+      .post('/api/permanent-schedules')
+      .set(auth('dispatcher'))
+      .send({ title: 'Постоянное расписание, весна', date: '2026-02-10' })
+      .expect(201);
+    const id = created.body.id as string;
+    let body = created.body;
+    for (let i = 0; i < 60 && ['QUEUED', 'GENERATING'].includes(body.jobStatus); i++) {
+      await new Promise((r) => setTimeout(r, 300));
+      body = (await http.get(`/api/permanent-schedules/${id}`).set(auth('manager')).expect(200)).body;
+    }
+    expect(['COMPLETED', 'COMPLETED_WITH_CONFLICTS']).toContain(body.jobStatus);
+    type L = {
+      id: string;
+      weekday: number;
+      lessonNumber: number;
+      weekParity: 'ANY' | 'ODD' | 'EVEN';
+      groupId: string;
+      subgroupNumber: number | null;
+      teacherId: string | null;
+      classroomId: string | null;
+      streamKey: string | null;
+    };
+    const lessons = body.lessons as L[];
+    expect(lessons.length).toBeGreaterThan(5);
+    expect(body.result.stats.placedWeekly).toBeGreaterThan(0);
+    // Ни группа, ни преподаватель, ни аудитория не стоят в двух местах в одну пару одной недели
+    const overlap = (a: L, b: L) =>
+      a.weekday === b.weekday &&
+      a.lessonNumber === b.lessonNumber &&
+      (a.weekParity === 'ANY' || b.weekParity === 'ANY' || a.weekParity === b.weekParity);
+    for (const [i, a] of lessons.entries()) {
+      for (const b of lessons.slice(i + 1)) {
+        if (!overlap(a, b) || (a.streamKey && a.streamKey === b.streamKey)) continue;
+        const sameAudience =
+          a.groupId === b.groupId &&
+          (a.subgroupNumber === null || b.subgroupNumber === null || a.subgroupNumber === b.subgroupNumber);
+        expect(sameAudience).toBe(false);
+        if (a.teacherId) expect(a.teacherId).not.toBe(b.teacherId);
+        if (a.classroomId) expect(a.classroomId).not.toBe(b.classroomId);
+      }
+    }
+    // Рабочее расписание по датам не изменилось
+    expect(await prisma.scheduleLesson.count()).toBe(internalBefore);
+
+    // Перенос в слот, занятый группой, отклоняется
+    const first = lessons.find((l) => !l.streamKey && l.subgroupNumber === null)!;
+    const busy = lessons.find(
+      (l) =>
+        l.groupId === first.groupId &&
+        l.id !== first.id &&
+        l.weekParity === 'ANY' &&
+        l.subgroupNumber === null &&
+        (l.weekday !== first.weekday || l.lessonNumber !== first.lessonNumber),
+    );
+    if (busy) {
+      const clash = await http
+        .patch(`/api/permanent-schedules/${id}/lessons/${first.id}`)
+        .set(auth('dispatcher'))
+        .send({ weekday: busy.weekday, lessonNumber: busy.lessonNumber })
+        .expect(409);
+      expect(clash.body.message).toContain('у группы уже стоит');
+    }
+
+    await http.post(`/api/permanent-schedules/${id}/approve`).set(auth('dispatcher')).expect(201);
+    await http
+      .patch(`/api/permanent-schedules/${id}/lessons/${first.id}`)
+      .set(auth('dispatcher'))
+      .send({ weekParity: 'ODD' })
+      .expect(409);
+    await http.delete(`/api/permanent-schedules/${id}`).set(auth('dispatcher')).expect(409);
+
+    const sheets = await http
+      .get(`/api/permanent-schedules/${id}/form/sheets`)
+      .set(auth('manager'))
+      .expect(200);
+    expect(sheets.body.length).toBeGreaterThan(0);
+    const pdf = await http
+      .get(`/api/permanent-schedules/${id}/form/export?format=pdf`)
+      .set(auth('manager'))
+      .buffer(true)
+      .parse((res, cb) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => cb(null, Buffer.concat(chunks)));
+      })
+      .expect(200);
+    expect((pdf.body as Buffer).slice(0, 4).toString()).toBe('%PDF');
+    const xlsx = await http
+      .get(`/api/permanent-schedules/${id}/form/export?format=xlsx`)
+      .set(auth('manager'))
+      .expect(200);
+    expect(xlsx.headers['content-type']).toContain('spreadsheetml');
+  });
 });

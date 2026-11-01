@@ -139,6 +139,8 @@ export interface SolverPlacement {
   date: string;
   lessonNumber: number;
   roomId: string | null;
+  /** Постоянное расписание: пара только по числителю (ODD) или знаменателю (EVEN) */
+  parity?: 'ODD' | 'EVEN';
 }
 
 export type SolverStatus = 'OPTIMAL' | 'FEASIBLE' | 'PARTIAL' | 'EMPTY' | 'ERROR';

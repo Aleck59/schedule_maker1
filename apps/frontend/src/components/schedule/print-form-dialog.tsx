@@ -52,12 +52,15 @@ export function PrintFormDialog({
   open,
   onOpenChange,
   periodId,
-  initialWeek,
+  initialWeek = "",
+  permanentId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  periodId: string;
-  initialWeek: string;
+  periodId?: string;
+  initialWeek?: string;
+  /** Постоянное расписание: бланк типовой недели (дни без дат) */
+  permanentId?: string;
 }) {
   const qc = useQueryClient();
   const settings = useSettings();
@@ -68,13 +71,13 @@ export function PrintFormDialog({
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [signaturesOpen, setSignaturesOpen] = useState(false);
   const [busy, setBusy] = useState<"pdf" | "xlsx" | null>(null);
+  const base = permanentId
+    ? `/permanent-schedules/${permanentId}/form`
+    : "/schedule-form";
   const sheets = useApi<FormSheetInfo[]>(
-    ["schedule-form", week, periodId],
-    open ? "/schedule-form/sheets" : null,
-    {
-      from: week,
-      periodId,
-    },
+    ["schedule-form", week, periodId, permanentId],
+    open ? `${base}/sheets` : null,
+    permanentId ? undefined : { from: week, periodId },
   );
 
   useEffect(() => {
@@ -104,20 +107,25 @@ export function PrintFormDialog({
         JSON.stringify(form) !==
         JSON.stringify(settings.data?.settings.printFormJson ?? EMPTY)
       ) {
-        await api.patch("/settings", { printFormJson: form });
-        void qc.invalidateQueries({ queryKey: ["settings"] });
+        try {
+          await api.patch("/settings", { printFormJson: form });
+          void qc.invalidateQueries({ queryKey: ["settings"] });
+        } catch (e) {
+          // Без права менять настройки бланк всё равно печатается с введёнными подписями
+          if (!permanentId) throw e;
+        }
       }
       await downloadFile(
-        "/schedule-form/export",
+        `${base}/export`,
         {
-          from: week,
-          periodId,
+          from: permanentId ? undefined : week,
+          periodId: permanentId ? undefined : periodId,
           format,
           keys:
             chosen.length === list.length
               ? undefined
               : chosen.map((s) => s.key).join(","),
-          weekLabel: weekLabel.trim() || undefined,
+          weekLabel: permanentId ? undefined : weekLabel.trim() || undefined,
           lessonTypes: lessonTypes ? "true" : undefined,
         },
         format === "pdf" ? "Расписание.pdf" : "Расписание.xlsx",
@@ -133,14 +141,21 @@ export function PrintFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Печатная форма расписания</DialogTitle>
+          <DialogTitle>
+            {permanentId
+              ? "Печатная форма постоянного расписания"
+              : "Печатная форма расписания"}
+          </DialogTitle>
           <DialogDescription>
-            Бланк на неделю по каждой специальности: курсы и группы — столбцами,
-            дни и пары — строками, с грифами согласования и утверждения.
+            {permanentId
+              ? "Типовая неделя по каждой специальности для утверждения руководством: курсы и группы — столбцами, дни недели и пары — строками."
+              : "Бланк на неделю по каждой специальности: курсы и группы — столбцами, дни и пары — строками, с грифами согласования и утверждения."}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className={cn("grid gap-3", !permanentId && "sm:grid-cols-3")}>
+          {!permanentId && (
+          <>
           <Field
             label="Неделя"
             hint={`${formatDate(week)} — ${formatDate(addDays(week, 6))}`}
@@ -161,6 +176,8 @@ export function PrintFormDialog({
               maxLength={60}
             />
           </Field>
+          </>
+          )}
           <Field label="Вид занятия">
             <label className="flex h-9 items-center gap-2 text-sm">
               <Switch checked={lessonTypes} onCheckedChange={setLessonTypes} />{" "}
@@ -175,8 +192,16 @@ export function PrintFormDialog({
             <LoadingState rows={2} />
           ) : list.length === 0 ? (
             <EmptyState
-              title="На этой неделе занятий нет"
-              description="Выберите другую неделю или опубликуйте расписание"
+              title={
+                permanentId
+                  ? "В постоянном расписании нет пар"
+                  : "На этой неделе занятий нет"
+              }
+              description={
+                permanentId
+                  ? "Сформируйте сетку"
+                  : "Выберите другую неделю или опубликуйте расписание"
+              }
             />
           ) : (
             <div className="divide-y rounded-lg border">

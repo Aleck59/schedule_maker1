@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { ClassroomType, LessonStatus, LessonType } from '@prisma/client';
+import { ClassroomType, LessonStatus, LessonType, SchedulePeriod, Semester } from '@prisma/client';
 import {
   addDaysStr,
   diffDays,
@@ -71,12 +71,50 @@ export class ProblemBuilderService {
     private readonly settingsService: SettingsService,
   ) {}
 
-  async build(periodId: string, organizationId: string, params: GenerationParams): Promise<BuiltProblem> {
-    const ids = [...new Set([periodId, ...(params.periodIds ?? [])])];
-    const periodsDb = await this.prisma.schedulePeriod.findMany({
-      where: { id: { in: ids }, organizationId },
-      include: { semester: true },
-    });
+  /**
+   * Задача для постоянного расписания (типовая неделя для руководства): весь объём нагрузки
+   * семестров без учёта уже составленного рабочего расписания, недоступности, пожеланий и лимитов
+   * преподавателей. «Периодами» служат сами семестры.
+   */
+  buildPermanent(
+    organizationId: string,
+    semesters: Semester[],
+    params: Omit<GenerationParams, 'mode'>,
+  ): Promise<BuiltProblem> {
+    if (semesters.length === 0) throw new BadRequestException('Нет семестров для постоянного расписания');
+    return this.build(semesters[0].id, organizationId, { ...params, mode: 'WEEKLY_TEMPLATE' }, semesters);
+  }
+
+  async build(
+    periodId: string,
+    organizationId: string,
+    params: GenerationParams,
+    permanentSemesters?: Semester[],
+  ): Promise<BuiltProblem> {
+    const permanent = !!permanentSemesters;
+    const ids = permanentSemesters
+      ? permanentSemesters.map((s) => s.id)
+      : [...new Set([periodId, ...(params.periodIds ?? [])])];
+    const periodsDb: Array<SchedulePeriod & { semester: Semester }> = permanentSemesters
+      ? permanentSemesters.map((s) => ({
+          id: s.id,
+          organizationId,
+          academicYearId: s.academicYearId,
+          semesterId: s.id,
+          title: `${s.number} семестр`,
+          startDate: s.startDate,
+          endDate: s.endDate,
+          status: 'DRAFT',
+          publishedAt: null,
+          notes: null,
+          createdAt: s.createdAt,
+          updatedAt: s.updatedAt,
+          semester: s,
+        }))
+      : await this.prisma.schedulePeriod.findMany({
+          where: { id: { in: ids }, organizationId },
+          include: { semester: true },
+        });
     const period = periodsDb.find((p) => p.id === periodId);
     if (!period || periodsDb.length !== ids.length)
       throw new NotFoundException('Период расписания не найден');
@@ -168,14 +206,17 @@ export class ProblemBuilderService {
     const dayDates = new Set(days.map((d) => d.date));
 
     // --- Существующие занятия
-    const existingInRange = await this.prisma.scheduleLesson.findMany({
-      where: {
-        schedulePeriod: { organizationId },
-        date: { gte: new Date(`${from}T00:00:00.000Z`), lte: new Date(`${to}T00:00:00.000Z`) },
-        status: { in: ACTIVE_LESSON_STATUSES },
-      },
-      include: { conducted: { select: { id: true } } },
-    });
+    // Постоянное расписание не зависит от рабочего: занятия по датам не учитываются
+    const existingInRange = permanent
+      ? []
+      : await this.prisma.scheduleLesson.findMany({
+          where: {
+            schedulePeriod: { organizationId },
+            date: { gte: new Date(`${from}T00:00:00.000Z`), lte: new Date(`${to}T00:00:00.000Z`) },
+            status: { in: ACTIVE_LESSON_STATUSES },
+          },
+          include: { conducted: { select: { id: true } } },
+        });
     const replaceExisting = params.replaceExisting !== false;
     const replaceable = new Set(
       existingInRange
@@ -191,22 +232,24 @@ export class ProblemBuilderService {
         )
         .map((l) => l.id),
     );
-    const semesterLessons = await this.prisma.scheduleLesson.findMany({
-      where: {
-        studentGroupId: { in: groupIds },
-        semesterItem: { semesterId: { in: semesterIds } },
-        status: { in: ACTIVE_LESSON_STATUSES },
-      },
-      select: {
-        id: true,
-        studentGroupId: true,
-        semesterCurriculumItemId: true,
-        lessonType: true,
-        subgroupNumber: true,
-        academicHours: true,
-        date: true,
-      },
-    });
+    const semesterLessons = permanent
+      ? []
+      : await this.prisma.scheduleLesson.findMany({
+          where: {
+            studentGroupId: { in: groupIds },
+            semesterItem: { semesterId: { in: semesterIds } },
+            status: { in: ACTIVE_LESSON_STATUSES },
+          },
+          select: {
+            id: true,
+            studentGroupId: true,
+            semesterCurriculumItemId: true,
+            lessonType: true,
+            subgroupNumber: true,
+            academicHours: true,
+            date: true,
+          },
+        });
     const existingHours = new Map<string, number>();
     // Потоки, у которых уже есть пары после интервала: будущие недели заполнены, интервал добирает остаток целиком
     const plannedAfterWindow = new Set<string>();
@@ -368,7 +411,7 @@ export class ProblemBuilderService {
         pushUnplaced(s, lessonsRequired, remainingHours, 'TEACHER_LEVEL', wrongLevel);
         continue;
       }
-      if (!days.some((d) => inWindow(s.groupId, d.date) && isEmployedOn(teacher, d.date))) {
+      if (!permanent && !days.some((d) => inWindow(s.groupId, d.date) && isEmployedOn(teacher, d.date))) {
         pushUnplaced(
           s,
           lessonsRequired,
@@ -400,14 +443,15 @@ export class ProblemBuilderService {
       // Составление на часть семестра (неделя, месяц): в интервал ставится доля оставшихся пар,
       // пропорциональная учебным дням интервала, — остальное распределяется по следующим неделям,
       // а не втискивается в эти дни
-      const fraction = plannedAfterWindow.has(s.key)
-        ? null
-        : this.windowShare(s, teacher, groupWindow(s.groupId), periodOfGroup.get(s.groupId)!.semester, {
-            ctx,
-            settings,
-            studyDays: groupById.get(s.groupId)?.studyDays ?? [],
-            consultationFrom: consultationBorder.get(s.groupId) ?? null,
-          });
+      const fraction =
+        permanent || plannedAfterWindow.has(s.key)
+          ? null
+          : this.windowShare(s, teacher, groupWindow(s.groupId), periodOfGroup.get(s.groupId)!.semester, {
+              ctx,
+              settings,
+              studyDays: groupById.get(s.groupId)?.studyDays ?? [],
+              consultationFrom: consultationBorder.get(s.groupId) ?? null,
+            });
       // Округление вверх с допуском: 1,2 пары → 1, 1,3 → 2; хвост меньше четверти пары ждёт следующего интервала
       const share = fraction === null ? null : Math.ceil(lessonsRequired * fraction - 0.25);
       if (share !== null && share < lessonsRequired) {
@@ -584,31 +628,50 @@ export class ProblemBuilderService {
     }
     const teachers: SolverTeacher[] = teachersDb
       .filter((t) => demands.some((d) => d.teacherId === t.id))
-      .map((t) => ({
-        id: t.id,
-        name: t.fullName,
-        maxDailyLessons: t.maxDailyLessons,
-        maxWeeklyLessons: t.maxWeeklyLessons,
-        preferredStartLesson: t.preferredStartLesson,
-        preferredEndLesson: t.preferredEndLesson,
-        unavailable: t.availability
-          .filter((a) => !a.isAvailable)
-          .map((a) => [a.weekday, a.lessonNumber] as [number, number]),
-        preferences: t.availability
-          .filter((a) => a.isAvailable && a.preferenceWeight !== 0)
-          .map((a) => [a.weekday, a.lessonNumber, a.preferenceWeight] as [number, number, number]),
-        blockedDates: days
-          .filter((d) => !isEmployedOn(t, d.date) || ctx.teacherBlocks(t.id, d.date).length > 0)
-          .map((d) => d.date),
-        ...this.ruleSlots(new TeacherRules(t.availabilityRules, settings.lessonTimes), days, lessonsPerDay),
-        ...(relief.has(t.id)
-          ? {
-              relaxedFrom: relief.get(t.id)!.from,
-              extraDailyLessons: 1,
-              extraWeeklyLessons: relief.get(t.id)!.weekly,
+      .map((t) =>
+        permanent
+          ? // Постоянное расписание: преподаватель лишь не может вести две пары одновременно
+            {
+              id: t.id,
+              name: t.fullName,
+              maxDailyLessons: lessonsPerDay,
+              maxWeeklyLessons: lessonsPerDay * 7,
+              preferredStartLesson: 1,
+              preferredEndLesson: lessonsPerDay,
+              unavailable: [],
+              preferences: [],
+              blockedDates: [],
             }
-          : {}),
-      }));
+          : {
+              id: t.id,
+              name: t.fullName,
+              maxDailyLessons: t.maxDailyLessons,
+              maxWeeklyLessons: t.maxWeeklyLessons,
+              preferredStartLesson: t.preferredStartLesson,
+              preferredEndLesson: t.preferredEndLesson,
+              unavailable: t.availability
+                .filter((a) => !a.isAvailable)
+                .map((a) => [a.weekday, a.lessonNumber] as [number, number]),
+              preferences: t.availability
+                .filter((a) => a.isAvailable && a.preferenceWeight !== 0)
+                .map((a) => [a.weekday, a.lessonNumber, a.preferenceWeight] as [number, number, number]),
+              blockedDates: days
+                .filter((d) => !isEmployedOn(t, d.date) || ctx.teacherBlocks(t.id, d.date).length > 0)
+                .map((d) => d.date),
+              ...this.ruleSlots(
+                new TeacherRules(t.availabilityRules, settings.lessonTimes),
+                days,
+                lessonsPerDay,
+              ),
+              ...(relief.has(t.id)
+                ? {
+                    relaxedFrom: relief.get(t.id)!.from,
+                    extraDailyLessons: 1,
+                    extraWeeklyLessons: relief.get(t.id)!.weekly,
+                  }
+                : {}),
+            },
+      );
     for (const t of teachers) {
       if (t.relaxedFrom) {
         warnings.push(
