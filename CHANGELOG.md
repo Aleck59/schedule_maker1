@@ -2,6 +2,12 @@
 
 Формируется автоматически по сообщениям коммитов (Conventional Commits).
 
+## [1.2.0](https://github.com/Aleck59/schedule_maker1/compare/v1.1.0...v1.2.0) (2026-11-01)
+
+### Новые возможности
+
+* **reports:** редактор форм отчётов «как в Excel» ([d35d101](https://github.com/Aleck59/schedule_maker1/commit/d35d10156c67255efcb2304898e4495f01489b74))
+
 ## [1.1.0](https://github.com/Aleck59/schedule_maker1/compare/v1.0.0...v1.1.0) (2026-11-01)
 
 ### Новые возможности

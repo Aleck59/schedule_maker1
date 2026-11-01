@@ -1,6 +1,6 @@
 {
   "name": "@schedule-maker/backend",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "REST API системы составления расписания колледжа СПО (NestJS + Prisma)",
   "scripts": {
