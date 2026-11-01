@@ -32,6 +32,10 @@ export interface FormCellStyle {
   bd?: string;
   /** Числовой формат */
   fmt?: CellFormat;
+  /** Текст повёрнут на 90° (снизу вверх) — подписи дней недели в бланке */
+  rot?: boolean;
+  /** Склеивать с такой же соседней ячейкой справа (общая пара у нескольких групп — поток) */
+  join?: boolean;
 }
 
 export interface FormCell {
@@ -69,7 +73,16 @@ export interface ReportFormContent {
 export const FORM_LIMITS = { rows: 300, cols: 52, text: 4000, merges: 1000 };
 
 const COLOR = /^#[0-9a-fA-F]{6}$/;
-const PARAM_KEYS = ['from', 'to', 'programId', 'semesterId', 'groupId', 'teacherId', 'classroomId'];
+export const PARAM_KEYS = [
+  'from',
+  'to',
+  'programId',
+  'semesterId',
+  'groupId',
+  'teacherId',
+  'classroomId',
+  'groupIds',
+] as const;
 
 export class FormError extends Error {}
 
@@ -85,7 +98,7 @@ function parseStyle(raw: unknown): FormCellStyle | undefined {
   if (typeof raw !== 'object') throw new FormError('Оформление ячейки задано неверно');
   const s = raw as Record<string, unknown>;
   const out: FormCellStyle = {};
-  for (const k of ['b', 'i', 'u', 'wrap'] as const) if (s[k] === true) out[k] = true;
+  for (const k of ['b', 'i', 'u', 'wrap', 'rot', 'join'] as const) if (s[k] === true) out[k] = true;
   if (s.size !== undefined) out.size = int(s.size, 6, 48, 'Размер шрифта');
   if (s.align !== undefined) {
     if (!['left', 'center', 'right'].includes(s.align as string))
@@ -202,7 +215,8 @@ export function parseFormContent(raw: unknown, knownSources: string[]): ReportFo
   if (f.params && typeof f.params === 'object') {
     for (const k of PARAM_KEYS) {
       const v = (f.params as Record<string, unknown>)[k];
-      if (typeof v === 'string' && v.trim() && v.length <= 64) params[k] = v.trim();
+      if (typeof v === 'string' && v.trim() && v.length <= (k === 'groupIds' ? 2000 : 64))
+        params[k] = v.trim();
     }
   }
 
@@ -242,6 +256,8 @@ export interface FormContext {
   fields: Record<string, string | number>;
   /** Данные источника или null, если источник не выбран */
   table: ReportTable | null;
+  /** Значение по умолчанию для известных, но пустых полей (свободная пара — пустая строка) */
+  fallback?: (name: string) => string | number | undefined;
 }
 
 export interface RenderedCell {
@@ -259,6 +275,8 @@ export interface RenderedSheet {
   orientation: 'portrait' | 'landscape';
   /** Поля, которые не удалось подставить */
   unknownFields: string[];
+  /** Лист без строки данных (бланк) — при печати умещается на одну страницу */
+  fitPage: boolean;
 }
 
 const PLACEHOLDER = /\{\{\s*([^{}]+?)\s*\}\}/g;
@@ -319,6 +337,8 @@ function resolve(
     return item ? { value: item.value } : undefined;
   }
   if (name in ctx.fields) return { value: ctx.fields[name] };
+  const fallback = ctx.fallback?.(name);
+  if (fallback !== undefined) return { value: fallback };
   return undefined;
 }
 
@@ -418,6 +438,8 @@ export function renderForm(form: ReportFormContent, ctx: FormContext): RenderedS
     }
   }
 
+  joinEqualCells(rows, merges);
+
   return {
     colWidths: form.colWidths,
     rowHeights,
@@ -425,5 +447,51 @@ export function renderForm(form: ReportFormContent, ctx: FormContext): RenderedS
     merges,
     orientation: form.orientation,
     unknownFields: [...unknown],
+    fitPage: rep === null,
   };
+}
+
+/**
+ * Склейка одинаковых ячеек с флагом join в строке: от первой ячейки до конца последней совпадающей
+ * (ячейки между ними — например, аудитория первой группы — поглощаются, однострочные объединения
+ * внутри заменяются общим). Так общая пара нескольких групп печатается одной строкой,
+ * а аудитория остаётся в столбце последней группы.
+ */
+export function joinEqualCells(rows: RenderedCell[][], merges: FormMerge[]) {
+  rows.forEach((cells, r) => {
+    const mergeAtCell = (c: number) =>
+      merges.find((m) => r >= m.r && r < m.r + m.rs && c >= m.c && c < m.c + m.cs);
+    const joins = cells
+      .map((cell, c) => ({ cell, c }))
+      .filter(({ cell, c }) => {
+        const m = mergeAtCell(c);
+        return cell.s?.join && (!m || (m.r === r && m.c === c));
+      });
+    let i = 0;
+    while (i < joins.length) {
+      const first = joins[i];
+      let j = i;
+      while (
+        j + 1 < joins.length &&
+        first.cell.v !== null &&
+        first.cell.v !== '' &&
+        joins[j + 1].cell.v === first.cell.v
+      )
+        j++;
+      if (j > i) {
+        const lastMerge = mergeAtCell(joins[j].c);
+        const end = lastMerge ? lastMerge.c + lastMerge.cs - 1 : joins[j].c;
+        const inside = merges.filter(
+          (m) => m.r <= r && m.r + m.rs - 1 >= r && m.c <= end && m.c + m.cs - 1 >= first.c,
+        );
+        const ok = inside.every((m) => m.rs === 1 && m.r === r && m.c >= first.c && m.c + m.cs - 1 <= end);
+        if (ok) {
+          for (const m of inside) merges.splice(merges.indexOf(m), 1);
+          merges.push({ r, c: first.c, rs: 1, cs: end - first.c + 1 });
+          for (let c = first.c + 1; c <= end; c++) cells[c] = { v: null, s: cells[c].s };
+        }
+      }
+      i = j + 1;
+    }
+  });
 }

@@ -28,7 +28,7 @@ export async function formToExcel(sheet: RenderedSheet, title: string): Promise<
       orientation: sheet.orientation,
       fitToPage: true,
       fitToWidth: 1,
-      fitToHeight: 0,
+      fitToHeight: sheet.fitPage ? 1 : 0,
       margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 },
     },
   });
@@ -56,11 +56,12 @@ export async function formToExcel(sheet: RenderedSheet, title: string): Promise<
         underline: s.u,
         color: s.color ? { argb: argb(s.color) } : undefined,
       };
-      if (s.align || s.valign || s.wrap) {
+      if (s.align || s.valign || s.wrap || s.rot) {
         target.alignment = {
           horizontal: s.align,
           vertical: s.valign,
           wrapText: s.wrap,
+          textRotation: s.rot ? 90 : undefined,
         };
       }
       if (s.fill) target.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: argb(s.fill) } };
@@ -91,12 +92,48 @@ export function cellText(cell: RenderedCell): string {
 const CHAR_PT = 5.6;
 
 /** Описание документа pdfmake по заполненной форме */
-export function formToPdfDefinition(sheet: RenderedSheet, title: string): Record<string, unknown> {
+export function formToPdfDefinition(
+  sheet: RenderedSheet,
+  title: string,
+  shrink = 1,
+): Record<string, unknown> {
   const pageWidth = sheet.orientation === 'landscape' ? 842 : 595;
   const margin = 24;
   const natural = sheet.colWidths.reduce((a, w) => a + w * CHAR_PT, 0);
-  const scale = Math.min(1, (pageWidth - margin * 2) / Math.max(natural, 1));
-  const widths = sheet.colWidths.map((w) => Math.max(4, w * CHAR_PT * scale - 4));
+  const pageHeight = sheet.orientation === 'landscape' ? 595 : 842;
+  // Бланк умещается на одну страницу и по высоте (строки без высоты — около 15 пт)
+  const rowNeed = (r: number) => {
+    let need = sheet.rowHeights[r] ?? 15;
+    sheet.rows[r].forEach((cell, c) => {
+      if (cell.v === null || cell.s?.rot) return;
+      const span = spansAt(c, r);
+      const widthPt = sheet.colWidths.slice(c, c + span).reduce((a, w) => a + w * CHAR_PT, 0);
+      const size = cell.s?.size ?? DEFAULT_FONT_SIZE;
+      const lines = String(cellText(cell))
+        .split('\n')
+        .reduce(
+          (a, line) =>
+            a +
+            (cell.s?.wrap ? Math.max(1, Math.ceil((line.length * size * 0.5) / Math.max(widthPt, 1))) : 1),
+          0,
+        );
+      need = Math.max(need, lines * size * 1.2 + 3);
+    });
+    return need;
+  };
+  const spansAt = (c: number, r: number) =>
+    sheet.merges.find((m) => m.r === r && m.c === c && m.rs === 1)?.cs ?? 1;
+  const naturalHeight = sheet.rows.reduce<number>((a, _, r) => a + rowNeed(r) + 1, 0);
+  const scale =
+    shrink *
+    Math.min(
+      1,
+      (pageWidth - margin * 2) / Math.max(natural, 1),
+      sheet.fitPage ? (pageHeight - margin * 2 - 12) / Math.max(naturalHeight, 1) : 1,
+    );
+  // Ширина — во всю страницу, шрифт и высота строк — с общим масштабом
+  const widthScale = Math.min(1, (pageWidth - margin * 2) / Math.max(natural, 1));
+  const widths = sheet.colWidths.map((w) => Math.max(4, w * CHAR_PT * widthScale - 4));
 
   const covered = new Set<string>();
   const spans = new Map<string, { rs: number; cs: number }>();
@@ -156,6 +193,18 @@ export function formToPdfDefinition(sheet: RenderedSheet, title: string): Record
         alignment: s.align ?? (typeof cell.v === 'number' ? 'right' : 'left'),
         border: [side(r, c, 'l'), side(r, c, 't'), side(lastR, lastC, 'r'), side(lastR, lastC, 'b')],
       };
+      if (s.rot && out.text) {
+        // pdfmake не поворачивает текст — подпись дня рисуется SVG-картинкой
+        const w = widths.slice(c, lastC + 1).reduce((a, b) => a + b, 0) + 4 * (lastC - c);
+        const h = Array.from(
+          { length: lastR - r + 1 },
+          (_, k) => (sheet.rowHeights[r + k] ?? 15) * scale,
+        ).reduce((a, b) => a + b, 0);
+        const fontSize = out.fontSize as number;
+        delete out.text;
+        out.svg = verticalSvg(cellText(cell), Math.max(8, w), Math.max(20, h - 2), fontSize, !!s.b);
+        out.width = Math.max(8, w);
+      }
       if (span) {
         if (span.cs > 1) out.colSpan = span.cs;
         if (span.rs > 1) out.rowSpan = span.rs;
@@ -197,4 +246,40 @@ export function formToPdfDefinition(sheet: RenderedSheet, title: string): Record
           }
         : undefined,
   };
+}
+
+const xml = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/** Текст, повёрнутый на 90° (читается снизу вверх), строки — по ширине ячейки */
+function verticalSvg(text: string, width: number, height: number, size: number, bold: boolean): string {
+  const lines = text.split('\n');
+  const lineH = size * 1.15;
+  const x0 = width / 2 - ((lines.length - 1) * lineH) / 2 + size * 0.35;
+  const parts = lines
+    .map(
+      (line, i) =>
+        `<text transform="translate(${(x0 + i * lineH).toFixed(1)},${(height / 2).toFixed(1)}) rotate(-90)" text-anchor="middle" font-family="Roboto" font-size="${size.toFixed(1)}"${bold ? ' font-weight="bold"' : ''}>${xml(line)}</text>`,
+    )
+    .join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width.toFixed(1)}" height="${height.toFixed(1)}">${parts}</svg>`;
+}
+
+/** Число страниц готового PDF */
+export function pdfPageCount(buffer: Buffer): number {
+  return (buffer.toString('latin1').match(/\/Type\s*\/Page(?!s)/g) ?? []).length;
+}
+
+/** PDF формы; бланк (без строки данных) при необходимости ужимается, пока не встанет на одну страницу */
+export async function formToPdf(
+  sheet: RenderedSheet,
+  title: string,
+  render: (def: Record<string, unknown>) => Promise<Buffer>,
+): Promise<Buffer> {
+  let shrink = 1;
+  let buffer = await render(formToPdfDefinition(sheet, title, shrink));
+  for (let i = 0; sheet.fitPage && i < 6 && pdfPageCount(buffer) > 1; i++) {
+    shrink *= 0.9;
+    buffer = await render(formToPdfDefinition(sheet, title, shrink));
+  }
+  return buffer;
 }

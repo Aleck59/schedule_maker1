@@ -126,12 +126,14 @@ export interface FormSheet {
 }
 
 export function shortTeacherName(fullName: string): string {
-  const [last, first, middle] = fullName.trim().split(/\s+/);
+  // «Иванов П.Т.» и «Иванов П. Т.» — инициалы уже стоят, точки делят их на части
+  const [last, ...rest] = fullName.trim().split(/\s+/);
+  const parts = rest.flatMap((p) => p.split('.')).filter(Boolean);
   return [
     last,
-    [first, middle]
-      .filter(Boolean)
-      .map((p) => `${p![0]}.`)
+    parts
+      .slice(0, 2)
+      .map((p) => `${p[0]}.`)
       .join(''),
   ]
     .filter(Boolean)

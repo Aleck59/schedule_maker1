@@ -4,6 +4,7 @@ import { join } from 'path';
 import request from 'supertest';
 import { createApp } from '../src/main';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { pdfPageCount } from '../src/report-forms/form-writers';
 
 /**
  * Сквозной сценарий на демо-данных: роли, генерация, применение, публикация,
@@ -1521,5 +1522,57 @@ describe('Расписание СПО (e2e)', () => {
       .expect(200);
     await http.delete(`/api/report-forms/${created.body.id}`).set(auth('dispatcher')).expect(200);
     await http.get(`/api/report-forms/${created.body.id}`).set(auth('manager')).expect(404);
+  });
+
+  it('формы отчётов: бланк расписания недели по группам — дни × пары, поля занятий, PDF на одном листе', async () => {
+    const prisma = app.get(PrismaService);
+    const lesson = await prisma.scheduleLesson.findFirstOrThrow({
+      where: { status: { notIn: ['CANCELLED', 'MOVED'] }, schedulePeriod: { status: { not: 'ARCHIVED' } } },
+      include: { semesterItem: { include: { curriculumItem: true } } },
+      orderBy: { date: 'asc' },
+    });
+    const date = lesson.date.toISOString().slice(0, 10);
+    await http
+      .post('/api/report-forms/schedule-blank')
+      .set(auth('manager'))
+      .send({ groupIds: [] })
+      .expect(400);
+    const blank = await http
+      .post('/api/report-forms/schedule-blank')
+      .set(auth('manager'))
+      .send({ groupIds: [lesson.studentGroupId], layout: 'rooms', pairs: 4 })
+      .expect(201);
+    expect(blank.body.dataSource).toBe('schedule-week');
+    expect(blank.body.params.groupIds).toBe(lesson.studentGroupId);
+
+    const params = { ...blank.body.params, from: date };
+    const sheet = await http
+      .post('/api/report-forms/render')
+      .set(auth('manager'))
+      .send({ content: blank.body, params })
+      .expect(201);
+    expect(sheet.body.unknownFields).toEqual([]);
+    const texts = (sheet.body.rows as Array<Array<{ v: unknown } | null>>)
+      .flat()
+      .map((c) => (c ? String(c.v ?? '') : ''));
+    const [y, m, d] = date.split('-');
+    expect(texts.some((t) => t.includes(`${d}.${m}.${y}`))).toBe(true);
+    if (lesson.lessonNumber <= 4) {
+      const name = lesson.semesterItem.curriculumItem.name;
+      expect(texts.some((t) => t.includes(name))).toBe(true);
+    }
+
+    const pdf = await http
+      .post('/api/report-forms/export')
+      .set(auth('manager'))
+      .send({ content: blank.body, params, name: 'Бланк', format: 'pdf' })
+      .buffer(true)
+      .parse((res, cb) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => cb(null, Buffer.concat(chunks)));
+      })
+      .expect(201);
+    expect(pdfPageCount(pdf.body as Buffer)).toBe(1);
   });
 });
