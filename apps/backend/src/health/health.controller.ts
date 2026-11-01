@@ -1,6 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Public } from '../common/decorators/public.decorator';
+import { appVersion } from '../common/utils/app-version';
 import { PrismaService } from '../prisma/prisma.service';
 
 @ApiTags('Служебное')
@@ -21,7 +22,7 @@ export class HealthController {
     return {
       status: database === 'ok' ? 'ok' : 'degraded',
       database,
-      version: process.env.APP_VERSION ?? 'dev',
+      version: appVersion(),
       time: new Date().toISOString(),
     };
   }
