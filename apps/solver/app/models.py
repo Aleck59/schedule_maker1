@@ -82,6 +82,8 @@ class Demand(CamelModel):
     priority: int = 5
     size: int = 0
     room_ids: list[str] = Field(default_factory=list)
+    # Сколько первых room_ids подходят по типу; остальные — запасные кабинеты (со штрафом)
+    matching_rooms: int | None = None
     preferred_room_id: str | None = None
     # Если заданы — заменяют даты обычных занятий группы (практика, консультации)
     allowed_dates: list[str] | None = None

@@ -274,9 +274,9 @@ export class ScheduleValidatorService {
         ) {
           add({
             ...base,
-            severity: Severity.ERROR,
+            severity: Severity.WARNING,
             validationType: 'WRONG_CLASSROOM_TYPE',
-            message: `${LESSON_TYPE_LABELS[l.lessonType]} в аудитории «${CLASSROOM_TYPE_LABELS[room.classroomType]}» ${room.code}, требуется ${allowed
+            message: `${LESSON_TYPE_LABELS[l.lessonType]} в аудитории «${CLASSROOM_TYPE_LABELS[room.classroomType]}» ${room.code}, желательно ${allowed
               .map((t) => CLASSROOM_TYPE_LABELS[t])
               .join(' / ')}: ${describe(l)}`,
           });

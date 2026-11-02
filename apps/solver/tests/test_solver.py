@@ -506,3 +506,24 @@ def test_maximize_placement_keeps_limits_when_everything_fits():
     result = solve(problem)
     assert result.stats.placed_lessons == 8
     check_hard_constraints(problem, result)
+
+
+def test_room_type_is_preference_not_hard_constraint():
+    """Тип аудитории — предпочтение: компьютерный класс, если свободен, иначе учебный кабинет."""
+    pc = demand(
+        "inf_pr", ["g2"], "t2", 6, ["r_pc1", "r_gen"], size=20, lessonType="PRACTICAL", matchingRooms=1
+    )
+    problem = Problem.model_validate(base_problem(demands=[pc]))
+    result = solve(problem)
+    assert result.stats.placed_lessons == 6
+    assert all(p.room_id == "r_pc1" for p in result.placements)
+
+    raw = base_problem(demands=[pc])
+    # Компьютерный класс свободен только в понедельник на 1-й паре
+    raw["rooms"][2]["unavailable"] = [[w, n] for w in range(1, 7) for n in range(1, 7) if (w, n) != (1, 1)]
+    problem = Problem.model_validate(raw)
+    result = solve(problem)
+    assert result.stats.placed_lessons == 6
+    assert result.unplaced == []
+    assert any(p.room_id == "r_gen" for p in result.placements)
+    check_hard_constraints(problem, result)
