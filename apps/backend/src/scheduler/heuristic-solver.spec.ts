@@ -124,6 +124,31 @@ describe('Эвристический генератор расписания', (
     expect(slots.size).toBeLessThanOrEqual(2);
   });
 
+  it('тип аудитории — предпочтение: сначала кабинет нужного типа, при нехватке — другой', () => {
+    // Практика по информатике просит компьютерный класс r_pc1, запасной — учебный r_gen
+    const pc = demand('inf_pr', ['g2'], 't2', 6, ['r_pc1', 'r_gen'], {
+      size: 20,
+      lessonType: 'PRACTICAL',
+      matchingRooms: 1,
+    });
+    const free = baseProblem({ demands: [pc] });
+    const ok = solveHeuristic(free);
+    expect(ok.stats.placedLessons).toBe(6);
+    expect(ok.placements.every((p) => p.roomId === 'r_pc1')).toBe(true);
+
+    // Компьютерный класс почти всегда недоступен — пары не теряются, а идут в учебный кабинет
+    const busy = baseProblem({ demands: [pc] });
+    const pcRoom = busy.rooms.find((r) => r.id === 'r_pc1')!;
+    pcRoom.unavailable = [1, 2, 3, 4, 5, 6]
+      .flatMap((w) => [1, 2, 3, 4, 5, 6].map((l) => [w, l] as [number, number]))
+      .filter(([w, l]) => !(w === 1 && l === 1));
+    const result = solveHeuristic(busy);
+    expect(result.stats.placedLessons).toBe(6);
+    expect(result.unplaced).toEqual([]);
+    expect(result.placements.some((p) => p.roomId === 'r_gen')).toBe(true);
+    assertHardConstraints(busy, result);
+  });
+
   it('без подходящих аудиторий сообщает о нехватке аудиторий', () => {
     const problem = baseProblem({ demands: [demand('x', ['g2'], 't2', 2, [], { size: 20 })] });
     const result = solveHeuristic(problem);

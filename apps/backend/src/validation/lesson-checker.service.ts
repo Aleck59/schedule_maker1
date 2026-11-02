@@ -407,9 +407,9 @@ export class LessonCheckerService {
       if (!allowed.includes(room.classroomType) && !(online && room.classroomType === ClassroomType.ONLINE)) {
         issues.push(
           issue(
-            Severity.ERROR,
+            Severity.WARNING,
             'WRONG_CLASSROOM_TYPE',
-            `Тип аудитории ${room.code} «${CLASSROOM_TYPE_LABELS[room.classroomType]}» не подходит: требуется ${allowed
+            `Аудитория ${room.code} «${CLASSROOM_TYPE_LABELS[room.classroomType]}» другого типа: желательно ${allowed
               .map((t) => `«${CLASSROOM_TYPE_LABELS[t]}»`)
               .join(' или ')}`,
           ),

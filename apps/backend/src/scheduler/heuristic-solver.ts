@@ -66,6 +66,8 @@ const DEFAULT_WEIGHTS: Record<string, number> = {
   buildingChanges: 15,
   evenDistribution: 10,
   maxPlacementOverflow: 40,
+  /** Кабинет не того типа (запасной): тип аудитории — предпочтение, а не запрет */
+  roomTypeMismatch: 20,
 };
 
 function gaps(set: Set<number> | undefined, extra?: number): number {
@@ -532,10 +534,23 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     return over * weights.maxPlacementOverflow;
   };
 
+  /** Запасной кабинет (не того типа): идёт в roomIds после первых matchingRooms */
+  const fallbackRooms = new Map<SolverDemand, Set<string>>();
+  const isFallbackRoom = (ds: DemandState, roomId: string): boolean => {
+    const m = ds.d.matchingRooms;
+    if (m === undefined || m >= ds.d.roomIds.length) return false;
+    let set = fallbackRooms.get(ds.d);
+    if (!set) {
+      set = new Set(ds.d.roomIds.slice(m));
+      fallbackRooms.set(ds.d, set);
+    }
+    return set.has(roomId);
+  };
   const roomCost = (st: ScheduleState, ds: DemandState, room: SolverRoom, day: DayRef): number => {
     let cost = 0;
     if (ds.d.preferredRoomId === room.id) cost -= 3;
     cost += Math.max(0, room.capacity - ds.d.size) / 100;
+    if (isFallbackRoom(ds, room.id)) cost += weights.roomTypeMismatch ?? 0;
     if (room.building) {
       for (const g of ds.d.groupIds) {
         const map = st.groupDayBuildings.get(`${g}#${day.key}`);
@@ -661,7 +676,7 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
           if (slotAllowed(ds, day, l) && !teacherUnavailableAt(ds.teacher.id, day, l)) slots++;
         }
       }
-      freedom.set(ds, slots * Math.max(1, ds.d.roomIds.length));
+      freedom.set(ds, slots * Math.max(1, ds.d.matchingRooms ?? ds.d.roomIds.length));
     }
     active.sort(
       (a, b) =>
@@ -733,8 +748,11 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
       .map((id) => roomsById.get(id))
       .filter((r): r is SolverRoom => !!r && roomFree(st, r, day, lesson));
     const building = current ? roomsById.get(current)?.building : undefined;
+    const good = options.filter((r) => !isFallbackRoom(ds, r.id));
     return (
       options.find((r) => r.id === current) ??
+      good.find((r) => building && r.building === building) ??
+      good[0] ??
       options.find((r) => building && r.building === building) ??
       options[0] ??
       null

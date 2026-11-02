@@ -25,6 +25,7 @@ const PlanImportPage = lazy(() => import('@/pages/PlanImportPage'));
 const CalendarGraphPage = lazy(() => import('@/pages/CalendarGraphPage'));
 const HolidaysPage = lazy(() => import('@/pages/HolidaysPage'));
 const PermanentSchedulePage = lazy(() => import('@/pages/PermanentSchedulePage'));
+const FullWeekSchedulePage = lazy(() => import('@/pages/FullWeekSchedulePage'));
 const WorkloadPage = lazy(() => import('@/pages/WorkloadPage'));
 const GroupsPage = lazy(() => import('@/pages/GroupsPage'));
 const GroupDetailsPage = lazy(() => import('@/pages/GroupDetailsPage'));
@@ -108,6 +109,7 @@ export default function App() {
                 <Route path="schedule" element={page(<SchedulePage />, [...STAFF, 'TEACHER'])} />
                 <Route path="generation" element={page(<GenerationPage />, EDITORS)} />
                 <Route path="generation/preview/:jobId" element={page(<GenerationPreviewPage />, EDITORS)} />
+                <Route path="schedule/week" element={page(<FullWeekSchedulePage />, [...STAFF, 'TEACHER'])} />
                 <Route path="schedule/permanent" element={page(<PermanentSchedulePage />, STAFF)} />
                 <Route path="permanent" element={<Navigate to="/schedule/permanent" replace />} />
                 <Route path="hour-control" element={page(<HourControlPage />, STAFF)} />

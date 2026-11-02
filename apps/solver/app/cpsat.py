@@ -50,6 +50,8 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "buildingChanges": 15,
     "evenDistribution": 10,
     "maxPlacementOverflow": 40,
+    # Кабинет не того типа (запасной): тип аудитории — предпочтение, а не запрет
+    "roomTypeMismatch": 20,
 }
 
 #: Масштаб штрафов (CP-SAT работает с целыми коэффициентами)
@@ -383,6 +385,8 @@ class CpSatScheduler:
 
         for i, ds in enumerate(active):
             reward = PLACE_REWARD * (10 + ds.d.priority)
+            m = ds.d.matching_rooms
+            fallback = set(ds.d.room_ids[m:]) if m is not None else set()
             for day in days:
                 if day.key not in ds.allowed:
                     continue
@@ -415,6 +419,8 @@ class CpSatScheduler:
                         room_cost = max(0, room.capacity - ds.d.size) / 100
                         if ds.d.preferred_room_id == room_id:
                             room_cost -= 3
+                        if room_id in fallback:
+                            room_cost += w.get("roomTypeMismatch", 0)
                         coef = reward - int(round((base_cost + room_cost) * COST_SCALE))
                         objective.append((coef, var))
         if not x and not y:
