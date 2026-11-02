@@ -24,6 +24,8 @@ export function useApi<T>(
     queryFn: ({ signal }) => api.get<T>(path!, query, { signal }),
     enabled: !!path && (options?.enabled ?? true),
     ...options,
+    // Адрес запроса — для журнала долгих загрузок
+    meta: { path, ...options?.meta },
   });
 }
 

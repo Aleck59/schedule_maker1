@@ -105,6 +105,8 @@ export interface RequestOptions {
   query?: Record<string, string | number | boolean | null | undefined | string[]>;
   signal?: AbortSignal;
   raw?: boolean;
+  /** Запрос завершится, даже если страницу закрыли */
+  keepalive?: boolean;
 }
 
 function buildUrl(path: string, query?: RequestOptions['query']) {
@@ -132,6 +134,7 @@ async function request<T>(method: string, path: string, body?: unknown, options:
       headers,
       body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
       signal: options.signal,
+      keepalive: options.keepalive,
     });
   } catch (e) {
     if ((e as Error).name === 'AbortError') throw e;

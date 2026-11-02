@@ -1,16 +1,17 @@
-import { lazy, Suspense, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, type ReactNode } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ShieldOff } from 'lucide-react';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AppLayout } from '@/components/layout/app-layout';
-import { LoadingState } from '@/components/common/states';
+import { LoadingState, PageWaitIndicator } from '@/components/common/states';
 import { Button } from '@/components/ui/button';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { BrandingHead } from '@/lib/branding';
 import { queryClient } from '@/lib/query';
 import type { UserRole } from '@/lib/types';
+import { waitWatch } from '@/lib/wait-watch';
 import LoginPage from '@/pages/LoginPage';
 
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
@@ -85,6 +86,7 @@ const page = (el: ReactNode, roles?: UserRole[]) => (
 );
 
 export default function App() {
+  useEffect(() => waitWatch.attach(queryClient), []);
   return (
     <QueryClientProvider client={queryClient}>
       <BrandingHead />
@@ -136,6 +138,7 @@ export default function App() {
         </AuthProvider>
       </TooltipProvider>
       <Toaster richColors position="top-right" closeButton />
+      <PageWaitIndicator />
     </QueryClientProvider>
   );
 }

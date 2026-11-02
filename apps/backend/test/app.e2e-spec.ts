@@ -1236,6 +1236,20 @@ describe('Расписание СПО (e2e)', () => {
     );
     expect(all.body.some((t: { planned: number }) => t.planned > 0)).toBe(true);
     for (const [i, t] of current.body.entries()) expect(t.planned).toBeLessThanOrEqual(all.body[i].planned);
+    // Сводка считается одним набором запросов, но совпадает с расчётом по каждому преподавателю
+    for (const t of all.body.slice(0, 8)) {
+      const one = await http
+        .get(`/api/teachers/${t.teacherId}/workload-control`)
+        .set(auth('manager'))
+        .expect(200);
+      expect(t.planned).toBe(one.body.planned.total);
+      expect(t.scheduled).toBe(one.body.scheduled.total);
+      expect(t.conducted).toBe(one.body.conducted.total);
+      expect(t.substitutedHours).toBe(one.body.conducted.substitutedHours);
+      expect(t.currentWeekLessons).toBe(one.body.currentWeek.lessons);
+      expect(t.overloadWeeks).toBe(one.body.overloadWeeks);
+      expect(t.groups).toEqual([...new Set(one.body.rows.map((r: { groupCode: string }) => r.groupCode))]);
+    }
 
     const summary = await http.get('/api/hour-control/summary?by=teacher').set(auth('manager')).expect(200);
     expect(summary.body.items.length).toBeGreaterThan(3);
@@ -1574,5 +1588,46 @@ describe('Расписание СПО (e2e)', () => {
       })
       .expect(201);
     expect(pdfPageCount(pdf.body as Buffer)).toBe(1);
+  });
+
+  it('журнал долгих загрузок: запись от любого пользователя, просмотр и очистка — по ролям', async () => {
+    const entry = {
+      page: '/workload?tab=teachers',
+      requests: ['/workload/teachers'],
+      durationMs: 17300,
+      outcome: 'LOADED',
+    };
+    await http.post('/api/slow-loads').set(auth('student')).send(entry).expect(201);
+    await http
+      .post('/api/slow-loads')
+      .set(auth('teacher'))
+      .send({ ...entry, outcome: 'LEFT' })
+      .expect(201);
+    // Короче 15 с — не долгая загрузка
+    await http
+      .post('/api/slow-loads')
+      .set(auth('teacher'))
+      .send({ ...entry, durationMs: 9000 })
+      .expect(400);
+    await http
+      .post('/api/slow-loads')
+      .set(auth('teacher'))
+      .send({ ...entry, outcome: 'OTHER' })
+      .expect(400);
+
+    await http.get('/api/slow-loads').set(auth('teacher')).expect(403);
+    const list = await http.get('/api/slow-loads').set(auth('dispatcher')).expect(200);
+    expect(list.body.total).toBeGreaterThanOrEqual(2);
+    expect(list.body.items[0]).toMatchObject({
+      page: entry.page,
+      requests: entry.requests,
+      durationMs: 17300,
+    });
+    expect(list.body.items[0].user.email).toBeDefined();
+
+    await http.delete('/api/slow-loads').set(auth('dispatcher')).expect(403);
+    await http.delete('/api/slow-loads').set(auth('admin')).expect(200);
+    const after = await http.get('/api/slow-loads').set(auth('admin')).expect(200);
+    expect(after.body.total).toBe(0);
   });
 });
