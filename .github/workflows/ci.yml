@@ -153,5 +153,23 @@ jobs:
           file: ${{ matrix.file }}
           push: false
           build-args: APP_VERSION=${{ github.sha }}
+          load: true
+          tags: schedule-maker/${{ matrix.image }}:ci
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+      - name: Размер образа
+        run: docker image ls schedule-maker/${{ matrix.image }}:ci
+      # Миграции и клиент Prisma в изолированной сети: из образа удалены лишние копии
+      # движков, и CLI не должен пытаться их скачать
+      - name: Проверка образа backend (миграции без интернета)
+        if: matrix.image == 'backend'
+        run: |
+          docker network create --internal smoke
+          docker run -d --name pg --network smoke -e POSTGRES_PASSWORD=pg postgres:16-alpine
+          for i in $(seq 1 60); do docker exec pg pg_isready -h 127.0.0.1 -U postgres && break; sleep 1; done
+          docker run --rm --network smoke \
+            -e DATABASE_URL=postgresql://postgres:pg@pg:5432/postgres \
+            schedule-maker/backend:ci \
+            node -e "const {PrismaClient}=require('@prisma/client');new PrismaClient().\$queryRaw\`select count(*)::int as n from _prisma_migrations\`.then(r=>{console.log('Миграций применено:',r[0].n);process.exit(r[0].n>0?0:1)}).catch(e=>{console.error(e);process.exit(1)})"
+          docker run --rm --network none --entrypoint /opt/venv/bin/python schedule-maker/backend:ci \
+            -c "from ortools.sat.python import cp_model; import cv2, numpy, pandas, pypdfium2, pydantic; print('Python-модуль: OK')"
