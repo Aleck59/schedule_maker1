@@ -9,6 +9,7 @@ import { GroupsService } from '../groups/groups.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { ScheduleLessonsService } from './schedule-lessons.service';
+import { CacheResponse } from '../cache/cache.decorators';
 
 @ApiTags('Расписание: просмотр')
 @ApiBearerAuth()
@@ -28,6 +29,7 @@ export class EntityScheduleController {
   }
 
   @Get('groups/:id/schedule')
+  @CacheResponse(60)
   @Roles(...ALL_ROLES)
   @ApiOperation({ summary: 'Расписание группы' })
   @ApiQuery({ name: 'from', required: false })
@@ -46,6 +48,7 @@ export class EntityScheduleController {
   }
 
   @Get('teachers/:id/schedule')
+  @CacheResponse(60)
   @Roles(...STAFF_ROLES)
   @ApiOperation({ summary: 'Личное расписание преподавателя' })
   @ApiQuery({ name: 'from', required: false })
@@ -61,6 +64,7 @@ export class EntityScheduleController {
   }
 
   @Get('classrooms/:id/schedule')
+  @CacheResponse(60)
   @Roles(...STAFF_ROLES)
   @ApiOperation({ summary: 'Занятость аудитории по дням и парам' })
   @ApiQuery({ name: 'from', required: false })

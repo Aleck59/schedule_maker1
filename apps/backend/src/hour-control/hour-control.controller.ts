@@ -6,6 +6,7 @@ import { ALL_ROLES, Roles, STAFF_ROLES } from '../common/decorators/roles.decora
 import { AuthUser } from '../common/types/auth-user';
 import { GroupsService } from '../groups/groups.service';
 import { HourControlService } from './hour-control.service';
+import { CacheResponse } from '../cache/cache.decorators';
 
 type AggregateBy = 'group' | 'discipline' | 'teacher' | 'semester' | 'program' | 'level' | 'college';
 
@@ -19,6 +20,7 @@ export class HourControlController {
   ) {}
 
   @Get('hour-control')
+  @CacheResponse(120)
   @Roles(...STAFF_ROLES)
   @ApiOperation({ summary: 'Выполнение часов по всей организации (с фильтрами)' })
   @ApiQuery({ name: 'programId', required: false })
@@ -46,6 +48,7 @@ export class HourControlController {
   }
 
   @Get('hour-control/summary')
+  @CacheResponse(120)
   @Roles(...STAFF_ROLES)
   @ApiOperation({
     summary:
@@ -75,6 +78,7 @@ export class HourControlController {
   }
 
   @Get('programs/:id/hour-control')
+  @CacheResponse(120)
   @Roles(...STAFF_ROLES)
   @ApiOperation({ summary: 'Выполнение часов по образовательной программе' })
   @ApiQuery({ name: 'semesterId', required: false })
@@ -92,6 +96,7 @@ export class HourControlController {
   }
 
   @Get('groups/:id/hour-control')
+  @CacheResponse(120)
   @Roles(...ALL_ROLES)
   @ApiOperation({ summary: 'Выполнение часов группы: план / в расписании / проведено / остаток' })
   @ApiQuery({ name: 'semesterId', required: false })
@@ -110,6 +115,7 @@ export class HourControlController {
   }
 
   @Get('teachers/:id/workload')
+  @CacheResponse(120)
   @Roles(...STAFF_ROLES)
   @ApiOperation({ summary: 'Нагрузка преподавателя: плановая, в расписании, фактическая' })
   @ApiQuery({ name: 'semesterId', required: false })
@@ -123,6 +129,7 @@ export class HourControlController {
   }
 
   @Get('teachers/:id/workload-control')
+  @CacheResponse(120)
   @Roles(...STAFF_ROLES)
   @ApiOperation({ summary: 'Контроль нагрузки преподавателя по группам и дисциплинам' })
   @ApiQuery({ name: 'semesterId', required: false })
@@ -136,6 +143,7 @@ export class HourControlController {
   }
 
   @Get('workload/teachers')
+  @CacheResponse(300)
   @Roles(UserRole.ADMIN, UserRole.DISPATCHER, UserRole.MANAGER)
   @ApiOperation({ summary: 'Сводная нагрузка всех преподавателей' })
   @ApiQuery({ name: 'semesterId', required: false })

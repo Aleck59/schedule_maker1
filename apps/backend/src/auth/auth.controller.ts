@@ -5,6 +5,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { AuthUser } from '../common/types/auth-user';
+import { CacheResponse, NoCacheInvalidate } from '../cache/cache.decorators';
 import { AuthService } from './auth.service';
 import { LoginDto, RefreshDto, RegisterDto } from './dto/auth.dto';
 
@@ -15,6 +16,7 @@ export class AuthController {
 
   @Public()
   @Post('login')
+  @NoCacheInvalidate()
   @HttpCode(200)
   @ApiOperation({ summary: 'Вход по email и паролю' })
   login(@Body() dto: LoginDto) {
@@ -23,6 +25,7 @@ export class AuthController {
 
   @Public()
   @Post('refresh')
+  @NoCacheInvalidate()
   @HttpCode(200)
   @ApiOperation({ summary: 'Обновление пары токенов' })
   refresh(@Body() dto: RefreshDto) {
@@ -39,6 +42,7 @@ export class AuthController {
 
   @ApiBearerAuth()
   @Get('me')
+  @CacheResponse(60, 'user')
   @ApiOperation({ summary: 'Профиль текущего пользователя' })
   me(@CurrentUser() user: AuthUser) {
     return this.auth.me(user.id);
@@ -46,6 +50,7 @@ export class AuthController {
 
   @ApiBearerAuth()
   @Post('logout')
+  @NoCacheInvalidate()
   @HttpCode(200)
   @ApiOperation({ summary: 'Выход (отзыв токена обновления)' })
   logout(@CurrentUser() user: AuthUser) {

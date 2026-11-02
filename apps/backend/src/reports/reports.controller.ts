@@ -10,6 +10,7 @@ import { PdfService } from '../export/pdf.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { sendFile } from '../export/send-file';
 import { ReportParams, ReportsService } from './reports.service';
+import { CacheResponse } from '../cache/cache.decorators';
 
 const REPORT_ROLES = [UserRole.ADMIN, UserRole.DISPATCHER, UserRole.MANAGER, UserRole.TEACHER];
 
@@ -26,6 +27,7 @@ export class ReportsController {
   ) {}
 
   @Get()
+  @CacheResponse(300)
   @ApiOperation({ summary: 'Список доступных отчётов' })
   list(@CurrentUser() user: AuthUser) {
     const all = this.reports.list();
@@ -33,6 +35,7 @@ export class ReportsController {
   }
 
   @Get(':type')
+  @CacheResponse(120)
   @ApiOperation({ summary: 'Данные отчёта в табличном виде' })
   @ApiQuery({ name: 'from', required: false })
   @ApiQuery({ name: 'to', required: false })

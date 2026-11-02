@@ -5,6 +5,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { EDITOR_ROLES, Roles, STAFF_ROLES } from '../common/decorators/roles.decorator';
 import { AuthUser } from '../common/types/auth-user';
 import { ScheduleValidatorService } from './schedule-validator.service';
+import { CacheResponse } from '../cache/cache.decorators';
 
 @ApiTags('Проверка расписания')
 @ApiBearerAuth()
@@ -21,6 +22,7 @@ export class ValidationController {
   }
 
   @Get(':id/conflicts')
+  @CacheResponse(60)
   @Roles(...STAFF_ROLES)
   @ApiOperation({ summary: 'Актуальные конфликты расписания (ошибки, блокирующие публикацию)' })
   async conflicts(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
@@ -33,6 +35,7 @@ export class ValidationController {
   }
 
   @Get(':id/validation-results')
+  @CacheResponse(60)
   @Roles(...STAFF_ROLES)
   @ApiOperation({ summary: 'Сохранённые результаты последней проверки' })
   @ApiQuery({ name: 'severity', enum: Severity, required: false })

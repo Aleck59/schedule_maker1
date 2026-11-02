@@ -17,6 +17,7 @@ import { ALL_ROLES, EDITOR_ROLES, Roles } from '../common/decorators/roles.decor
 import { AuthUser } from '../common/types/auth-user';
 import { ClearPeriodDto, CreatePeriodDto, UpdatePeriodDto } from './dto/schedule.dto';
 import { SchedulePeriodsService } from './schedule-periods.service';
+import { CacheResponse } from '../cache/cache.decorators';
 
 @ApiTags('Расписание: периоды')
 @ApiBearerAuth()
@@ -25,6 +26,7 @@ export class SchedulePeriodsController {
   constructor(private readonly periods: SchedulePeriodsService) {}
 
   @Get()
+  @CacheResponse(60)
   @Roles(...ALL_ROLES)
   @ApiOperation({ summary: 'Периоды расписания (семестры)' })
   @ApiQuery({ name: 'semesterId', required: false })
@@ -47,6 +49,7 @@ export class SchedulePeriodsController {
   }
 
   @Get(':id')
+  @CacheResponse(60)
   @Roles(...ALL_ROLES)
   get(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
     return this.periods.get(id, user);

@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConductedStatus, LessonStatus, MakeupTaskStatus, SchedulePeriodStatus } from '@prisma/client';
 import { parseDate, todayInTimezone } from '../common/utils/dates';
+import { CacheService } from '../cache/cache.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 
@@ -34,6 +35,7 @@ export class AutoConductService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: SettingsService,
+    private readonly cache: CacheService,
   ) {}
 
   onModuleInit() {
@@ -61,7 +63,11 @@ export class AutoConductService implements OnModuleInit, OnModuleDestroy {
       });
       let total = 0;
       for (const o of orgs) total += await this.run(o.organizationId);
-      if (total > 0) this.logger.log(`Автозачёт: отмечено проведёнными ${total} пар`);
+      if (total > 0) {
+        this.logger.log(`Автозачёт: отмечено проведёнными ${total} пар`);
+        // Фоновое изменение данных без HTTP-запроса — кэш сбрасывается явно
+        await this.cache.invalidate();
+      }
       return total;
     } finally {
       this.running = false;

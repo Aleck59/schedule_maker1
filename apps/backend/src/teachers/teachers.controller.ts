@@ -26,6 +26,7 @@ import { AvailabilityRulesService } from './availability-rules.service';
 import { AvailabilityRuleDto, UpdateAvailabilityRuleDto } from './dto/availability-rule.dto';
 import { CreateTeacherDto, UpdateTeacherDto } from './dto/teachers.dto';
 import { TeachersService } from './teachers.service';
+import { CacheResponse } from '../cache/cache.decorators';
 
 @ApiTags('Преподаватели')
 @ApiBearerAuth()
@@ -44,6 +45,7 @@ export class TeachersController {
   }
 
   @Get()
+  @CacheResponse(120)
   @Roles(...STAFF_ROLES)
   @ApiOperation({ summary: 'Список преподавателей' })
   @ApiQuery({ name: 'search', required: false })
@@ -123,6 +125,7 @@ export class TeachersController {
   }
 
   @Get(':id/availability')
+  @CacheResponse(60)
   @Roles(...STAFF_ROLES)
   getAvailability(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
     return this.teachers.getAvailability(id, user);

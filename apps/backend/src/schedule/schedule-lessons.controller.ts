@@ -33,6 +33,7 @@ import { AbsenceMakeupService } from './absence-makeup.service';
 import { AutoConductService } from './auto-conduct.service';
 import { MakeupTasksService } from './makeup-tasks.service';
 import { presentLesson, ScheduleLessonsService } from './schedule-lessons.service';
+import { CacheResponse, NoCacheInvalidate } from '../cache/cache.decorators';
 
 const LESSON_ACTORS: UserRole[] = [UserRole.ADMIN, UserRole.DISPATCHER, UserRole.TEACHER];
 
@@ -68,6 +69,7 @@ export class ScheduleLessonsController {
   }
 
   @Get('schedule-lessons')
+  @CacheResponse(60)
   @Roles(...ALL_ROLES)
   @ApiOperation({ summary: 'Занятия с фильтрами: период, группа, преподаватель, аудитория, даты' })
   list(@Query() query: LessonQueryDto, @CurrentUser() user: AuthUser) {
@@ -92,6 +94,7 @@ export class ScheduleLessonsController {
   }
 
   @Post('schedule-lessons/check')
+  @NoCacheInvalidate()
   @HttpCode(200)
   @Roles(...LESSON_ACTORS)
   @ApiOperation({ summary: 'Проверка конфликтов для размещения занятия (без сохранения)' })

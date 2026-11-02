@@ -3,6 +3,7 @@ import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { AssignmentsModule } from './assignments/assignments.module';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
+import { CacheModule } from './cache/cache.module';
 import { CalendarModule } from './calendar/calendar.module';
 import { ClassroomsModule } from './classrooms/classrooms.module';
 import { CurriculumScansModule } from './curriculum-scans/curriculum-scans.module';
@@ -35,6 +36,7 @@ import { ValidationModule } from './validation/validation.module';
 @Module({
   imports: [
     PrismaModule,
+    CacheModule,
     EngineModule,
     AuditModule,
     SettingsModule,

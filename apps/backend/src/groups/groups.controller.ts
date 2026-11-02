@@ -11,6 +11,7 @@ import {
   UpdateStudentDto,
 } from './dto/groups.dto';
 import { GroupsService } from './groups.service';
+import { CacheResponse } from '../cache/cache.decorators';
 
 @ApiTags('Учебные группы')
 @ApiBearerAuth()
@@ -19,6 +20,7 @@ export class GroupsController {
   constructor(private readonly groups: GroupsService) {}
 
   @Get('groups')
+  @CacheResponse(120)
   @Roles(...ALL_ROLES)
   @ApiOperation({ summary: 'Список учебных групп' })
   @ApiQuery({ name: 'programId', required: false })

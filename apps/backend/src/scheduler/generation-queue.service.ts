@@ -1,24 +1,12 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { GenerationJobStatus } from '@prisma/client';
 import { Queue, Worker } from 'bullmq';
+import { redisConnectionOptions } from '../cache/redis-options';
 import { loadConfig } from '../config/configuration';
 import { PrismaService } from '../prisma/prisma.service';
 import { GenerationRunnerService } from './generation-runner.service';
 
 export const GENERATION_QUEUE = 'schedule-generation';
-
-export function redisConnectionOptions(url: string) {
-  const u = new URL(url);
-  return {
-    host: u.hostname,
-    port: Number(u.port || 6379),
-    username: u.username || undefined,
-    password: u.password ? decodeURIComponent(u.password) : undefined,
-    db: u.pathname && u.pathname !== '/' ? Number(u.pathname.slice(1)) || 0 : 0,
-    tls: u.protocol === 'rediss:' ? {} : undefined,
-    maxRetriesPerRequest: null,
-  };
-}
 
 /**
  * Очередь фоновой генерации (Redis + BullMQ). Если Redis не настроен или недоступен,
