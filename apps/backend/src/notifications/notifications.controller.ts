@@ -4,6 +4,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ALL_ROLES, Roles } from '../common/decorators/roles.decorator';
 import { AuthUser } from '../common/types/auth-user';
 import { NotificationsService } from './notifications.service';
+import { CacheResponse } from '../cache/cache.decorators';
 
 @ApiTags('Уведомления')
 @ApiBearerAuth()
@@ -13,6 +14,7 @@ export class NotificationsController {
   constructor(private readonly notifications: NotificationsService) {}
 
   @Get()
+  @CacheResponse(30, 'user')
   @ApiOperation({ summary: 'Мои уведомления (отмены, переносы, замены)' })
   @ApiQuery({ name: 'unread', required: false, type: Boolean })
   list(@CurrentUser() user: AuthUser, @Query('unread') unread?: string) {
@@ -20,6 +22,7 @@ export class NotificationsController {
   }
 
   @Get('unread-count')
+  @CacheResponse(30, 'user')
   unread(@CurrentUser() user: AuthUser) {
     return this.notifications.unreadCount(user.id);
   }

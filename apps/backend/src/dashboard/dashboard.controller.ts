@@ -4,6 +4,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { ALL_ROLES, Roles } from '../common/decorators/roles.decorator';
 import { AuthUser } from '../common/types/auth-user';
 import { DashboardService } from './dashboard.service';
+import { CacheResponse } from '../cache/cache.decorators';
 
 @ApiTags('Дашборд')
 @ApiBearerAuth()
@@ -12,6 +13,7 @@ export class DashboardController {
   constructor(private readonly dashboard: DashboardService) {}
 
   @Get()
+  @CacheResponse(60)
   @Roles(...ALL_ROLES)
   @ApiOperation({ summary: 'Показатели главной страницы (зависят от роли пользователя)' })
   get(@CurrentUser() user: AuthUser) {

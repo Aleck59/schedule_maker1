@@ -307,6 +307,37 @@ describe('Расписание СПО (e2e)', () => {
     expect(Array.isArray(notifications.body)).toBe(true);
   });
 
+  it('кэш Redis: повторный просмотр из кэша, изменение сразу видно, подбор пароля ограничен', async () => {
+    const url = `/api/schedule-lessons?groupId=${groupId}`;
+    const first = await http.get(url).set(auth('dispatcher')).expect(200);
+    expect(first.body.length).toBeGreaterThan(0);
+    const second = await http.get(url).set(auth('dispatcher')).expect(200);
+    expect(second.body).toEqual(first.body);
+    // Заголовок есть, только когда Redis подключён (в CI — да)
+    const cached = second.headers['x-cache'] !== undefined;
+    if (cached) expect(second.headers['x-cache']).toBe('HIT');
+
+    const lesson = first.body[0];
+    const note = `кэш ${Date.now()}`;
+    await http
+      .patch(`/api/schedule-lessons/${lesson.id}`)
+      .set(auth('dispatcher'))
+      .send({ notes: note })
+      .expect(200);
+    const after = await http.get(url).set(auth('dispatcher')).expect(200);
+    expect(after.body.find((l: { id: string }) => l.id === lesson.id).notes).toBe(note);
+    if (cached) expect(after.headers['x-cache']).toBe('MISS');
+
+    if (cached) {
+      const email = `nobody-${Date.now()}@college.ru`;
+      for (let i = 0; i < 10; i++) {
+        await http.post('/api/auth/login').send({ email, password: 'x' }).expect(401);
+      }
+      const locked = await http.post('/api/auth/login').send({ email, password: 'x' }).expect(429);
+      expect(locked.body.message).toMatch(/Слишком много/);
+    }
+  });
+
   it('календарный график: недели на границе учебных лет учитывают только свой год', async () => {
     const programs = await http.get('/api/programs').set(auth('manager')).expect(200);
     const graph = await http

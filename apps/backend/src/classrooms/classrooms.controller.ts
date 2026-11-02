@@ -18,6 +18,7 @@ import { EDITOR_ROLES, Roles, STAFF_ROLES } from '../common/decorators/roles.dec
 import { AuthUser } from '../common/types/auth-user';
 import { ClassroomsService } from './classrooms.service';
 import { CreateClassroomDto, UpdateClassroomDto } from './dto/classrooms.dto';
+import { CacheResponse } from '../cache/cache.decorators';
 
 @ApiTags('Аудитории')
 @ApiBearerAuth()
@@ -26,6 +27,7 @@ export class ClassroomsController {
   constructor(private readonly classrooms: ClassroomsService) {}
 
   @Get()
+  @CacheResponse(120)
   @Roles(...STAFF_ROLES)
   @ApiOperation({ summary: 'Аудиторный фонд' })
   @ApiQuery({ name: 'type', enum: ClassroomType, required: false })

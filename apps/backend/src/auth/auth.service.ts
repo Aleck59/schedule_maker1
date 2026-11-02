@@ -1,9 +1,17 @@
-import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { User, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { createHash } from 'crypto';
 import { loadConfig } from '../config/configuration';
+import { CacheService } from '../cache/cache.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser, JwtPayload } from '../common/types/auth-user';
@@ -18,6 +26,9 @@ export function ttlToSeconds(ttl: string): number {
   const factor = unit === 'm' ? 60 : unit === 'h' ? 3600 : unit === 'd' ? 86400 : 1;
   return value * factor;
 }
+
+const LOGIN_MAX_FAILS = Number(process.env.LOGIN_MAX_FAILS ?? 10);
+const LOGIN_FAIL_WINDOW_SECONDS = 15 * 60;
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -46,13 +57,27 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly audit: AuditService,
+    private readonly cache: CacheService,
   ) {}
 
   async login(dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase().trim() } });
+    const email = dto.email.toLowerCase().trim();
+    // Подбор пароля: после LOGIN_MAX_FAILS неудачных попыток вход по этому email закрыт на 15 минут.
+    // Счётчик в Redis общий для всех экземпляров API; без Redis ограничение не действует.
+    const failKey = `login-fail:${email}`;
+    const fails = await this.cache.peek(failKey);
+    if (fails >= LOGIN_MAX_FAILS) {
+      throw new HttpException(
+        'Слишком много неудачных попыток входа. Повторите через 15 минут',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
+      await this.cache.hit(failKey, LOGIN_FAIL_WINDOW_SECONDS);
       throw new UnauthorizedException('Неверный email или пароль');
     }
+    if (fails) await this.cache.del(failKey);
     if (!user.isActive) {
       throw new UnauthorizedException('Учётная запись заблокирована. Обратитесь к администратору');
     }

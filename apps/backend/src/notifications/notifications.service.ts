@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { NotificationType, UserRole } from '@prisma/client';
+import { CacheService } from '../cache/cache.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 /** Уведомления студентам и преподавателям об изменениях расписания */
@@ -7,7 +8,10 @@ import { PrismaService } from '../prisma/prisma.service';
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cache: CacheService,
+  ) {}
 
   /** Рассылка студентам группы и преподавателям */
   async notify(params: {
@@ -42,6 +46,8 @@ export class NotificationsService {
           scheduleLessonId: params.lessonId ?? null,
         })),
       });
+      // Уведомление может прийти и не из HTTP-запроса (фоновая генерация) — сбросить кэш явно
+      await this.cache.invalidate();
       return users.length;
     } catch (e) {
       this.logger.warn(`Не удалось создать уведомления: ${(e as Error).message}`);

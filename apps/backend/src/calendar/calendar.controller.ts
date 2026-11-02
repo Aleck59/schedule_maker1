@@ -12,6 +12,7 @@ import {
   SetWeekTypeDto,
   UpdateCalendarEventDto,
 } from './dto/calendar.dto';
+import { CacheResponse } from '../cache/cache.decorators';
 
 @ApiTags('Календарный учебный график')
 @ApiBearerAuth()
@@ -20,6 +21,7 @@ export class CalendarController {
   constructor(private readonly calendar: CalendarService) {}
 
   @Get('calendar-events')
+  @CacheResponse(120)
   @Roles(...ALL_ROLES)
   @ApiOperation({ summary: 'Периоды календарного графика: каникулы, практики, сессии, праздники' })
   @ApiQuery({ name: 'programId', required: false })
@@ -104,6 +106,7 @@ export class CalendarController {
   }
 
   @Get('assessment-events')
+  @CacheResponse(120)
   @Roles(...ALL_ROLES)
   @ApiOperation({ summary: 'Контрольные мероприятия (экзамены, зачёты)' })
   @ApiQuery({ name: 'groupId', required: false })
