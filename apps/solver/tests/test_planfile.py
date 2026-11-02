@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from pathlib import Path
 
 import pytest
@@ -183,7 +184,8 @@ def test_plx_real_structure_extramural(tmp_path: Path) -> None:
         '<ПланыГрафикиЯчейки Код="{k}" КодГрафика="-1" КодВидаДеятельности="{a}" НомерНедели="{w}" '
         'НомерЧастиНедели="{p}" Курс="1" Семестр="1" КоличествоЧастейВНеделе="{n}" />'
     )
-    weeks = ["1"] * 17 + ["12", "3", "3"] + ["1"] * 20 + ["12"] * 2 + ["3"] * 9 + ["13"]
+    # 3 — аттестация, 12 — каникулы (как в реальных файлах)
+    weeks = ["1"] * 17 + ["3", "3", "12"] + ["1"] * 20 + ["3"] * 2 + ["12"] * 9 + ["13"]
     cells = "".join(cell.format(k=-i, a=a, w=i, p=1, n=1) for i, a in enumerate(weeks, start=1))
     # праздничный день внутри 10-й недели (неделя по дням)
     cells = cells.replace(cell.format(k=-10, a="1", w=10, p=1, n=1), "")
@@ -253,3 +255,107 @@ def test_plx_real_structure_extramural(tmp_path: Path) -> None:
     assert not any(p["type"] == "HOLIDAY" for p in result["periods"])
     # График есть только у 1-го курса — для остальных даты по умолчанию
     assert result["warnings"] == [w for w in result["warnings"] if "курс: 2, 3, 4" in w]
+
+
+def test_plx_extramural_sessions_with_dated_cells(tmp_path: Path) -> None:
+    """Заочный план СПО (программа 4.x): один «семестр» на курс и три сессии (установочная, зимняя,
+    летняя), даты сессий в «Заездах», у ячеек графика есть даты, запасные курсы сетки программы
+    (ЧислоКурсов=11) заполнены «неделя отсутствует», экзамен по модулю — своей строкой."""
+    cells = []
+    start = dt.date(2024, 9, 2)  # 1 сентября 2024 — воскресенье, первая неделя — со 2 сентября
+    for i in range(52):
+        monday = start + dt.timedelta(weeks=i)
+        if monday == dt.date(2024, 12, 9):  # зимняя сессия: три дня аттестации, затем теория
+            codes = ["3", "3", "3", "1", "1", "1"]
+        elif dt.date(2025, 1, 27) <= monday <= dt.date(2025, 2, 3):
+            codes = ["12"]
+        elif monday >= dt.date(2025, 6, 30):
+            codes = ["12"]
+        else:
+            codes = ["1"]
+        for part, code in enumerate(codes, start=1):
+            day = monday + dt.timedelta(days=part - 1)
+            cells.append((1, i + 1, part, len(codes), code, day))
+    for course in range(2, 12):  # курсов нет в плане
+        cells.append((course, 1, 1, 1, "13", dt.date(2023 + course, 9, 1)))
+    cell_xml = "".join(
+        f'<ПланыГрафикиЯчейки Код="-{k}" КодГрафика="-1" КодВидаДеятельности="{a}" НомерНедели="{w}" '
+        f'НомерЧастиНедели="{p}" Курс="{c}" Семестр="1" КоличествоЧастейВНеделе="{n}" '
+        f'DateElementGYP="{d.isoformat()}T00:00:00" />'
+        for k, (c, w, p, n, a, d) in enumerate(cells, start=1)
+    )
+    hours = "".join(
+        f'<ПланыНовыеЧасы Код="-{i}" КодОбъекта="{o}" КодВидаРаботы="{t}" КодТипаЧасов="1" Курс="1" '
+        f'Семестр="{sem}" Сессия="{ses}" Количество="{q}" />'
+        for i, (o, t, sem, ses, q) in enumerate(
+            [
+                ("-5", "1000", "1", "0", "104"),  # итог за курс — не берётся, есть сессии
+                ("-5", "1000", "0", "1", "34"),  # установочная (октябрь) — 1-й семестр
+                ("-5", "1000", "0", "2", "34"),  # зимняя (декабрь) — 1-й семестр
+                ("-5", "49", "0", "2", "1"),
+                ("-5", "1000", "0", "3", "36"),  # летняя (июнь) — 2-й семестр
+                ("-5", "1", "0", "3", "1"),
+                ("-7", "1", "0", "3", "1"),  # у модуля — сумма форм контроля его строк
+                ("-8", "1000", "0", "3", "36"),
+                ("-8", "1", "0", "3", "1"),
+            ],
+            start=1,
+        )
+    )
+    sessions = "".join(
+        f'<Заезды Код="-{i}" Курс="{c}" Сессия="{n}" ДатаНачала="{d}T00:00:00" Продолжительность="{p}" '
+        'КодПлана="-1" />'
+        for i, (c, n, d, p) in enumerate(
+            [
+                (1, 1, "2024-10-14", 10),
+                (1, 2, "2024-12-09", 6),
+                (1, 3, "2025-06-02", 17),
+                (2, 1, "0001-01-01", 0),
+            ],
+            start=1,
+        )
+    )
+    xml = f"""<?xml version="1.0" encoding="utf-16"?>
+<Документ Тип="УЧЕБНЫЙ ПЛАН" ЧислоКурсов="11" СеместровНаКурсе="1" СессийНаКурсе="3">
+<diffgr:diffgram xmlns:msdata="urn:schemas-microsoft-com:xml-msdata" xmlns:diffgr="urn:schemas-microsoft-com:xml-diffgram-v1">
+<dsMMISDB xmlns="http://tempuri.org/dsMMISDB.xsd">
+<ООП diffgr:id="ООП1" Код="9550" Шифр="40.02.04" Название="ЮРИСПРУДЕНЦИЯ" />
+<Планы Код="-1" КодООП="9550" КодФормыОбучения="2" Квалификация="Юрист" СрокОбучения="3"
+  СрокОбученияМесяцев="10" ГодНачалаПодготовки="2024" ЧислоКурсов="11" ЧислоСессий="3" СеместровНаКурсе="1" />
+<ФормаОбучения Код="2" ФормаОбучения="Заочная" />
+<СправочникВидыРабот Код="1" Название="Экзамен" КодТипРабот="7" Аббревиатура="Эк" />
+<СправочникВидыРабот Код="49" Название="Другие формы контроля" КодТипРабот="7" Аббревиатура="Др" />
+<СправочникВидыРабот Код="1000" Название="Итого часов" Аббревиатура="Итого" />
+<ПланыСтроки Код="-5" КодПлана="-1" Дисциплина="Русский язык" ДисциплинаКод="СОО.01.01" ТипОбъекта="2" />
+<ПланыСтроки Код="-7" КодПлана="-1" Дисциплина="Правоприменительная деятельность" ДисциплинаКод="ПМ.01"
+  ТипОбъекта="1" />
+<ПланыСтроки Код="-8" КодПлана="-1" КодРодителя="-7" Дисциплина="Экзамен по модулю" ДисциплинаКод="ПМ.01.01(К)"
+  ТипОбъекта="4" />
+{hours}
+{sessions}
+{cell_xml}
+</dsMMISDB></diffgr:diffgram></Документ>"""
+    path = tmp_path / "zo.plx"
+    path.write_bytes(xml.encode("utf-16"))
+    result = import_plan_file(str(path))
+    assert result["title"]["studyForm"] == "EXTRAMURAL"
+    items = by_code(result)
+    sems = {s["number"]: s for s in items["СОО.01.01"]["semesters"]}
+    assert sems[1]["hours"]["total"] == 68 and sems[1]["controlForm"] == "OTHER"
+    assert sems[2]["hours"]["total"] == 36 and sems[2]["controlForm"] == "EXAM"
+    exams = [i for i in result["items"] if i["kind"] == "MODULE_EXAM"]
+    assert [i["code"] for i in exams] == ["ПМ.01.01(К)"]
+    assert exams[0]["semesters"][0]["controlForm"] == "QUALIFICATION_EXAM"
+    # Запасные курсы сетки (5–11) не превращаются в семестры: их столько, сколько в сроке обучения
+    assert [s["number"] for s in result["semesters"]] == list(range(1, 9))
+    assert [c["course"] for c in result["calendar"]] == [1]
+    first, second = result["semesters"][:2]
+    assert first["startDate"] == "2024-09-02" and first["endDate"] == "2025-02-09"
+    # Занятия только в дни сессий: установочная 14–23 октября и три дня теории после аттестации в декабре
+    assert first["weeks"]["theory"] == round((9 + 3) / 6, 2)
+    assert first["weeks"]["exam"] == 0.5 and first["weeks"]["vacation"] == 2
+    periods = [(p["code"], p["startDate"], p["endDate"]) for p in result["periods"]]
+    assert ("Э", "2024-12-09", "2024-12-11") in periods
+    assert ("К", "2025-06-30", "2025-08-30") in periods
+    assert ("С", "2024-09-02", "2024-10-12") in periods
+    assert second["weeks"]["theory"] == 2.5  # 2–18 июня без воскресений
