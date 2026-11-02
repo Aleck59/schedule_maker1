@@ -368,6 +368,40 @@ describe('Расписание СПО (e2e)', () => {
     }
   });
 
+  it('календарный график: смена типа недели курса меняет тип, даже если период задан на весь план', async () => {
+    const programs = await http.get('/api/programs').set(auth('dispatcher')).expect(200);
+    const pid = programs.body[0].id;
+    type Week = { start: string; type: string | null };
+    type Year = { courseNumber: number | null; weeks: Week[] };
+    const graph = await http.get(`/api/programs/${pid}/calendar-graph`).set(auth('dispatcher')).expect(200);
+    const year = (graph.body.years as Year[]).find(
+      (y) => y.courseNumber && y.weeks.some((w) => w.type === 'THEORETICAL_TRAINING'),
+    )!;
+    const week = year.weeks.find((w) => w.type === 'THEORETICAL_TRAINING')!;
+    const typeOf = (body: { years: Year[] }, course: number | null, start: string) =>
+      body.years.find((y) => y.courseNumber === course)!.weeks.find((w) => w.start === start)?.type;
+    const set = (eventType: string | null) =>
+      http
+        .put(`/api/programs/${pid}/calendar-graph/week`)
+        .set(auth('dispatcher'))
+        .send({ weekStart: week.start, courseNumber: year.courseNumber, eventType })
+        .expect(200);
+
+    const changed = await set('VACATION');
+    expect(typeOf(changed.body, year.courseNumber, week.start)).toBe('VACATION');
+    const reloaded = await http
+      .get(`/api/programs/${pid}/calendar-graph`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    expect(typeOf(reloaded.body, year.courseNumber, week.start)).toBe('VACATION');
+    // Соседние недели того же курса не задеты
+    const next = year.weeks[year.weeks.indexOf(week) + 1];
+    if (next) expect(typeOf(reloaded.body, year.courseNumber, next.start)).toBe(next.type);
+
+    const restored = await set('THEORETICAL_TRAINING');
+    expect(typeOf(restored.body, year.courseNumber, week.start)).toBe('THEORETICAL_TRAINING');
+  });
+
   it('предложения по устранению конфликтов: применение в один клик и автоисправление', async () => {
     const prisma = app.get(PrismaService);
     await http.get(`/api/schedule-periods/${periodId}/fixes`).set(auth('teacher')).expect(403);

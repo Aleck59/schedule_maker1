@@ -253,12 +253,18 @@ export class CalendarService {
               (!e.courseNumber || e.courseNumber === year.courseNumber),
           );
           if (dayEvents.some((e) => e.blocksSchedule)) blockedDays++;
+          // Тип дня задаёт самый узкий период: группы → курса → плана → организации
+          let topRank = -1;
+          for (const e of dayEvents) {
+            if (e.eventType !== CalendarEventType.HOLIDAY) topRank = Math.max(topRank, scopeRank(e));
+          }
           for (const e of dayEvents) {
             eventIds.add(e.id);
             if (e.eventType === CalendarEventType.HOLIDAY) {
               holidays++;
               continue;
             }
+            if (scopeRank(e) < topRank) continue;
             counts.set(e.eventType, (counts.get(e.eventType) ?? 0) + 1);
           }
         }
@@ -325,7 +331,7 @@ export class CalendarService {
   async setWeekType(programId: string, dto: SetWeekTypeDto, actor: AuthUser) {
     const program = await this.prisma.educationalProgram.findFirst({
       where: { id: programId, organizationId: actor.organizationId },
-      include: { semesters: true },
+      include: { semesters: true, academicYears: true },
     });
     if (!program) throw new NotFoundException('Учебный план не найден');
     const wStart = weekStart(dto.weekStart);
@@ -350,28 +356,43 @@ export class CalendarService {
           endDate: { gte: parseDate(wStart) },
         },
       });
-      for (const e of overlapping) {
-        const s = toDateStr(e.startDate);
-        const en = toDateStr(e.endDate);
-        const keepBefore = s < wStart;
-        const keepAfter = en > wEnd;
-        if (keepBefore) {
-          await tx.calendarEvent.update({
-            where: { id: e.id },
-            data: { endDate: parseDate(addDaysStr(wStart, -1)) },
-          });
+      // Неделю курса перекрывают и периоды всего плана (без курса) — например, загруженные
+      // из учебного плана: иначе они остаются на неделе и график показывает прежний тип.
+      // Период плана вырезается из недели, а для других курсов, чьи учебные годы задевают
+      // эту неделю, на вырезанные дни ставится его копия — для них ничего не меняется.
+      const programWide =
+        dto.courseNumber != null && !dto.studentGroupId
+          ? await tx.calendarEvent.findMany({
+              where: {
+                ...scope,
+                courseNumber: null,
+                eventType: { not: CalendarEventType.HOLIDAY },
+                startDate: { lte: parseDate(wEnd) },
+                endDate: { gte: parseDate(wStart) },
+              },
+            })
+          : [];
+      const otherCourses = [
+        ...new Set(
+          program.academicYears
+            .filter(
+              (y) =>
+                y.courseNumber != null &&
+                y.courseNumber !== dto.courseNumber &&
+                toDateStr(y.startDate) <= wEnd &&
+                toDateStr(y.endDate) >= wStart,
+            )
+            .map((y) => y.courseNumber as number),
+        ),
+      ];
+      for (const e of programWide) {
+        const from = toDateStr(e.startDate) > wStart ? toDateStr(e.startDate) : wStart;
+        const to = toDateStr(e.endDate) < wEnd ? toDateStr(e.endDate) : wEnd;
+        for (const course of otherCourses) {
+          await tx.calendarEvent.create({ data: { ...copyEvent(e, from, to), courseNumber: course } });
         }
-        if (keepAfter) {
-          const data = copyEvent(e, addDaysStr(wEnd, 1), en);
-          if (keepBefore) await tx.calendarEvent.create({ data });
-          else
-            await tx.calendarEvent.update({
-              where: { id: e.id },
-              data: { startDate: parseDate(addDaysStr(wEnd, 1)) },
-            });
-        }
-        if (!keepBefore && !keepAfter) await tx.calendarEvent.delete({ where: { id: e.id } });
       }
+      for (const e of [...overlapping, ...programWide]) await cutOutWeek(tx, e, wStart, wEnd);
       if (dto.eventType) {
         const prev = await tx.calendarEvent.findFirst({
           where: { ...scope, eventType: dto.eventType, endDate: parseDate(addDaysStr(wStart, -1)) },
@@ -896,6 +917,38 @@ export class CalendarService {
 
 function diff(a: string, b: string): number {
   return Math.round((parseDate(a).getTime() - parseDate(b).getTime()) / 86400000);
+}
+
+/** Насколько узок период: группа > курс > учебный план > вся организация */
+function scopeRank(e: CalendarEvent): number {
+  if (e.studentGroupId) return 3;
+  if (e.courseNumber) return 2;
+  if (e.educationalProgramId) return 1;
+  return 0;
+}
+
+/** Убрать из периода дни недели wStart..wEnd: обрезать, разбить надвое или удалить */
+async function cutOutWeek(tx: Prisma.TransactionClient, e: CalendarEvent, wStart: string, wEnd: string) {
+  const s = toDateStr(e.startDate);
+  const en = toDateStr(e.endDate);
+  const keepBefore = s < wStart;
+  const keepAfter = en > wEnd;
+  if (keepBefore) {
+    await tx.calendarEvent.update({
+      where: { id: e.id },
+      data: { endDate: parseDate(addDaysStr(wStart, -1)) },
+    });
+  }
+  if (keepAfter) {
+    const data = copyEvent(e, addDaysStr(wEnd, 1), en);
+    if (keepBefore) await tx.calendarEvent.create({ data });
+    else
+      await tx.calendarEvent.update({
+        where: { id: e.id },
+        data: { startDate: parseDate(addDaysStr(wEnd, 1)) },
+      });
+  }
+  if (!keepBefore && !keepAfter) await tx.calendarEvent.delete({ where: { id: e.id } });
 }
 
 function copyEvent(e: CalendarEvent, start: string, end: string): Prisma.CalendarEventUncheckedCreateInput {
