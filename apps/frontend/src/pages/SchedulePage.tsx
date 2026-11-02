@@ -8,6 +8,7 @@ import {
   ChevronRight,
   FileSpreadsheet,
   FileText,
+  LayoutGrid,
   ListChecks,
   MoreHorizontal,
   Printer,
@@ -470,6 +471,12 @@ export default function SchedulePage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem asChild>
+                  <Link to={`/schedule/week?week=${week}`}>
+                    <LayoutGrid /> Полное расписание на неделю
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuLabel>Экспорт в PDF</DropdownMenuLabel>
                 <DropdownMenuItem onClick={() => exportPdf(false)}>
                   <FileText /> Текущая неделя
