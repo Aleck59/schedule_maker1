@@ -2,6 +2,12 @@
 
 Формируется автоматически по сообщениям коммитов (Conventional Commits).
 
+## [1.4.0](https://github.com/Aleck59/schedule_maker1/compare/v1.3.0...v1.4.0) (2026-11-02)
+
+### Новые возможности
+
+* быстрая сводка нагрузки преподавателей, индикатор ожидания и журнал долгих загрузок ([6dcfd83](https://github.com/Aleck59/schedule_maker1/commit/6dcfd836db634ff783451af834d3cbb0e1bce2ff))
+
 ## [1.3.0](https://github.com/Aleck59/schedule_maker1/compare/v1.2.1...v1.3.0) (2026-11-02)
 
 ### Новые возможности
