@@ -2,6 +2,12 @@
 
 Формируется автоматически по сообщениям коммитов (Conventional Commits).
 
+## [1.5.0](https://github.com/Aleck59/schedule_maker1/compare/v1.4.1...v1.5.0) (2026-11-02)
+
+### Новые возможности
+
+* кэш Redis для просмотра расписания и нагрузочный тест API ([2fbd8e2](https://github.com/Aleck59/schedule_maker1/commit/2fbd8e2edde4d7693580de15c322fc11518fcd50))
+
 ## [1.4.1](https://github.com/Aleck59/schedule_maker1/compare/v1.4.0...v1.4.1) (2026-11-02)
 
 ### Производительность
