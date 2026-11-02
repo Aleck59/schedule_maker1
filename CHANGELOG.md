@@ -2,6 +2,12 @@
 
 Формируется автоматически по сообщениям коммитов (Conventional Commits).
 
+## [1.4.1](https://github.com/Aleck59/schedule_maker1/compare/v1.4.0...v1.4.1) (2026-11-02)
+
+### Производительность
+
+* **docker:** образ backend меньше на ~250 МБ, кэш сборки не раздувается ([7392189](https://github.com/Aleck59/schedule_maker1/commit/73921897a9e6a387f887d18778e5adc06f4e4a6d))
+
 ## [1.4.0](https://github.com/Aleck59/schedule_maker1/compare/v1.3.0...v1.4.0) (2026-11-02)
 
 ### Новые возможности
