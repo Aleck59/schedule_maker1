@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { CalendarPlus, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
+import { CalendarPlus, LayoutGrid, List, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { Controller, useForm } from 'react-hook-form';
 import { z } from 'zod';
+import { AssessmentBoard } from '@/components/calendar/assessment-board';
 import { Confirm } from '@/components/common/confirm';
 import { Field } from '@/components/common/field';
 import { PageHeader } from '@/components/common/page-header';
@@ -23,7 +24,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useGroups, usePrograms, useSemesters, useTeachers } from '@/hooks/use-reference';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { formatDate, formatDateShort, isoWeekday, weekdayName } from '@/lib/format';
+import { formatDate, formatDateShort, isoWeekday, today, weekdayName } from '@/lib/format';
 import { CALENDAR_EVENT_CODES, CALENDAR_EVENT_COLORS, CALENDAR_EVENT_LABELS, CONTROL_FORM_LABELS } from '@/lib/labels';
 import { useApi, useApiMutation } from '@/lib/query';
 import type { CalendarEvent, CalendarEventType } from '@/lib/types';
@@ -513,23 +514,29 @@ function EventDialog({ open, onOpenChange, programId }: { open: boolean; onOpenC
 
 function AssessmentsView({ programId, editable }: { programId: string; editable: boolean }) {
   const semesters = useSemesters();
-  const programSemesters = (semesters.data ?? []).filter((s) => s.educationalProgramId === programId);
+  const programSemesters = (semesters.data ?? [])
+    .filter((s) => s.educationalProgramId === programId)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate));
   const [semesterId, setSemesterId] = useState<string | null>(null);
-  const sid = semesterId ?? programSemesters[0]?.id ?? null;
+  // По умолчанию — текущий семестр (или ближайший предстоящий)
+  const now = today();
+  const current = programSemesters.find((s) => s.endDate.slice(0, 10) >= now) ?? programSemesters[programSemesters.length - 1];
+  const sid = semesterId && programSemesters.some((s) => s.id === semesterId) ? semesterId : (current?.id ?? null);
   const list = useApi<AssessmentEvent[]>(['assessments', sid], sid ? '/assessment-events' : null, { semesterId: sid ?? undefined });
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [view, setView] = useState<'board' | 'list'>('board');
   const autoPlace = useApiMutation(
     (replaceExisting: boolean) =>
       api.post<{ created: number; warnings: string[] }>('/assessment-events/auto-place', { semesterId: sid, replaceExisting }),
     {
       success: (r) => `Распределено контрольных мероприятий: ${r.created}`,
-      invalidate: [['assessments']],
+      invalidate: [['assessments'], ['assessment-board']],
       onSuccess: (r) => setWarnings(r.warnings),
     },
   );
   const remove = useApiMutation((id: string) => api.delete(`/assessment-events/${id}`), {
     success: 'Удалено',
-    invalidate: [['assessments']],
+    invalidate: [['assessments'], ['assessment-board']],
   });
   return (
     <div className="space-y-3">
@@ -559,6 +566,25 @@ function AssessmentsView({ programId, editable }: { programId: string; editable:
             onConfirm={() => autoPlace.mutate(true)}
           />
         )}
+        <div className="bg-muted ml-auto inline-flex rounded-md p-0.5">
+          {(
+            [
+              ['board', LayoutGrid, 'Редактор'],
+              ['list', List, 'Список'],
+            ] as const
+          ).map(([v, Icon, label]) => (
+            <Button
+              key={v}
+              size="sm"
+              variant={view === v ? 'secondary' : 'ghost'}
+              className={cn('h-7', view === v && 'bg-card shadow-xs')}
+              onClick={() => setView(v)}
+              aria-pressed={view === v}
+            >
+              <Icon /> {label}
+            </Button>
+          ))}
+        </div>
       </div>
       <Alert variant="info">
         <AlertDescription>
@@ -578,7 +604,13 @@ function AssessmentsView({ programId, editable }: { programId: string; editable:
           </AlertDescription>
         </Alert>
       )}
-      {list.isLoading ? (
+      {view === 'board' ? (
+        sid ? (
+          <AssessmentBoard semesterId={sid} editable={editable} />
+        ) : (
+          <EmptyState title="В учебном плане нет семестров" />
+        )
+      ) : list.isLoading ? (
         <LoadingState rows={4} />
       ) : list.error ? (
         <ErrorState error={list.error} />

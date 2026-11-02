@@ -163,6 +163,52 @@ export class CreateAssessmentDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({ description: 'Подобрать свободную пару и преподавателя по нагрузке' })
+  @IsOptional()
+  @IsBoolean()
+  autoPair?: boolean;
+}
+
+/** Перенос/правка контрольного мероприятия в интерактивном редакторе */
+export class UpdateAssessmentDto {
+  @ApiPropertyOptional({ example: '2025-12-24' })
+  @IsOptional()
+  @Matches(DATE_REGEX, { message: DATE_MESSAGE })
+  date?: string;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  lessonNumber?: number | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsUUID()
+  teacherId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsUUID()
+  classroomId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsString()
+  notes?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Если пара занята — подобрать первую свободную пару этого дня (перетаскивание)',
+  })
+  @IsOptional()
+  @IsBoolean()
+  autoPair?: boolean;
 }
 
 export class AutoPlaceAssessmentsDto {

@@ -22,6 +22,7 @@ import {
   CreateAssessmentDto,
   CreateCalendarEventDto,
   SetWeekTypeDto,
+  UpdateAssessmentDto,
   UpdateCalendarEventDto,
 } from './dto/calendar.dto';
 
@@ -572,43 +573,353 @@ export class CalendarService {
         id: dto.semesterCurriculumItemId,
         semester: { educationalProgramId: group.educationalProgramId },
       },
+      include: {
+        curriculumItem: { select: { name: true } },
+        assignments: {
+          where: { studentGroupId: group.id },
+          select: { teacherId: true, subgroupNumber: true },
+        },
+      },
     });
     if (!item) throw new BadRequestException('Дисциплина не относится к учебному плану группы');
-    if (dto.lessonNumber && (dto.teacherId || dto.classroomId)) {
-      const clash = await this.prisma.assessmentEvent.findFirst({
-        where: {
-          date: parseDate(dto.date),
-          lessonNumber: dto.lessonNumber,
-          group: { program: { organizationId: actor.organizationId } },
-          OR: [
-            ...(dto.teacherId ? [{ teacherId: dto.teacherId }] : []),
-            ...(dto.classroomId ? [{ classroomId: dto.classroomId }] : []),
-          ],
-        },
-        include: { group: { select: { code: true } } },
-      });
-      if (clash) {
-        throw new BadRequestException(
-          clash.teacherId && clash.teacherId === dto.teacherId
-            ? `Преподаватель в эту пару уже принимает контрольное мероприятие у группы ${clash.group.code}`
-            : `Аудитория в эту пару уже занята контрольным мероприятием группы ${clash.group.code}`,
-        );
-      }
-    }
+    const controlForm = dto.controlForm ?? item.controlForm;
+    // В редакторе графика мероприятие ставится перетаскиванием: преподаватель — по нагрузке группы
+    const teacherId =
+      dto.teacherId ??
+      (dto.autoPair
+        ? ((
+            item.assignments.find((a) => a.subgroupNumber === null && a.teacherId) ??
+            item.assignments.find((a) => a.teacherId)
+          )?.teacherId ?? null)
+        : null);
+    const slot = await this.checkAssessmentSlot(actor, {
+      group,
+      disciplineName: item.curriculumItem.name,
+      controlForm,
+      date: dto.date,
+      lessonNumber: dto.lessonNumber ?? null,
+      teacherId,
+      classroomId: dto.classroomId ?? null,
+      autoPair: !!dto.autoPair,
+    });
     const created = await this.prisma.assessmentEvent.create({
       data: {
         studentGroupId: dto.studentGroupId,
         semesterCurriculumItemId: dto.semesterCurriculumItemId,
-        controlForm: dto.controlForm ?? item.controlForm,
+        controlForm,
         date: parseDate(dto.date),
-        lessonNumber: dto.lessonNumber,
-        teacherId: dto.teacherId,
-        classroomId: dto.classroomId,
+        lessonNumber: slot.lessonNumber,
+        teacherId,
+        classroomId: slot.classroomId,
         notes: dto.notes,
       },
     });
     await this.audit.log(actor.id, 'CREATE', 'AssessmentEvent', created.id, null, created);
-    return created;
+    return { ...created, warnings: slot.warnings };
+  }
+
+  /** Перенос мероприятия на другой день/пару, смена преподавателя или аудитории */
+  async updateAssessment(id: string, dto: UpdateAssessmentDto, actor: AuthUser) {
+    const before = await this.prisma.assessmentEvent.findFirst({
+      where: { id, group: { program: { organizationId: actor.organizationId } } },
+      include: { group: true, semesterItem: { include: { curriculumItem: { select: { name: true } } } } },
+    });
+    if (!before) throw new NotFoundException('Контрольное мероприятие не найдено');
+    for (const [key, model] of [
+      ['teacherId', 'teacher'],
+      ['classroomId', 'classroom'],
+    ] as const) {
+      const value = dto[key];
+      if (!value) continue;
+      const found =
+        model === 'teacher'
+          ? await this.prisma.teacher.findFirst({
+              where: { id: value, organizationId: actor.organizationId },
+            })
+          : await this.prisma.classroom.findFirst({
+              where: { id: value, organizationId: actor.organizationId },
+            });
+      if (!found)
+        throw new BadRequestException(
+          model === 'teacher' ? 'Преподаватель не найден' : 'Аудитория не найдена',
+        );
+    }
+    const date = dto.date ?? toDateStr(before.date);
+    const teacherId = dto.teacherId !== undefined ? dto.teacherId : before.teacherId;
+    const slot = await this.checkAssessmentSlot(actor, {
+      excludeId: id,
+      group: before.group,
+      disciplineName: before.semesterItem.curriculumItem.name,
+      controlForm: before.controlForm,
+      date,
+      lessonNumber: dto.lessonNumber !== undefined ? dto.lessonNumber : before.lessonNumber,
+      teacherId,
+      classroomId: dto.classroomId !== undefined ? dto.classroomId : before.classroomId,
+      autoPair: !!dto.autoPair,
+    });
+    const after = await this.prisma.assessmentEvent.update({
+      where: { id },
+      data: {
+        date: parseDate(date),
+        lessonNumber: slot.lessonNumber,
+        teacherId,
+        classroomId: slot.classroomId,
+        notes: dto.notes !== undefined ? dto.notes : undefined,
+      },
+    });
+    const { group: _g, semesterItem: _s, ...plain } = before;
+    await this.audit.log(actor.id, 'UPDATE', 'AssessmentEvent', id, plain, after);
+    return { ...after, warnings: slot.warnings };
+  }
+
+  /**
+   * Проверка дня и пары контрольного мероприятия. Жёсткие накладки (группа, преподаватель или аудитория
+   * уже заняты другим мероприятием, выходной, праздник, каникулы) — ошибка; занятия расписания в ту же пару,
+   * экзамен вне сессии или без дня подготовки — предупреждения. autoPair — подобрать свободную пару дня.
+   */
+  private async checkAssessmentSlot(
+    actor: AuthUser,
+    p: {
+      excludeId?: string;
+      group: { id: string; code: string; studentCount: number };
+      disciplineName: string;
+      controlForm: ControlForm;
+      date: string;
+      lessonNumber: number | null;
+      teacherId: string | null;
+      classroomId: string | null;
+      autoPair: boolean;
+    },
+  ): Promise<{ lessonNumber: number | null; classroomId: string | null; warnings: string[] }> {
+    const settings = await this.settings.getEffective(actor.organizationId);
+    const day = parseDate(p.date);
+    const [ctx, events, lessons] = await Promise.all([
+      this.planning.buildCalendarContext(actor.organizationId, p.date, p.date, [p.group.id]),
+      this.prisma.assessmentEvent.findMany({
+        where: {
+          id: p.excludeId ? { not: p.excludeId } : undefined,
+          group: { program: { organizationId: actor.organizationId } },
+          date: { gte: parseDate(addDaysStr(p.date, -2)), lte: parseDate(addDaysStr(p.date, 2)) },
+        },
+        include: {
+          group: { select: { code: true } },
+          semesterItem: { include: { curriculumItem: { select: { name: true } } } },
+        },
+      }),
+      this.prisma.scheduleLesson.findMany({
+        where: {
+          schedulePeriod: { organizationId: actor.organizationId },
+          date: day,
+          status: { in: ACTIVE_STATUSES },
+        },
+        select: {
+          lessonNumber: true,
+          teacherId: true,
+          classroomId: true,
+          studentGroupId: true,
+          studentGroup: { select: { code: true } },
+        },
+      }),
+    ]);
+    const sameDay = events.filter((e) => toDateStr(e.date) === p.date && e.lessonNumber !== null);
+    const formName = (f: ControlForm) => (EXAM_FORMS.includes(f) ? 'экзамен' : 'зачёт');
+
+    const hardConflict = (pair: number, classroomId: string | null): string | null => {
+      for (const e of sameDay) {
+        if (e.lessonNumber !== pair) continue;
+        if (e.studentGroupId === p.group.id) {
+          return `У группы ${p.group.code} в ${pair} пару уже ${formName(e.controlForm)} «${e.semesterItem.curriculumItem.name}»`;
+        }
+        if (p.teacherId && e.teacherId === p.teacherId) {
+          return `Преподаватель в эту пару уже принимает контрольное мероприятие у группы ${e.group.code}`;
+        }
+        if (classroomId && e.classroomId === classroomId) {
+          return `Аудитория в эту пару уже занята контрольным мероприятием группы ${e.group.code}`;
+        }
+      }
+      return null;
+    };
+    const softConflicts = (pair: number, classroomId: string | null): string[] => {
+      const out: string[] = [];
+      for (const l of lessons) {
+        if (l.lessonNumber !== pair) continue;
+        if (p.teacherId && l.teacherId === p.teacherId && l.studentGroupId !== p.group.id) {
+          out.push(`У преподавателя в ${pair} пару занятие по расписанию у группы ${l.studentGroup.code}`);
+        } else if (classroomId && l.classroomId === classroomId && l.studentGroupId !== p.group.id) {
+          out.push(`Аудитория в ${pair} пару занята занятием группы ${l.studentGroup.code}`);
+        }
+      }
+      return [...new Set(out)];
+    };
+
+    let lessonNumber = p.lessonNumber;
+    let classroomId = p.classroomId;
+    if (lessonNumber !== null && !p.autoPair) {
+      const hard = hardConflict(lessonNumber, classroomId);
+      if (hard) throw new BadRequestException(hard);
+    }
+
+    const info = ctx.groupDay(p.group.id, p.date);
+    if (!info.isWorkingDay)
+      throw new BadRequestException('Это выходной день — контрольные мероприятия в него не ставятся');
+    const closed = info.blocks.find(
+      (b) => b.eventType === CalendarEventType.HOLIDAY || b.eventType === CalendarEventType.VACATION,
+    );
+    if (closed) throw new BadRequestException(`У группы ${p.group.code} в этот день «${closed.title}»`);
+
+    const warnings: string[] = [];
+    if (p.autoPair) {
+      const total = Math.max(1, settings.lessonsPerDay);
+      const pairs = [
+        ...(lessonNumber ? [lessonNumber] : []),
+        ...Array.from({ length: total }, (_, i) => i + 1).filter((n) => n !== lessonNumber),
+      ];
+      // Аудитория: прежняя, если свободна, иначе подходящая по вместимости
+      const rooms = classroomId
+        ? []
+        : (
+            await this.prisma.classroom.findMany({
+              where: {
+                organizationId: actor.organizationId,
+                isActive: true,
+                capacity: { gte: p.group.studentCount },
+                classroomType: {
+                  in: [ClassroomType.LECTURE, ClassroomType.GENERAL, ClassroomType.COMPUTER_LAB],
+                },
+              },
+              select: { id: true, capacity: true },
+              orderBy: { capacity: 'asc' },
+            })
+          ).map((r) => r.id);
+      const roomFor = (pair: number) =>
+        classroomId ??
+        rooms.find(
+          (r) =>
+            !hardConflict(pair, r) && !lessons.some((l) => l.lessonNumber === pair && l.classroomId === r),
+        ) ??
+        null;
+      const candidates = pairs
+        .map((n) => ({ n, room: roomFor(n) }))
+        .filter((c) => !hardConflict(c.n, c.room));
+      const best = candidates.find((c) => softConflicts(c.n, c.room).length === 0) ?? candidates[0];
+      if (!best) {
+        throw new BadRequestException(
+          hardConflict(pairs[0], classroomId) ?? 'В этот день нет свободной пары для мероприятия',
+        );
+      }
+      lessonNumber = best.n;
+      classroomId = best.room;
+    }
+    if (lessonNumber !== null) warnings.push(...softConflicts(lessonNumber, classroomId));
+
+    if (EXAM_FORMS.includes(p.controlForm)) {
+      if (!info.blocks.some((b) => b.eventType === CalendarEventType.EXAM_SESSION)) {
+        warnings.push('Экзамен поставлен вне недель промежуточной аттестации');
+      }
+      const near = events.find(
+        (e) =>
+          e.studentGroupId === p.group.id &&
+          EXAM_FORMS.includes(e.controlForm) &&
+          Math.abs(diff(toDateStr(e.date), p.date)) <= 1,
+      );
+      if (near) {
+        warnings.push(
+          toDateStr(near.date) === p.date
+            ? `В этот день у группы уже экзамен «${near.semesterItem.curriculumItem.name}»`
+            : `Нет дня на подготовку: рядом экзамен «${near.semesterItem.curriculumItem.name}»`,
+        );
+      }
+    }
+    if (p.teacherId) {
+      const blocks = ctx
+        .teacherBlocks(p.teacherId, p.date)
+        .filter((b) => b.eventType !== CalendarEventType.HOLIDAY);
+      if (blocks.length)
+        warnings.push(`У преподавателя в этот день: ${blocks.map((b) => b.title).join(', ')}`);
+    }
+    return { lessonNumber, classroomId, warnings };
+  }
+
+  /**
+   * Данные интерактивного редактора экзаменов и зачётов: рабочие дни семестра (с запасом
+   * на сессию после него), тип каждого дня для каждой группы, мероприятия и ещё не назначенные.
+   */
+  async assessmentBoard(semesterId: string, actor: AuthUser) {
+    const semester = await this.prisma.semester.findFirst({
+      where: { id: semesterId, program: { organizationId: actor.organizationId } },
+    });
+    if (!semester) throw new NotFoundException('Семестр не найден');
+    const settings = await this.settings.getEffective(actor.organizationId);
+    const from = weekStart(semester.startDate);
+    const until = addDaysStr(weekStart(addDaysStr(semester.endDate, 14)), 6);
+    const groups = await this.prisma.studentGroup.findMany({
+      where: { educationalProgramId: semester.educationalProgramId, isActive: true },
+      select: { id: true, code: true, studentCount: true },
+      orderBy: { code: 'asc' },
+    });
+    const groupIds = groups.map((g) => g.id);
+    const [ctx, events, items] = await Promise.all([
+      this.planning.buildCalendarContext(actor.organizationId, from, until, groupIds),
+      this.listAssessments(actor, { semesterId }),
+      this.prisma.semesterCurriculumItem.findMany({
+        where: { semesterId, controlForm: { not: ControlForm.NONE } },
+        include: {
+          curriculumItem: { select: { code: true, name: true } },
+          assignments: {
+            where: { studentGroupId: { in: groupIds } },
+            select: {
+              studentGroupId: true,
+              subgroupNumber: true,
+              teacher: { select: { id: true, fullName: true } },
+            },
+          },
+        },
+        orderBy: { curriculumItem: { sortOrder: 'asc' } },
+      }),
+    ]);
+    const days = eachDay(from, until).filter((d) => settings.workingDays.includes(isoWeekday(d)));
+    const PRIORITY: CalendarEventType[] = [
+      CalendarEventType.HOLIDAY,
+      CalendarEventType.VACATION,
+      CalendarEventType.EXAM_SESSION,
+    ];
+    const kindOf = (groupId: string, d: string): string => {
+      const info = ctx.groupDay(groupId, d);
+      const types = info.blocks.map((b) => b.eventType as CalendarEventType);
+      const top = PRIORITY.find((t) => types.includes(t)) ?? types[0] ?? info.practiceTypes[0];
+      if (top) return top;
+      return d >= toDateStr(semester.startDate) && d <= toDateStr(semester.endDate) ? 'STUDY' : 'NONE';
+    };
+    const placed = new Set(events.map((e) => `${e.studentGroupId}|${e.semesterCurriculumItemId}`));
+    const pending = groups.flatMap((g) =>
+      items
+        .filter((i) => !placed.has(`${g.id}|${i.id}`))
+        .map((i) => {
+          const own = i.assignments.filter((a) => a.studentGroupId === g.id && a.teacher);
+          const teacher = (own.find((a) => a.subgroupNumber === null) ?? own[0])?.teacher ?? null;
+          return {
+            groupId: g.id,
+            semesterCurriculumItemId: i.id,
+            controlForm: i.controlForm,
+            code: i.curriculumItem.code,
+            name: i.curriculumItem.name,
+            teacher,
+          };
+        }),
+    );
+    return {
+      semester: {
+        id: semester.id,
+        number: semester.number,
+        startDate: toDateStr(semester.startDate),
+        endDate: toDateStr(semester.endDate),
+      },
+      lessonsPerDay: settings.lessonsPerDay,
+      days,
+      groups: groups.map((g) => ({ ...g, kinds: days.map((d) => kindOf(g.id, d)) })),
+      events,
+      pending,
+    };
   }
 
   async removeAssessment(id: string, actor: AuthUser) {
