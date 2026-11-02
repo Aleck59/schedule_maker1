@@ -135,6 +135,8 @@ class State:
         self.persp_day: dict[tuple[str, int, str], set[int]] = defaultdict(set)
         self.disc_day: dict[tuple[str, str], set[int]] = defaultdict(set)
         self.disc_week: dict[tuple[str, int], int] = defaultdict(int)
+        # Занятые слоты группы в неделе (параллельные подгруппы — одна пара)
+        self.group_week: dict[tuple[str, int], int] = defaultdict(int)
         self.group_day_buildings: dict[tuple[str, str], dict[str, int]] = defaultdict(
             lambda: defaultdict(int)
         )
@@ -158,7 +160,10 @@ class State:
         discipline_keys: list[str],
     ) -> None:
         for g in group_ids:
-            self.group_slot[(g, day.key, lesson)].add(subgroup or 0)
+            markers = self.group_slot[(g, day.key, lesson)]
+            if not markers:
+                self.group_week[(g, day.week)] += 1
+            markers.add(subgroup or 0)
             for p in self.perspectives(g, subgroup):
                 self.persp_day[(g, p, day.key)].add(lesson)
             room = self.rooms.get(room_id) if room_id else None
@@ -311,12 +316,20 @@ class CpSatScheduler:
             if markers:
                 if d.subgroup_number is None or 0 in markers or d.subgroup_number in markers:
                     return False
+            else:
+                limit = self.week_limit(g, day.week)
+                if limit is not None and st.group_week.get((g, day.week), 0) >= limit:
+                    return False
         if not self.relaxed:
             for k in d.discipline_keys:
                 used = st.disc_day.get((k, day.key), set())
                 if len(used) >= s.max_same_discipline_per_day and lesson not in used:
                     return False
         return True
+
+    def week_limit(self, group_id: str, week: int) -> int | None:
+        group = self.groups.get(group_id)
+        return group.week_limit(week) if group else None
 
     def _room_ok(self, st: State, room_id: str, day: DayRef, lesson: int) -> bool:
         room = self.rooms.get(room_id)
@@ -447,6 +460,26 @@ class CpSatScheduler:
             if len(vars_) > 1:
                 model.add(sum(vars_) <= 1)
 
+        # Максимум пар группы в неделю: новые занятые слоты группы (подгруппы параллельно — один слот)
+        week_no = days[0].week
+        group_new_slot: dict[tuple[str, str, int], list[cp_model.IntVar]] = defaultdict(list)
+        for (i, dk, lesson), vars_ in y.items():
+            for g in active[i].d.group_ids:
+                if self.week_limit(g, week_no) is not None and not st.group_slot.get((g, dk, lesson)):
+                    group_new_slot[(g, dk, lesson)].extend(vars_)
+        group_week_slots: dict[str, list] = defaultdict(list)
+        for (g, dk, lesson), vars_ in group_new_slot.items():
+            if len(vars_) == 1:
+                group_week_slots[g].append(vars_[0])
+            else:
+                used = model.new_bool_var(f"gs_{g[:6]}_{dk}_{lesson}")
+                model.add_max_equality(used, vars_)
+                group_week_slots[g].append(used)
+        for g, slots in group_week_slots.items():
+            limit = self.week_limit(g, week_no) - st.group_week.get((g, week_no), 0)
+            if len(slots) > limit:
+                model.add(sum(slots) <= max(0, limit))
+
         # Преподаватели
         teacher_slot: dict[tuple[str, str, int], list[cp_model.IntVar]] = defaultdict(list)
         teacher_day: dict[tuple[str, str], list[cp_model.IntVar]] = defaultdict(list)
@@ -462,7 +495,6 @@ class CpSatScheduler:
         for (t, dk), vars_ in teacher_day.items():
             limit = self.teachers[t].daily_limit(dk) - len(st.teacher_day.get((t, dk), set()))
             self._cap(model, objective, vars_, limit, f"tdo_{t[:6]}_{dk}")
-        week_no = days[0].week
         for t, vars_ in teacher_week.items():
             # Неделя после выхода из отсутствия (с отработкой) — лимит увеличен
             limit = max(self.teachers[t].weekly_limit(d.key) for d in days) - st.teacher_week.get(

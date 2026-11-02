@@ -94,6 +94,58 @@ export class UpdateSettingsDto {
   @Min(0)
   maxTeacherWindowsPerWeek?: number;
 
+  @ApiPropertyOptional({
+    example: 18,
+    description: 'Очная форма: максимум пар у группы в неделю; null — без ограничения',
+  })
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(1)
+  @Max(70)
+  maxWeeklyLessonsFullTime?: number | null;
+
+  @ApiPropertyOptional({
+    example: 8,
+    description: 'Очно-заочная форма: максимум пар у группы в неделю; null — без ограничения',
+  })
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(1)
+  @Max(70)
+  maxWeeklyLessonsPartTime?: number | null;
+
+  @ApiPropertyOptional({
+    example: 18,
+    description: 'Заочная форма: максимум пар у группы в неделю; null — без ограничения',
+  })
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(1)
+  @Max(70)
+  maxWeeklyLessonsExtramural?: number | null;
+
+  @ApiPropertyOptional({
+    description:
+      'В неделю, когда у заочных групп есть занятия, очным группам ставить не более fullTimeWeeklyOnExtramural пар',
+  })
+  @IsOptional()
+  @IsBoolean()
+  reduceFullTimeOnExtramural?: boolean;
+
+  @ApiPropertyOptional({
+    example: 15,
+    description: 'Очная форма: максимум пар в неделю, когда у заочников занятия',
+  })
+  @IsOptional()
+  @ValidateIf((_o, v) => v !== null)
+  @IsInt()
+  @Min(0)
+  @Max(70)
+  fullTimeWeeklyOnExtramural?: number | null;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsInt()

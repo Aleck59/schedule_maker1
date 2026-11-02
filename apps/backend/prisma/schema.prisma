@@ -283,6 +283,13 @@ model OrganizationSettings {
   /// Учебные дни недели (1 — понедельник ... 7 — воскресенье)
   workingDays                Int[]    @default([1, 2, 3, 4, 5, 6])
   maxGroupWindowsPerWeek     Int      @default(2)
+  /// Максимум пар у группы в неделю по формам обучения (жёстко); null — без ограничения
+  maxWeeklyLessonsFullTime   Int?
+  maxWeeklyLessonsPartTime   Int?
+  maxWeeklyLessonsExtramural Int?
+  /// В неделю, когда у заочных групп есть занятия, очным группам — не более fullTimeWeeklyOnExtramural пар
+  reduceFullTimeOnExtramural Boolean  @default(false)
+  fullTimeWeeklyOnExtramural Int?
   maxTeacherWindowsPerWeek   Int      @default(4)
   maxExamsPerWeek            Int      @default(3)
   maxBuildingChangesPerDay   Int      @default(1)

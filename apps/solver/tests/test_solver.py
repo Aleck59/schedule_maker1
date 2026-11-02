@@ -527,3 +527,55 @@ def test_room_type_is_preference_not_hard_constraint():
     assert result.unplaced == []
     assert any(p.room_id == "r_gen" for p in result.placements)
     check_hard_constraints(problem, result)
+
+
+def group_week_slots(problem: Problem, result) -> Counter:
+    """Занятых слотов группы в неделе (параллельные подгруппы — одна пара)."""
+    demands = {d.id: d for d in problem.demands}
+    week_of = {d.date: d.week for d in problem.days}
+    slots = set()
+    for p in result.placements:
+        for g in demands[p.demand_id].group_ids:
+            slots.add((g, week_of[p.date], p.date, p.lesson_number))
+    return Counter((g, w) for g, w, _d, _l in slots)
+
+
+def test_group_weekly_limit_is_hard_and_counts_parallel_subgroups_once():
+    raw = base_problem()
+    raw["groups"][0]["maxLessonsPerWeek"] = 5
+    # Особая неделя (у заочников занятия): не более 2 пар
+    raw["groups"][0]["weekLimits"] = [[1, 2]]
+    raw["settings"]["maximizePlacement"] = True
+    raw["demands"] = [
+        demand("lec", ["g1"], "t2", 12, ["r_lec"], key="lec"),
+        demand("lab1", ["g1"], "t1", 8, ["r_pc1"], sub=1, key="lab", lessonType="LAB", size=13),
+        demand("lab2", ["g1"], "t3", 8, ["r_pc2"], sub=2, key="lab", lessonType="LAB", size=12),
+        demand("other", ["g2"], "t2", 12, ["r_gen"], size=20),
+    ]
+    problem = Problem.model_validate(raw)
+    result = solve(problem)
+    check_hard_constraints(problem, result)
+    counts = group_week_slots(problem, result)
+    for w in range(4):
+        assert counts[("g1", w)] <= (2 if w == 1 else 5)
+    # Лимит не отнимает пары у другой группы
+    assert counts[("g2", 0)] + counts[("g2", 1)] + counts[("g2", 2)] + counts[("g2", 3)] == 12
+    # Лабораторные подгрупп параллельно не тратят лишний слот: группе ставится больше пар, чем слотов
+    g1_lessons = sum(1 for p in result.placements if p.demand_id != "other")
+    assert g1_lessons >= sum(counts[("g1", w)] for w in range(4))
+
+
+def test_group_weekly_limit_respects_occupied_lessons():
+    raw = base_problem(days=make_days("2025-09-01", 1))
+    dates = [d["date"] for d in raw["days"]]
+    for g in raw["groups"]:
+        g["allowedDates"] = dates
+    raw["groups"][1]["maxLessonsPerWeek"] = 4
+    raw["occupied"] = [
+        {"date": dates[0], "lessonNumber": n, "groupId": "g2", "teacherId": "t3", "roomId": "r_gen"}
+        for n in (1, 2, 3)
+    ]
+    raw["demands"] = [demand("a", ["g2"], "t2", 6, ["r_lec"], size=20)]
+    problem = Problem.model_validate(raw)
+    result = solve(problem)
+    assert result.stats.placed_lessons == 1

@@ -24,6 +24,10 @@ export interface SolverGroup {
   maxLessonsPerDay: number;
   /** Допустимые номера пар группы (вторая смена, вечерние группы); не задано — все пары */
   allowedLessons?: number[];
+  /** Жёсткий лимит пар группы в неделю (по форме обучения); не задано — без ограничения */
+  maxLessonsPerWeek?: number;
+  /** [номер недели, лимит] — особый лимит отдельных недель (очники, когда у заочников занятия) */
+  weekLimits?: Array<[number, number]>;
 }
 
 export interface SolverTeacher {
@@ -178,6 +182,7 @@ export type UnplacedReason =
   | 'TEACHER_BUSY'
   | 'TEACHER_LIMIT'
   | 'GROUP_BUSY'
+  | 'GROUP_WEEKLY_LIMIT'
   | 'ROOM_SHORTAGE'
   | 'DAILY_LIMITS'
   | 'NOT_ENOUGH_TIME';

@@ -23,6 +23,8 @@ import { PlanningService } from '../planning/planning.service';
 import { employmentRestriction, levelRestriction } from '../common/utils/teacher-levels';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
+import { STUDY_FORM_LABELS } from '../common/utils/labels';
+import { weeklyLessonLimit } from '../common/utils/weekly-limits';
 import { BLOCKING_TYPES, ValidationIssue, ValidationSummary } from './validation.types';
 
 const lessonInclude = {
@@ -33,7 +35,7 @@ const lessonInclude = {
       studentCount: true,
       subgroupCount: true,
       subgroups: true,
-      program: { select: { specialty: { select: { educationLevel: true } } } },
+      program: { select: { studyForm: true, specialty: { select: { educationLevel: true } } } },
     },
   },
   teacher: { include: { availability: true, availabilityRules: true } },
@@ -474,6 +476,30 @@ export class ScheduleValidatorService {
           entityType: 'StudentGroup',
           entityId: groupId,
           message: `${groupCode.get(groupId)}: ${set.size} пар ${formatDateRu(date)} (рекомендуется не более ${settings.maxGroupLessonsPerDay})`,
+        });
+      }
+    }
+    // Максимум пар группы в неделю по форме обучения (параллельные подгруппы — одна пара)
+    const groupWeekSlots = new Map<string, Set<string>>();
+    const groupForm = new Map(lessons.map((l) => [l.studentGroupId, l.studentGroup.program.studyForm]));
+    for (const l of lessons) {
+      const date = toDateStr(l.date);
+      const wk = `${l.studentGroupId}#${weekStart(date)}`;
+      const set = groupWeekSlots.get(wk) ?? new Set<string>();
+      set.add(`${date}#${l.lessonNumber}`);
+      groupWeekSlots.set(wk, set);
+    }
+    for (const [wk, set] of groupWeekSlots) {
+      const [groupId, week] = wk.split('#');
+      const form = groupForm.get(groupId)!;
+      const limit = weeklyLessonLimit(settings, form);
+      if (limit !== null && set.size > limit) {
+        add({
+          severity: Severity.WARNING,
+          validationType: 'GROUP_WEEKLY_LIMIT',
+          entityType: 'StudentGroup',
+          entityId: groupId,
+          message: `${groupCode.get(groupId)}: ${set.size} пар на неделе с ${formatDateRu(week)} (для формы «${STUDY_FORM_LABELS[form]}» — не более ${limit})`,
         });
       }
     }

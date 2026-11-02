@@ -156,6 +156,13 @@ export function quickFixes(code: string, s: RerunSettings): QuickFix[] {
         to: '/calendar',
       });
       break;
+    case 'GROUP_WEEKLY_LIMIT':
+      push({
+        label: 'Максимум пар в неделю',
+        hint: 'Лимит пар группы в неделю по форме обучения задаётся в настройках',
+        to: '/settings',
+      });
+      break;
     case 'DAILY_LIMITS':
       push(
         maximize(),

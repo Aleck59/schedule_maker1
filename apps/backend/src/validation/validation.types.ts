@@ -32,6 +32,7 @@ export const VALIDATION_TYPE_LABELS: Record<string, string> = {
   HOURS_EXCESS_APPROVED: 'Превышение часов (разрешено)',
   HOURS_DEFICIT: 'Дефицит часов',
   GROUP_DAILY_LIMIT: 'Превышение лимита пар группы в день',
+  GROUP_WEEKLY_LIMIT: 'Превышение максимума пар группы в неделю',
   TEACHER_OVERLOAD: 'Перегрузка преподавателя',
   GROUP_WINDOWS: 'Окна у группы',
   TEACHER_WINDOWS: 'Окна у преподавателя',
