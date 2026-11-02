@@ -16,3 +16,13 @@
 docs
 dump.rdb
 apps/solver/tests
+# Тесты, логи и отчёты в образы не попадают: их изменение не должно сбивать кэш слоёв
+apps/backend/test
+**/*.spec.ts
+**/*.test.ts
+**/*.test.tsx
+**/*.log
+**/test-results
+**/playwright-report
+.claude
+*.md
