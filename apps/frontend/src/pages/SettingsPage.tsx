@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Compass, ImageUp, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Field } from '@/components/common/field';
 import { PageHeader } from '@/components/common/page-header';
+import { SlowLoadsLog } from '@/components/settings/slow-loads-log';
 import { ErrorState, LoadingState, Spinner } from '@/components/common/states';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -64,6 +65,7 @@ interface AuditEntry {
 export default function SettingsPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const [params] = useSearchParams();
   const settings = useSettings();
   if (settings.isLoading) return <LoadingState rows={8} />;
   if (settings.error) return <ErrorState error={settings.error} onRetry={() => settings.refetch()} />;
@@ -86,12 +88,13 @@ export default function SettingsPage() {
           <AlertDescription>Изменять настройки может только администратор. Диспетчеру доступен просмотр и журнал изменений.</AlertDescription>
         </Alert>
       )}
-      <Tabs defaultValue="rules">
+      <Tabs defaultValue={params.get('tab') ?? 'rules'}>
         <TabsList>
           <TabsTrigger value="rules">Правила расписания</TabsTrigger>
           <TabsTrigger value="bells">Звонки</TabsTrigger>
           <TabsTrigger value="org">Организация</TabsTrigger>
           <TabsTrigger value="audit">Журнал изменений</TabsTrigger>
+          <TabsTrigger value="slow">Долгие загрузки</TabsTrigger>
         </TabsList>
         <TabsContent value="rules">
           <RulesForm settings={data.settings} editable={isAdmin} />
@@ -107,6 +110,9 @@ export default function SettingsPage() {
         </TabsContent>
         <TabsContent value="audit">
           <AuditLog />
+        </TabsContent>
+        <TabsContent value="slow">
+          <SlowLoadsLog canClear={isAdmin} />
         </TabsContent>
       </Tabs>
     </div>

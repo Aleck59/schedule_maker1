@@ -255,6 +255,7 @@ model Organization {
   holidayTransfers   HolidayTransfer[]
   permanentSchedules PermanentSchedule[]
   reportForms        ReportForm[]
+  slowLoads          SlowLoadLog[]
 
   @@map("organizations")
 }
@@ -350,6 +351,7 @@ model User {
   notifications         Notification[]
   approvedSubstitutions TeacherSubstitution[]
   generationJobs        ScheduleGenerationJob[]
+  slowLoads             SlowLoadLog[]
 
   @@index([organizationId])
   @@map("users")
@@ -1263,4 +1265,29 @@ model ReportForm {
 
   @@index([organizationId])
   @@map("report_forms")
+}
+
+// ============================================================================
+// Журнал долгих загрузок страниц (ожидание дольше 15 с)
+// ============================================================================
+
+model SlowLoadLog {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String?
+  /// Адрес страницы, на которой пользователь ждал
+  page           String
+  /// Запросы, которых ждала страница
+  requests       String[]
+  /// Длительность ожидания, мс
+  durationMs     Int
+  /// Чем закончилось: LOADED — загрузилось, ERROR — ошибка, LEFT — пользователь ушёл со страницы
+  outcome        String
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@map("slow_load_logs")
 }

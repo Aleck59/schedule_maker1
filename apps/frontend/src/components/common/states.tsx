@@ -1,16 +1,59 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { AlertTriangle, Inbox, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'react-router-dom';
 import { ApiError, errorMessage } from '@/lib/api';
+import { cn } from '@/lib/utils';
+import { formatWait, useElapsed, usePageWait, WAIT_INDICATOR_MS, waitWatch } from '@/lib/wait-watch';
 
-export function LoadingState({ rows = 4 }: { rows?: number }) {
+/** Спиннер с подписью «Ожидание 7.4с» */
+export function WaitBadge({ ms, className }: { ms: number; className?: string }) {
   return (
-    <div className="space-y-2">
+    <div
+      role="status"
+      aria-live="polite"
+      className={cn(
+        'animate-fade-in bg-card/95 text-foreground inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium shadow-lg backdrop-blur',
+        className,
+      )}
+    >
+      <Loader2 className="text-primary size-4 animate-spin" />
+      Ожидание <span className="tabular-nums">{formatWait(ms)}</span>
+    </div>
+  );
+}
+
+/** Заглушка загрузки; если данные не пришли за 5 с — поверх неё спиннер «Ожидание» с секундами */
+export function LoadingState({ rows = 4 }: { rows?: number }) {
+  const [start] = useState(() => Date.now());
+  const ms = useElapsed(start);
+  useEffect(() => waitWatch.registerInline(), []);
+  return (
+    <div className="relative space-y-2">
       {Array.from({ length: rows }).map((_, i) => (
         <Skeleton key={i} className="h-9 w-full" />
       ))}
+      {ms >= WAIT_INDICATOR_MS && (
+        <div className="absolute inset-0 flex items-start justify-center pt-2">
+          <WaitBadge ms={ms} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Общий индикатор ожидания для страниц без своего блока загрузки: если данные страницы
+ * не пришли за 5 с, внизу экрана появляется «Ожидание 5.0с»
+ */
+export function PageWaitIndicator() {
+  const { start, inline } = usePageWait();
+  const ms = useElapsed(start);
+  if (start === null || inline > 0 || ms < WAIT_INDICATOR_MS) return null;
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center px-4">
+      <WaitBadge ms={ms} />
     </div>
   );
 }

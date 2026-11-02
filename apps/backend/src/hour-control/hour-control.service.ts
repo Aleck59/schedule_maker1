@@ -54,20 +54,6 @@ export interface HourControlSummary {
 const STATUS_RANK: Record<HourStatus, number> = { EXCESS: 3, DEFICIT: 2, RISK: 1, NORMAL: 0 };
 
 /** Контроль выполнения часов учебного плана */
-/** Параллельная обработка с ограничением числа одновременных задач; порядок результатов как у входа */
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await fn(items[i]);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-}
-
 @Injectable()
 export class HourControlService {
   constructor(
@@ -472,43 +458,188 @@ export class HourControlService {
     };
   }
 
-  /** Сводка нагрузки всех преподавателей (для списка и отчёта) */
+  /**
+   * Сводка нагрузки всех преподавателей (для списка и отчёта).
+   * Считается теми же правилами, что и {@link teacherWorkload}, но данные загружаются одним
+   * набором запросов на всю организацию, а не по каждому преподавателю
+   */
   async allTeachersWorkload(organizationId: string, semesterId?: string, current = false) {
     const teachers = await this.prisma.teacher.findMany({
       where: { organizationId },
       orderBy: { fullName: 'asc' },
     });
     // «Текущие семестры» — все семестры организации (СПО и ВО), в которые попадает сегодняшний день
-    const semesters = semesterId
+    const semesterIds = semesterId
       ? [semesterId]
       : current
         ? await this.currentSemesterIds(organizationId)
         : undefined;
-    // Преподаватели считаются параллельно (по 8), порядок результата сохраняется
-    const workloads = await mapLimit(teachers, 8, (t) =>
-      this.teacherWorkload(organizationId, t.id, semesters),
-    );
-    const result = [];
-    for (const [i, t] of teachers.entries()) {
-      const w = workloads[i];
-      result.push({
+    const settings = await this.settings.getEffective(organizationId);
+    const today = todayInTimezone(settings.timezone);
+    const lessonWhere: Prisma.ScheduleLessonWhereInput = {
+      schedulePeriod: { organizationId },
+      semesterItem: semesterIds ? { semesterId: { in: semesterIds } } : undefined,
+    };
+    const [allStreams, lessons, conducted] = await Promise.all([
+      this.planning.getStreams({ organizationId, semesterIds, includeInactiveGroups: true }),
+      this.prisma.scheduleLesson.findMany({
+        where: lessonWhere,
+        select: {
+          id: true,
+          date: true,
+          lessonNumber: true,
+          status: true,
+          academicHours: true,
+          lessonType: true,
+          streamKey: true,
+          teacherId: true,
+          studentGroupId: true,
+          semesterCurriculumItemId: true,
+          subgroupNumber: true,
+          substitutions: { select: { originalTeacherId: true }, orderBy: { createdAt: 'asc' } },
+        },
+      }),
+      this.prisma.conductedLesson.findMany({
+        where: {
+          status: ConductedStatus.CONDUCTED,
+          actualTeacherId: { not: null },
+          scheduleLesson: lessonWhere,
+        },
+        select: {
+          scheduleLessonId: true,
+          actualHours: true,
+          actualTeacherId: true,
+          scheduleLesson: {
+            select: { date: true, lessonNumber: true, streamKey: true, lessonType: true, teacherId: true },
+          },
+        },
+      }),
+    ]);
+
+    const push = <K, V>(map: Map<K, V[]>, key: K, value: V) => {
+      const list = map.get(key);
+      if (list) list.push(value);
+      else map.set(key, [value]);
+    };
+    type L = (typeof lessons)[number];
+    const lessonOwner = (l: L) => l.substitutions[0]?.originalTeacherId ?? l.teacherId;
+    const keyOf = (l: L) =>
+      streamKeyOf(l.studentGroupId, l.semesterCurriculumItemId, l.lessonType, l.subgroupNumber);
+    const unitKey = (l: { id: string; streamKey: string | null; date: Date; lessonNumber: number }) =>
+      l.streamKey ? `${l.streamKey}|${toDateStr(l.date)}|${l.lessonNumber}` : l.id;
+
+    const streamsByTeacher = new Map<string, DemandStream[]>();
+    for (const s of allStreams) if (s.teacherId) push(streamsByTeacher, s.teacherId, s);
+    const asTeacherBy = new Map<string, L[]>();
+    const ownedBy = new Map<string, L[]>();
+    const activeByKey = new Map<string, L[]>();
+    for (const l of lessons) {
+      if (l.teacherId) push(asTeacherBy, l.teacherId, l);
+      if (!ACTIVE_STATUSES.includes(l.status)) continue;
+      const owner = lessonOwner(l);
+      if (owner) push(ownedBy, owner, l);
+      push(activeByKey, keyOf(l), l);
+    }
+    const conductedBy = new Map<string, typeof conducted>();
+    for (const c of conducted) push(conductedBy, c.actualTeacherId!, c);
+
+    const weekFrom = weekStart(today);
+    const weekTo = addDaysStr(weekFrom, 6);
+    const sum = (o: Record<string, number>) => Object.values(o).reduce((a, b) => a + b, 0);
+
+    return teachers.map((t) => {
+      const streams = streamsByTeacher.get(t.id) ?? [];
+      const myKeys = new Set(streams.map((s) => s.key));
+      // Часы по дисциплинам, которые провёл (или ведёт) другой преподаватель
+      const handedOver = new Map<string, number>();
+      for (const key of myKeys) {
+        for (const l of activeByKey.get(key) ?? []) {
+          const owner = lessonOwner(l);
+          if (!owner || owner === t.id) continue;
+          handedOver.set(key, (handedOver.get(key) ?? 0) + l.academicHours);
+        }
+      }
+      const plannedByType: Record<string, number> = {};
+      const seenStream = new Set<string>();
+      for (const s of streams) {
+        if (s.streamKey && s.subgroupNumber === null) {
+          const k = `${s.streamKey}|${s.lessonType}`;
+          if (seenStream.has(k)) continue;
+          seenStream.add(k);
+        }
+        const other = Math.min(s.plannedHours, handedOver.get(s.key) ?? 0);
+        plannedByType[s.lessonType] = (plannedByType[s.lessonType] ?? 0) + s.plannedHours - other;
+      }
+      const seenPrevious = new Set<string>();
+      for (const l of ownedBy.get(t.id) ?? []) {
+        if (myKeys.has(keyOf(l))) continue;
+        const u = unitKey(l);
+        if (seenPrevious.has(u)) continue;
+        seenPrevious.add(u);
+        plannedByType[l.lessonType] = (plannedByType[l.lessonType] ?? 0) + l.academicHours;
+      }
+
+      const scheduledByType: Record<string, number> = {};
+      const byWeek = new Map<string, Set<string>>();
+      const thisWeek = new Set<string>();
+      const seenUnits = new Set<string>();
+      for (const l of asTeacherBy.get(t.id) ?? []) {
+        if (!ACTIVE_STATUSES.includes(l.status)) continue;
+        const u = unitKey(l);
+        const date = toDateStr(l.date);
+        const w = weekStart(date);
+        const set = byWeek.get(w) ?? new Set<string>();
+        byWeek.set(w, set);
+        set.add(u);
+        if (date >= weekFrom && date <= weekTo) thisWeek.add(u);
+        if (seenUnits.has(u)) continue;
+        seenUnits.add(u);
+        scheduledByType[l.lessonType] = (scheduledByType[l.lessonType] ?? 0) + l.academicHours;
+      }
+
+      const conductedByType: Record<string, number> = {};
+      const seenConducted = new Set<string>();
+      let substitutedHours = 0;
+      for (const c of conductedBy.get(t.id) ?? []) {
+        const u = unitKey({ id: c.scheduleLessonId, ...c.scheduleLesson });
+        if (seenConducted.has(u)) continue;
+        seenConducted.add(u);
+        conductedByType[c.scheduleLesson.lessonType] =
+          (conductedByType[c.scheduleLesson.lessonType] ?? 0) + c.actualHours;
+        if (c.scheduleLesson.teacherId !== t.id) substitutedHours += c.actualHours;
+      }
+
+      const overloadWeeks = [...byWeek.values()].filter((set) => set.size > t.maxWeeklyLessons).length;
+      // Группы и дисциплины — в том же порядке, что строки контроля часов преподавателя
+      const rows = new Map<string, DemandStream>();
+      for (const s of streams) {
+        const key = `${s.groupId}|${s.semesterItemId}|${s.subgroupNumber ?? 0}`;
+        if (!rows.has(key)) rows.set(key, s);
+      }
+      const sorted = [...rows.values()].sort(
+        (a, b) =>
+          a.groupCode.localeCompare(b.groupCode) ||
+          a.semesterNumber - b.semesterNumber ||
+          a.itemCode.localeCompare(b.itemCode, 'ru', { numeric: true }) ||
+          (a.subgroupNumber ?? 0) - (b.subgroupNumber ?? 0),
+      );
+      return {
         teacherId: t.id,
         fullName: t.fullName,
         department: t.department,
         isActive: t.isActive,
-        planned: w.planned.total,
-        scheduled: w.scheduled.total,
-        conducted: w.conducted.total,
-        substitutedHours: w.conducted.substitutedHours,
-        currentWeekLessons: w.currentWeek.lessons,
+        planned: sum(plannedByType),
+        scheduled: sum(scheduledByType),
+        conducted: sum(conductedByType),
+        substitutedHours,
+        currentWeekLessons: thisWeek.size,
         maxWeeklyLessons: t.maxWeeklyLessons,
-        overloadWeeks: w.overloadWeeks,
-        disciplines: Array.from(new Set(w.rows.map((r) => `${r.itemCode} ${r.itemName}`))),
-        groups: Array.from(new Set(w.rows.map((r) => r.groupCode))),
-        byType: { planned: w.planned.byType, scheduled: w.scheduled.byType, conducted: w.conducted.byType },
-      });
-    }
-    return result;
+        overloadWeeks,
+        disciplines: Array.from(new Set(sorted.map((r) => `${r.itemCode} ${r.itemName}`))),
+        groups: Array.from(new Set(sorted.map((r) => r.groupCode))),
+        byType: { planned: plannedByType, scheduled: scheduledByType, conducted: conductedByType },
+      };
+    });
   }
 
   /** Семестры организации, в которые попадает сегодняшний день */
