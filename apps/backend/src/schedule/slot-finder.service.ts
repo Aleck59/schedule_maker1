@@ -11,7 +11,7 @@ import {
   todayInTimezone,
 } from '../common/utils/dates';
 import { groupLessonNumbers } from '../common/utils/groups';
-import { effectiveRoomTypes } from '../common/utils/rooms';
+import { effectiveRoomTypes, rankRooms } from '../common/utils/rooms';
 import { TeacherRules } from '../planning/availability-rules';
 import { ACTIVE_STATUSES } from '../planning/hours-calculator';
 import { PlanningService } from '../planning/planning.service';
@@ -117,14 +117,9 @@ export class SlotFinderService {
         ? sg.studentCount
         : Math.ceil(group.studentCount / Math.max(1, group.subgroupCount))
       : group.studentCount;
-    const suitableRooms = rooms
-      .filter(
-        (r) =>
-          types.includes(r.classroomType) && (r.classroomType === ClassroomType.ONLINE || r.capacity >= size),
-      )
-      .sort(
-        (a, b) => types.indexOf(a.classroomType) - types.indexOf(b.classroomType) || a.capacity - b.capacity,
-      );
+    // Тип аудитории — предпочтение: сначала кабинеты нужного типа, затем остальные учебные
+    const { rooms: suitableRooms, matching } = rankRooms(rooms, types, size);
+    const matchingIds = new Set(suitableRooms.slice(0, matching).map((r) => r.id));
 
     const busyTeacher = new Set<string>();
     const busyRoom = new Set<string>();
@@ -191,6 +186,10 @@ export class SlotFinderService {
         let score = 0;
         const notes: string[] = [];
         if (verdict.online) notes.push('онлайн');
+        if (room && room.classroomType !== ClassroomType.ONLINE && !matchingIds.has(room.id)) {
+          score += 2;
+          notes.push('кабинет другого типа');
+        }
         if (verdict.weight !== 0) {
           score -= verdict.weight / 5;
           notes.push(

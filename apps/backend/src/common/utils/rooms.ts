@@ -50,3 +50,49 @@ export function effectiveRoomTypes(
   }
   return defaultRoomTypes(lessonType);
 }
+
+/**
+ * Тип аудитории — предпочтение, а не жёсткая привязка.
+ * Если подходящих по типу кабинетов нет или они заняты, занятие можно провести
+ * в любом другом учебном кабинете нужной вместимости (кроме онлайн-аудитории и
+ * спортзала — спортзал только для занятий, которым он нужен).
+ */
+export function isFallbackRoomType(type: ClassroomType, preferred: ClassroomType[]): boolean {
+  if (preferred.includes(type)) return false;
+  return type !== ClassroomType.ONLINE && type !== ClassroomType.SPORTS_HALL;
+}
+
+export interface RankableRoom {
+  id: string;
+  code: string;
+  classroomType: ClassroomType;
+  capacity: number;
+}
+
+/**
+ * Аудитории в порядке предпочтения: сначала нужного типа (в порядке типов),
+ * затем остальные учебные кабинеты. `matching` — сколько первых аудиторий
+ * подходят по типу.
+ */
+export function rankRooms<R extends RankableRoom>(
+  rooms: R[],
+  types: ClassroomType[],
+  size: number,
+  preferredId: string | null = null,
+): { rooms: R[]; matching: number } {
+  const fits = (r: R) => r.classroomType === ClassroomType.ONLINE || r.capacity >= size;
+  const byPref = (a: R, b: R) => {
+    if (a.id === preferredId) return -1;
+    if (b.id === preferredId) return 1;
+    return (
+      types.indexOf(a.classroomType) - types.indexOf(b.classroomType) ||
+      a.capacity - b.capacity ||
+      a.code.localeCompare(b.code)
+    );
+  };
+  const matching = rooms.filter((r) => types.includes(r.classroomType) && fits(r)).sort(byPref);
+  const fallback = rooms
+    .filter((r) => isFallbackRoomType(r.classroomType, types) && fits(r))
+    .sort((a, b) => a.capacity - b.capacity || a.code.localeCompare(b.code));
+  return { rooms: [...matching, ...fallback], matching: matching.length };
+}

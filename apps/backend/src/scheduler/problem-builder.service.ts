@@ -11,6 +11,7 @@ import {
   weekStart,
 } from '../common/utils/dates';
 import { groupLessonNumbers } from '../common/utils/groups';
+import { rankRooms } from '../common/utils/rooms';
 import { LESSON_TYPE_SHORT } from '../common/utils/labels';
 import { TeacherRules } from '../planning/availability-rules';
 import { streamKeyOf } from '../planning/planning.service';
@@ -468,25 +469,15 @@ export class ProblemBuilderService {
       pending.push({ stream: s, lessonsRequired, partialHours, remainingHours, allowedDates, weeklyRate });
     }
 
-    const roomIdsFor = (types: ClassroomType[], size: number, preferred: string | null): string[] => {
-      const suitable = roomsDb.filter(
-        (r) =>
-          types.includes(r.classroomType) && (r.classroomType === ClassroomType.ONLINE || r.capacity >= size),
-      );
-      suitable.sort((a, b) => {
-        if (a.id === preferred) return -1;
-        if (b.id === preferred) return 1;
-        const ta = types.indexOf(a.classroomType);
-        const tb = types.indexOf(b.classroomType);
-        return ta - tb || a.capacity - b.capacity || a.code.localeCompare(b.code);
-      });
-      return suitable.map((r) => r.id);
+    const roomIdsFor = (types: ClassroomType[], size: number, preferred: string | null) => {
+      const ranked = rankRooms(roomsDb, types, size, preferred);
+      return { ids: ranked.rooms.map((r) => r.id), matching: ranked.matching };
     };
 
     const toDemand = (id: string, group: Pending[], lessons: number): SolverDemand | null => {
       const s = group[0].stream;
       const size = group.reduce((a, p) => a + p.stream.size, 0);
-      const roomIds = roomIdsFor(s.roomTypes, size, s.preferredClassroomId);
+      const { ids: roomIds, matching: matchingRooms } = roomIdsFor(s.roomTypes, size, s.preferredClassroomId);
       const title = `${group.map((p) => p.stream.groupCode).join(', ')}${
         s.subgroupNumber ? ` (п/г ${s.subgroupNumber})` : ''
       } · ${s.itemCode} ${s.itemName} · ${LESSON_TYPE_SHORT[s.lessonType] ?? s.lessonType}`;
@@ -497,7 +488,7 @@ export class ProblemBuilderService {
             lessons,
             Math.min(p.remainingHours, lessons * h),
             'NO_SUITABLE_ROOM',
-            `Нет активных аудиторий типа «${s.roomTypes.join(', ')}» вместимостью от ${size} мест`,
+            `Нет активных учебных аудиторий вместимостью от ${size} мест`,
           );
         }
         return null;
@@ -554,6 +545,7 @@ export class ProblemBuilderService {
         priority: s.priority,
         size,
         roomIds,
+        matchingRooms,
         preferredRoomId: s.preferredClassroomId,
         allowedDates,
         isDifficult: s.isDifficult,
