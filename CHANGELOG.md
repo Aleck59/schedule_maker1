@@ -2,6 +2,12 @@
 
 Формируется автоматически по сообщениям коммитов (Conventional Commits).
 
+## [1.3.0](https://github.com/Aleck59/schedule_maker1/compare/v1.2.1...v1.3.0) (2026-11-02)
+
+### Новые возможности
+
+* **schedule:** полное расписание на неделю по всем группам ([473da36](https://github.com/Aleck59/schedule_maker1/commit/473da36567eb293ef28df29271e1939330dd4f09))
+
 ## [1.2.1](https://github.com/Aleck59/schedule_maker1/compare/v1.2.0...v1.2.1) (2026-11-01)
 
 ### Исправления
