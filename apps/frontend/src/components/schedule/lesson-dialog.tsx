@@ -572,7 +572,7 @@ function SubstitutePanel({ lesson, canForce, onDone }: { lesson: Lesson; canForc
           onChange={setTeacherId}
           options={(teachers.data ?? [])
             .filter((t) => t.isActive && t.id !== lesson.teacher?.id)
-            .map((t) => ({ value: t.id, label: `${t.fullName}${t.department ? ` — ${t.department}` : ''}` }))}
+            .map((t) => ({ value: t.id, label: t.fullName, hint: t.department ?? undefined }))}
         />
       </Field>
       <Field label="Причина">

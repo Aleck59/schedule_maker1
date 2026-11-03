@@ -393,7 +393,7 @@ function AssignmentDialog({ groupId, item, assignment, onClose }: { groupId: str
                     t.id === assignment?.teacherId ||
                     (t.isActive && (t.allowedLevels ?? allowedLevelsOf(t)).includes(group?.program?.specialty?.educationLevel ?? 'SPO')),
                 )
-                .map((t) => ({ value: t.id, label: `${t.fullName}${t.position ? ` — ${t.position.toLowerCase()}` : ''}` }))}
+                .map((t) => ({ value: t.id, label: t.fullName, hint: t.position ?? undefined }))}
             />
           </Field>
           <Field label="Пар в неделю" hint="Пусто — рассчитать автоматически">
