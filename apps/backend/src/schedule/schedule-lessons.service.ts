@@ -29,7 +29,11 @@ import { CANCELLATION_REASON_LABELS, LESSON_TYPE_LABELS } from '../common/utils/
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import { LessonCandidate, LessonCheckerService } from '../validation/lesson-checker.service';
+import {
+  LessonCandidate,
+  LessonCheckerService,
+  ROOM_ISSUE_TYPES,
+} from '../validation/lesson-checker.service';
 import { ValidationIssue } from '../validation/validation.types';
 import {
   BulkLessonsDto,
@@ -563,7 +567,18 @@ export class ScheduleLessonsService {
           include: { ...LESSON_INCLUDE, schedulePeriod: true },
         })
       : [];
-    if (siblings.length === 0) return this.moveOne(id, dto, actor);
+    // Исходная аудитория занята/мала/недоступна в новом слоте — подбираем свободную
+    const auto = dto.classroomId ? null : await this.pickMoveRoom(lesson, dto, siblings, actor);
+    if (auto?.room) dto = { ...dto, classroomId: auto.room.id };
+    const withAuto = <T extends { issues: ValidationIssue[] }>(r: T) =>
+      auto?.room
+        ? {
+            ...r,
+            issues: [auto.warning!, ...r.issues],
+            roomChanged: { from: auto.fromCode, to: auto.room.code },
+          }
+        : r;
+    if (siblings.length === 0) return withAuto(await this.moveOne(id, dto, actor));
     // Сначала проверяем все группы потока, чтобы не разорвать поток на полпути
     const issues: ValidationIssue[] = [];
     for (const s of siblings) {
@@ -597,7 +612,86 @@ export class ScheduleLessonsService {
     }
     const main = await this.moveOne(id, dto, actor);
     for (const s of siblings) await this.moveOne(s.id, { ...dto, force: true }, actor);
-    return { ...main, movedTogether: siblings.map((s) => s.studentGroup.code) };
+    return withAuto({ ...main, movedTogether: siblings.map((s) => s.studentGroup.code) });
+  }
+
+  /**
+   * Мягкая проверка аудитории при переносе: если прежняя аудитория в новом слоте занята,
+   * мала или недоступна, ставим занятие в свободную подходящую. Если свободных нет —
+   * ошибка (её можно обойти только принудительным переносом).
+   */
+  private async pickMoveRoom(
+    lesson: Awaited<ReturnType<ScheduleLessonsService['loadForChange']>>,
+    dto: MoveLessonDto,
+    siblings: Array<{ id: string; studentGroupId: string }>,
+    actor: AuthUser,
+  ) {
+    const candidate: LessonCandidate = {
+      organizationId: actor.organizationId,
+      lessonId: lesson.id,
+      excludeIds: siblings.map((s) => s.id),
+      schedulePeriodId: lesson.schedulePeriodId,
+      date: dto.date,
+      lessonNumber: dto.lessonNumber,
+      studentGroupId: lesson.studentGroupId,
+      subgroupNumber: lesson.subgroupNumber,
+      semesterCurriculumItemId: lesson.semesterCurriculumItemId,
+      lessonType: lesson.lessonType,
+      teacherId: lesson.teacherId,
+      classroomId: lesson.classroomId,
+      academicHours: lesson.academicHours,
+      streamKey: lesson.streamKey,
+      skipHoursCheck: true,
+    };
+    const issues = await this.checker.check(candidate);
+    const roomErrors = issues.filter(
+      (i) => i.severity === Severity.ERROR && ROOM_ISSUE_TYPES.has(i.validationType),
+    );
+    if (roomErrors.length === 0) return null;
+    const room = await this.checker.findFreeRoom(
+      candidate,
+      siblings.map((s) => s.studentGroupId),
+    );
+    const fromCode = lesson.classroom?.code ?? null;
+    if (!room) {
+      if (this.canForce(actor, dto.force)) return null;
+      const errors = [
+        ...issues.filter((i) => i.severity === Severity.ERROR),
+        {
+          severity: Severity.ERROR,
+          validationType: 'NO_FREE_CLASSROOM',
+          entityType: 'ScheduleLesson',
+          entityId: null,
+          message: 'Свободных подходящих аудиторий в это время нет',
+        } satisfies ValidationIssue,
+      ];
+      throw new ConflictException({
+        message: `Обнаружены конфликты: ${roomErrors[0].message}. Свободных подходящих аудиторий в это время нет`,
+        errors: errors.map((e) => e.message),
+        details: { issues: [...errors, ...issues.filter((i) => i.severity !== Severity.ERROR)] },
+      });
+    }
+    const why =
+      roomErrors[0].validationType === 'CAPACITY_EXCEEDED'
+        ? 'мала для группы'
+        : roomErrors[0].validationType === 'CLASSROOM_UNAVAILABLE'
+          ? 'недоступна'
+          : roomErrors[0].validationType === 'NO_CLASSROOM'
+            ? null
+            : 'занята';
+    const message =
+      fromCode && why
+        ? `Аудитория ${fromCode} в это время ${why} — занятие поставлено в свободную аудиторию ${room.code}`
+        : `Занятие поставлено в свободную аудиторию ${room.code}`;
+    const warning: ValidationIssue = {
+      severity: Severity.WARNING,
+      validationType: 'CLASSROOM_REPLACED',
+      entityType: 'ScheduleLesson',
+      entityId: lesson.id,
+      message,
+      details: { from: fromCode, to: room.code, classroomId: room.id },
+    };
+    return { room, warning, fromCode };
   }
 
   private async moveOne(id: string, dto: MoveLessonDto, actor: AuthUser) {
