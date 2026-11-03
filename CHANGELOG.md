@@ -2,6 +2,19 @@
 
 Формируется автоматически по сообщениям коммитов (Conventional Commits).
 
+## [1.6.0](https://github.com/Aleck59/schedule_maker1/compare/v1.5.0...v1.6.0) (2026-11-03)
+
+### Новые возможности
+
+* **calendar:** интерактивный редактор экзаменов и зачётов ([806a6b2](https://github.com/Aleck59/schedule_maker1/commit/806a6b20361898a992963e8655b226bd0e3c7641))
+* максимум пар группы в неделю по формам обучения ([25a1a04](https://github.com/Aleck59/schedule_maker1/commit/25a1a04c6cdaf7c306dc2bbcb32ed17f01afdba9))
+
+### Исправления
+
+* **calendar:** смена типа недели курса перекрывает периоды всего плана ([2ee675b](https://github.com/Aleck59/schedule_maker1/commit/2ee675bb596ccdab61fb7c268f135cd4cc0554c4))
+* **solver:** очно-заочная форма по пометке «(озо)» в имени плана .plx ([3c272b6](https://github.com/Aleck59/schedule_maker1/commit/3c272b62af8ae97bc49972c4fa5c8b663e9317d1))
+* **solver:** правильный разбор заочных планов .plx ([8a23660](https://github.com/Aleck59/schedule_maker1/commit/8a23660ce5e26e0fa8b294f2335c841093c3aa3f))
+
 ## [1.5.0](https://github.com/Aleck59/schedule_maker1/compare/v1.4.1...v1.5.0) (2026-11-02)
 
 ### Новые возможности
