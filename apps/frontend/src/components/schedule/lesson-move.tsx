@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { api } from '@/lib/api';
@@ -41,7 +42,10 @@ export function useLessonMove(onMoved?: () => void) {
         const together = (r as { movedTogether?: string[] }).movedTogether;
         return together?.length ? `Пара потока перенесена вместе с группами: ${together.join(', ')}` : 'Занятие перенесено';
       },
-      onSuccess: () => {
+      onSuccess: (r) => {
+        // Прежняя аудитория занята — сервер поставил пару в свободную: мягкое предупреждение
+        const replaced = (r as { issues?: ValidationIssue[] }).issues?.find((i) => i.validationType === 'CLASSROOM_REPLACED');
+        if (replaced) toast.warning(replaced.message);
         setPending(null);
         refresh();
         onMoved?.();

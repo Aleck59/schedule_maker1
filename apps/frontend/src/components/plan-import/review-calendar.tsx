@@ -12,7 +12,7 @@ import { CODE_LABELS, addDays } from './calendar';
 import type { Draft, DraftSemester, RecognizedCalendar } from './types';
 
 const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
-const BRUSHES = ['', 'Э', 'К', 'У', 'П', 'Пд', 'Д', 'Г', '='];
+const BRUSHES = ['', 'Э', 'К', 'У', 'П', 'Пд', 'Д', 'Г', 'С', '='];
 const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 
 const CODE_COLORS: Record<string, string> = {
@@ -24,6 +24,8 @@ const CODE_COLORS: Record<string, string> = {
   Пд: 'bg-orange-400 text-orange-950',
   Д: 'bg-violet-200 text-violet-900',
   Г: 'bg-violet-300 text-violet-950 dark:bg-violet-800/60 dark:text-violet-100',
+  // Межсессионный период заочной и очно-заочной формы: занятий нет, самостоятельная работа
+  С: 'bg-stone-100 text-stone-500 dark:bg-stone-800/60 dark:text-stone-300',
   '=': 'bg-slate-200 text-slate-500 dark:bg-slate-800',
   '?': 'bg-red-500 text-white',
   '*': 'bg-slate-300',
