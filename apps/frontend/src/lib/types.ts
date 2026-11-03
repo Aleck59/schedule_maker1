@@ -535,6 +535,7 @@ export interface Lesson {
       name: string;
       itemType: CurriculumItemType;
       isDifficult: boolean;
+      educationalProgramId?: string;
     };
   };
   teacher: { id: string; fullName: string } | null;

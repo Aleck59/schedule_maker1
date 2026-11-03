@@ -11,6 +11,7 @@ import {
   UserRoundCog,
   Wand2,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Confirm } from '@/components/common/confirm';
 import { Field } from '@/components/common/field';
@@ -49,6 +50,19 @@ function InfoRow({ label, children }: { label: string; children: ReactNode }) {
       <div className="text-muted-foreground">{label}</div>
       <div className="min-w-0">{children}</div>
     </div>
+  );
+}
+
+/** Ссылка на исходник (группа, дисциплина, преподаватель, аудитория). Без доступа — обычный текст. */
+function RefLink({ to, children }: { to: string | null; children: ReactNode }) {
+  if (!to) return <>{children}</>;
+  return (
+    <Link
+      to={to}
+      className="text-blue-600 underline-offset-2 hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
+    >
+      {children}
+    </Link>
   );
 }
 
@@ -115,6 +129,9 @@ export function LessonDialog({
     user?.role === 'TEACHER' &&
     (lesson.teacher?.id === user.teacherId || lesson.substitution?.originalTeacher?.id === user.teacherId);
   const canAct = canEdit || isOwn;
+  // Страницы справочников и планов доступны только сотрудникам учебной части
+  const canOpenRefs = !!user && ['ADMIN', 'DISPATCHER', 'MANAGER'].includes(user.role);
+  const ref = (path: string | null | undefined) => (canOpenRefs && path ? path : null);
   const active = lesson && (lesson.status === 'PLANNED' || lesson.status === 'REPLACED');
   const canMark = !!lesson && canAct && active && lesson.date <= today() && lesson.schedulePeriod.status !== 'ARCHIVED';
 
@@ -153,14 +170,25 @@ export function LessonDialog({
                 {lesson.endTime})
               </InfoRow>
               <InfoRow label="Группа">
-                {lesson.studentGroup.code}
+                <RefLink to={ref(`/groups/${lesson.studentGroup.id}`)}>{lesson.studentGroup.code}</RefLink>
                 {lesson.subgroupNumber ? `, подгруппа ${lesson.subgroupNumber}` : ', вся группа'}
               </InfoRow>
               <InfoRow label="Дисциплина">
-                {lesson.semesterItem.curriculumItem.code} {lesson.semesterItem.curriculumItem.name}
+                <RefLink
+                  to={ref(
+                    lesson.semesterItem.curriculumItem.educationalProgramId &&
+                      `/programs/${lesson.semesterItem.curriculumItem.educationalProgramId}?item=${lesson.semesterItem.curriculumItem.id}`,
+                  )}
+                >
+                  {lesson.semesterItem.curriculumItem.code} {lesson.semesterItem.curriculumItem.name}
+                </RefLink>
               </InfoRow>
               <InfoRow label="Преподаватель">
-                {lesson.teacher?.fullName ?? <span className="text-destructive">не назначен</span>}
+                {lesson.teacher ? (
+                  <RefLink to={ref(`/teachers/${lesson.teacher.id}`)}>{lesson.teacher.fullName}</RefLink>
+                ) : (
+                  <span className="text-destructive">не назначен</span>
+                )}
                 {lesson.substitution && (
                   <div className="text-xs text-amber-700 dark:text-amber-400">
                     Замена: вместо {lesson.substitution.originalTeacher?.fullName ?? '—'}
@@ -171,7 +199,9 @@ export function LessonDialog({
               <InfoRow label="Аудитория">
                 {lesson.classroom ? (
                   <>
-                    {lesson.classroom.code} — {lesson.classroom.name}{' '}
+                    <RefLink to={ref(`/classrooms/${lesson.classroom.id}`)}>
+                      {lesson.classroom.code} — {lesson.classroom.name}
+                    </RefLink>{' '}
                     <span className="text-muted-foreground text-xs">
                       ({CLASSROOM_TYPE_LABELS[lesson.classroom.classroomType]}, {lesson.classroom.capacity} мест)
                     </span>
