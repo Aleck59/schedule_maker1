@@ -8,6 +8,7 @@ import { CalendarService } from './calendar.service';
 import {
   AutoPlaceAssessmentsDto,
   CreateAssessmentDto,
+  UpdateAssessmentDto,
   CreateCalendarEventDto,
   SetWeekTypeDto,
   UpdateCalendarEventDto,
@@ -121,6 +122,26 @@ export class CalendarController {
     @Query('to') to?: string,
   ) {
     return this.calendar.listAssessments(user, { groupId, semesterId, from, to });
+  }
+
+  @Get('assessment-events/board')
+  @CacheResponse(120)
+  @Roles(...STAFF_ROLES)
+  @ApiOperation({ summary: 'Интерактивный редактор экзаменов и зачётов: дни, группы, мероприятия' })
+  @ApiQuery({ name: 'semesterId', required: true })
+  board(@Query('semesterId', ParseUUIDPipe) semesterId: string, @CurrentUser() user: AuthUser) {
+    return this.calendar.assessmentBoard(semesterId, user);
+  }
+
+  @Patch('assessment-events/:id')
+  @Roles(...EDITOR_ROLES)
+  @ApiOperation({ summary: 'Перенести или изменить контрольное мероприятие' })
+  updateAssessment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateAssessmentDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.calendar.updateAssessment(id, dto, user);
   }
 
   @Post('assessment-events')

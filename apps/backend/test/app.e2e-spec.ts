@@ -1415,6 +1415,46 @@ describe('Расписание СПО (e2e)', () => {
         .expect(400);
       expect(clash.body.message).toMatch(/Преподаватель в эту пару уже принимает/);
     }
+
+    // Интерактивный редактор: данные сетки и перенос перетаскиванием
+    const board = await http
+      .get(`/api/assessment-events/board?semesterId=${semester.id}`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    expect(board.body.groups).toHaveLength(2);
+    expect(board.body.groups[0].kinds).toHaveLength(board.body.days.length);
+    expect(board.body.events).toHaveLength(events.length);
+    const [first, second] = events.filter((e) => e.group.code === 'ИСП-24-1');
+    const firstId = (first as Ev & { id: string }).id;
+    // Пара другого мероприятия группы занята — без autoPair ошибка, с autoPair подбирается свободная
+    const taken = await http
+      .patch(`/api/assessment-events/${firstId}`)
+      .set(auth('dispatcher'))
+      .send({ date: second.date.slice(0, 10), lessonNumber: second.lessonNumber })
+      .expect(400);
+    expect(taken.body.message).toMatch(/уже/);
+    const moved = await http
+      .patch(`/api/assessment-events/${firstId}`)
+      .set(auth('dispatcher'))
+      .send({ date: second.date.slice(0, 10), lessonNumber: second.lessonNumber, autoPair: true })
+      .expect(200);
+    expect(moved.body.lessonNumber).not.toBe(second.lessonNumber);
+    expect(Array.isArray(moved.body.warnings)).toBe(true);
+    // Воскресенье — не рабочий день
+    let sunday = second.date.slice(0, 10);
+    while (new Date(`${sunday}T00:00:00Z`).getUTCDay() !== 0) {
+      sunday = new Date(new Date(`${sunday}T00:00:00Z`).getTime() + 86400000).toISOString().slice(0, 10);
+    }
+    await http
+      .patch(`/api/assessment-events/${firstId}`)
+      .set(auth('dispatcher'))
+      .send({ date: sunday, autoPair: true })
+      .expect(400);
+    await http
+      .patch(`/api/assessment-events/${firstId}`)
+      .set(auth('teacher'))
+      .send({ date: second.date.slice(0, 10) })
+      .expect(403);
   });
 
   it('постоянное расписание для руководства: отдельно от рабочего, без накладок, утверждение и печать', async () => {
