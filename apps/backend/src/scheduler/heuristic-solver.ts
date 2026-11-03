@@ -101,6 +101,8 @@ class ScheduleState {
   readonly disciplineDayCount = new Map<string, number>();
   readonly disciplineWeek = new Map<string, number>();
   readonly groupDayBuildings = new Map<string, Map<string, number>>();
+  /** Занятых слотов (пар) группы в неделе: параллельные подгруппы — одна пара */
+  readonly groupWeek = new Map<string, number>();
   readonly slotIndex = new Map<string, Placed[]>();
   readonly placements: Placed[] = [];
   private seq = 0;
@@ -138,9 +140,14 @@ class ScheduleState {
       const key = `${g}#${slot}`;
       const set = this.groupSlot.get(key) ?? new Set<number>();
       const marker = d.subgroupNumber ?? 0;
+      const wasEmpty = set.size === 0;
       if (sign > 0) set.add(marker);
       else set.delete(marker);
       this.groupSlot.set(key, set);
+      if (wasEmpty !== (set.size === 0)) {
+        const gwk = `${g}#${day.week}`;
+        this.groupWeek.set(gwk, (this.groupWeek.get(gwk) ?? 0) + (wasEmpty ? 1 : -1));
+      }
       for (const persp of this.perspectivesFor(g, d.subgroupNumber)) {
         const pk = `${g}#${persp}#${day.key}`;
         const ps = this.perspectiveDay.get(pk) ?? new Set<number>();
@@ -209,6 +216,10 @@ class ScheduleState {
     if (o.groupId) {
       const key = `${o.groupId}#${slot}`;
       const set = this.groupSlot.get(key) ?? new Set<number>();
+      if (set.size === 0) {
+        const gwk = `${o.groupId}#${o.week}`;
+        this.groupWeek.set(gwk, (this.groupWeek.get(gwk) ?? 0) + 1);
+      }
       set.add(o.subgroup ?? 0);
       this.groupSlot.set(key, set);
       for (const persp of this.perspectivesFor(o.groupId, o.subgroup)) {
@@ -435,11 +446,27 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     return true;
   };
 
+  // Жёсткий лимит пар группы в неделю (по форме обучения; не ослабляется «по максимуму»)
+  const groupWeekLimit = new Map<string, { base: number | null; byWeek: Map<number, number> }>();
+  for (const g of problem.groups) {
+    if (g.maxLessonsPerWeek == null && !g.weekLimits?.length) continue;
+    groupWeekLimit.set(g.id, { base: g.maxLessonsPerWeek ?? null, byWeek: new Map(g.weekLimits ?? []) });
+  }
+  const weekLimitOf = (groupId: string, week: number): number | null => {
+    const l = groupWeekLimit.get(groupId);
+    if (!l) return null;
+    return l.byWeek.get(week) ?? l.base;
+  };
+
   const groupFree = (st: ScheduleState, ds: DemandState, day: DayRef, lesson: number) => {
     const sub = ds.d.subgroupNumber;
     for (const g of ds.d.groupIds) {
       const set = st.groupSlot.get(`${g}#${day.key}#${lesson}`);
-      if (!set || set.size === 0) continue;
+      if (!set || set.size === 0) {
+        const limit = weekLimitOf(g, day.week);
+        if (limit !== null && (st.groupWeek.get(`${g}#${day.week}`) ?? 0) >= limit) return false;
+        continue;
+      }
       if (sub === null) return false;
       if (set.has(0) || set.has(sub)) return false;
     }

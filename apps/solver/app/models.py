@@ -27,6 +27,16 @@ class Group(CamelModel):
     max_lessons_per_day: int = 4
     # Допустимые номера пар группы (вторая смена, вечерние группы); None — все пары
     allowed_lessons: list[int] | None = None
+    # Жёсткий лимит пар группы в неделю (по форме обучения); None — без ограничения
+    max_lessons_per_week: int | None = None
+    # [номер недели, лимит] — особый лимит отдельных недель (очники, когда у заочников занятия)
+    week_limits: list[tuple[int, int]] = Field(default_factory=list)
+
+    def week_limit(self, week: int) -> int | None:
+        for w, limit in self.week_limits:
+            if w == week:
+                return limit
+        return self.max_lessons_per_week
 
 
 class Teacher(CamelModel):

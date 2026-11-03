@@ -312,6 +312,7 @@ export const UNPLACED_REASON_LABELS: Record<string, string> = {
   TEACHER_BUSY: "Преподаватель занят",
   TEACHER_LIMIT: "Лимит нагрузки преподавателя",
   GROUP_BUSY: "У группы нет свободных пар",
+  GROUP_WEEKLY_LIMIT: "Максимум пар группы в неделю",
   ROOM_SHORTAGE: "Не хватает аудиторий",
   DAILY_LIMITS: "Ограничения на день",
   NOT_ENOUGH_TIME: "Не хватило свободного времени",

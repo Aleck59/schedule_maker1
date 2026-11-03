@@ -22,6 +22,8 @@ export const SUGGESTIONS: Record<UnplacedReason, string> = {
   TEACHER_BUSY: 'Назначьте другого преподавателя или увеличьте лимит пар преподавателя в день/неделю',
   TEACHER_LIMIT: 'Увеличьте лимит пар преподавателя в день или в неделю',
   GROUP_BUSY: 'Разрешите вечернюю пару (увеличьте число пар в день) или разрешите занятие в другой день',
+  GROUP_WEEKLY_LIMIT:
+    'Увеличьте максимум пар в неделю для формы обучения группы («Настройки → Правила») или продлите интервал генерации',
   ROOM_SHORTAGE: 'Увеличьте число доступных аудиторий нужного типа или освободите аудитории',
   DAILY_LIMITS: 'Ослабьте ограничения: пар одной дисциплины в день, окна, поздние пары',
   NOT_ENOUGH_TIME: 'Увеличьте период генерации или лимит времени генератора, ослабьте ограничение по окнам',
@@ -33,6 +35,7 @@ interface Funnel {
   teacherFree: number;
   teacherWithinLimits: number;
   groupFree: number;
+  groupWeekOk: number;
   disciplineOk: number;
   roomFree: number;
 }
@@ -96,6 +99,7 @@ export function diagnoseDemand(
   const teacherDay = new Map<string, number>();
   const teacherWeek = new Map<string, number>();
   const groupBusy = new Map<string, Set<number>>();
+  const groupWeek = new Map<string, number>();
   const roomBusy = new Set<string>();
   const discDay = new Map<string, Set<number>>();
   const weekOf = new Map(problem.days.map((d) => [d.date, d.week]));
@@ -117,6 +121,10 @@ export function diagnoseDemand(
     for (const g of groupIds) {
       const key = `${g}#${date}#${lesson}`;
       const set = groupBusy.get(key) ?? new Set<number>();
+      if (set.size === 0) {
+        const gwk = `${g}#${weekOf.get(date)}`;
+        groupWeek.set(gwk, (groupWeek.get(gwk) ?? 0) + 1);
+      }
       set.add(sub ?? 0);
       groupBusy.set(key, set);
     }
@@ -148,6 +156,12 @@ export function diagnoseDemand(
   const onlineSlots = new Set((teacher.onlineSlots ?? []).map(([d, l]) => `${d}#${l}`));
   const rooms = problem.rooms.filter((r) => demand.roomIds.includes(r.id));
   const onlineRoom = problem.rooms.find((r) => r.id === problem.onlineRoomId);
+  const groupsById = new Map(problem.groups.map((g) => [g.id, g]));
+  const weekLimitOf = (groupId: string, week: number): number | null => {
+    const g = groupsById.get(groupId);
+    const special = g?.weekLimits?.find(([w]) => w === week);
+    return special ? special[1] : (g?.maxLessonsPerWeek ?? null);
+  };
 
   const funnel: Funnel = {
     total: 0,
@@ -155,6 +169,7 @@ export function diagnoseDemand(
     teacherFree: 0,
     teacherWithinLimits: 0,
     groupFree: 0,
+    groupWeekOk: 0,
     disciplineOk: 0,
     roomFree: 0,
   };
@@ -181,6 +196,14 @@ export function diagnoseDemand(
       });
       if (!groupOk) continue;
       funnel.groupFree++;
+      const weekOk = demand.groupIds.every((g) => {
+        const limit = weekLimitOf(g, day.week);
+        if (limit === null) return true;
+        const set = groupBusy.get(`${g}#${day.date}#${lesson}`);
+        return (set?.size ?? 0) > 0 || (groupWeek.get(`${g}#${day.week}`) ?? 0) < limit;
+      });
+      if (!weekOk) continue;
+      funnel.groupWeekOk++;
       const discOk = demand.disciplineKeys.every((dk) => {
         const set = discDay.get(`${dk}#${day.date}`);
         return relaxed || !set || set.has(lesson) || set.size < problem.settings.maxSameDisciplinePerDay;
@@ -224,8 +247,14 @@ export function diagnoseDemand(
       message: `У группы нет свободных пар в ${funnel.teacherWithinLimits - funnel.groupFree} слотах, когда свободен преподаватель`,
     },
     {
-      code: 'DAILY_LIMITS',
+      code: 'GROUP_WEEKLY_LIMIT',
       before: funnel.groupFree,
+      after: funnel.groupWeekOk,
+      message: `У группы выбран максимум пар в неделю — это отсекает ${funnel.groupFree - funnel.groupWeekOk} слотов`,
+    },
+    {
+      code: 'DAILY_LIMITS',
+      before: funnel.groupWeekOk,
       after: funnel.disciplineOk,
       message: `Ограничение «не более ${problem.settings.maxSameDisciplinePerDay} пар дисциплины в день» отсекает ${funnel.groupFree - funnel.disciplineOk} слотов`,
     },

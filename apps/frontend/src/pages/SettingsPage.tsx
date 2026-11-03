@@ -40,6 +40,20 @@ const NUMERIC: Array<[keyof Settings, string, string?]> = [
   ['solverTimeLimitSeconds', 'Лимит времени решателя, с'],
 ];
 
+/** Лимиты пар группы в неделю по формам обучения */
+const WEEKLY_LIMITS: Array<[keyof Settings, string]> = [
+  ['maxWeeklyLessonsFullTime', 'Очная'],
+  ['maxWeeklyLessonsPartTime', 'Очно-заочная'],
+  ['maxWeeklyLessonsExtramural', 'Заочная'],
+];
+
+/** Пустое поле — null (без ограничения) */
+function optionalNumber(value: string): number | null {
+  if (value.trim() === '') return null;
+  const n = Math.round(Number(value));
+  return Number.isFinite(n) ? n : null;
+}
+
 const WEIGHTS: Record<string, string> = {
   groupWindows: 'Окна у групп',
   teacherWindows: 'Окна у преподавателей',
@@ -185,26 +199,29 @@ function RulesForm({ settings, editable }: { settings: Settings; editable: boole
           </label>
         </CardContent>
       </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>Веса мягких ограничений</CardTitle>
-          <CardDescription>Чем больше вес, тем сильнее генератор избегает нарушения</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {Object.entries(WEIGHTS).map(([k, label]) => (
-            <div key={k} className="grid grid-cols-[1fr_120px] items-center gap-3">
-              <span className="text-sm">{label}</span>
-              <Input
-                type="number"
-                min={0}
-                value={draft.weights[k] ?? 0}
-                disabled={!editable}
-                onChange={(e) => setDraft({ ...draft, weights: { ...draft.weights, [k]: Number(e.target.value) } })}
-              />
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+      <div className="space-y-4">
+        <WeeklyLimitsCard draft={draft} setDraft={setDraft} editable={editable} />
+        <Card>
+          <CardHeader>
+            <CardTitle>Веса мягких ограничений</CardTitle>
+            <CardDescription>Чем больше вес, тем сильнее генератор избегает нарушения</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {Object.entries(WEIGHTS).map(([k, label]) => (
+              <div key={k} className="grid grid-cols-[1fr_120px] items-center gap-3">
+                <span className="text-sm">{label}</span>
+                <Input
+                  type="number"
+                  min={0}
+                  value={draft.weights[k] ?? 0}
+                  disabled={!editable}
+                  onChange={(e) => setDraft({ ...draft, weights: { ...draft.weights, [k]: Number(e.target.value) } })}
+                />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
       {editable && (
         <div className="xl:col-span-2">
           <Button onClick={() => save.mutate(undefined)} disabled={save.isPending}>
@@ -213,6 +230,78 @@ function RulesForm({ settings, editable }: { settings: Settings; editable: boole
         </div>
       )}
     </div>
+  );
+}
+
+function WeeklyLimitsCard({
+  draft,
+  setDraft,
+  editable,
+}: {
+  draft: Settings;
+  setDraft: (s: Settings) => void;
+  editable: boolean;
+}) {
+  const h = draft.academicHoursPerLesson;
+  const hours = (n: number | null) => (n == null ? 'без ограничения' : `${n} пар = ${n * h} ак. ч в неделю`);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Максимум пар в неделю</CardTitle>
+        <CardDescription>
+          Генератор не ставит группе больше пар за неделю, чем указано для её формы обучения. Пустое поле — без ограничения.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-3">
+          {WEEKLY_LIMITS.map(([k, label]) => (
+            <Field key={k} label={label} hint={hours(draft[k] as number | null)}>
+              <Input
+                type="number"
+                min={1}
+                max={70}
+                placeholder="без ограничения"
+                value={draft[k] == null ? '' : String(draft[k])}
+                disabled={!editable}
+                onChange={(e) => setDraft({ ...draft, [k]: optionalNumber(e.target.value) })}
+              />
+            </Field>
+          ))}
+        </div>
+        <div className="space-y-3 rounded-lg border p-3">
+          <label className="flex items-start justify-between gap-3 text-sm">
+            <span>
+              Уменьшать пары очников, когда у заочников занятия
+              <span className="text-muted-foreground block text-xs">
+                В недели, когда у заочных групп есть пары (уже стоят в расписании или заочники составляются вместе с очниками),
+                очным группам ставится не больше указанного числа пар — преподаватели и аудитории остаются для заочников.
+              </span>
+            </span>
+            <Switch
+              checked={draft.reduceFullTimeOnExtramural}
+              disabled={!editable}
+              onCheckedChange={(v) => setDraft({ ...draft, reduceFullTimeOnExtramural: v })}
+            />
+          </label>
+          {draft.reduceFullTimeOnExtramural && (
+            <Field
+              label="Очным группам в такие недели, пар"
+              hint={draft.fullTimeWeeklyOnExtramural == null ? 'Укажите число пар' : hours(draft.fullTimeWeeklyOnExtramural)}
+              className="max-w-xs"
+            >
+              <Input
+                type="number"
+                min={0}
+                max={70}
+                value={draft.fullTimeWeeklyOnExtramural == null ? '' : String(draft.fullTimeWeeklyOnExtramural)}
+                disabled={!editable}
+                onChange={(e) => setDraft({ ...draft, fullTimeWeeklyOnExtramural: optionalNumber(e.target.value) })}
+              />
+            </Field>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

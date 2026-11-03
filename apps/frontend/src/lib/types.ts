@@ -117,6 +117,13 @@ export interface Settings {
   lateLessonNumber: number;
   workingDays: number[];
   maxGroupWindowsPerWeek: number;
+  /** Максимум пар группы в неделю по формам обучения; null — без ограничения */
+  maxWeeklyLessonsFullTime: number | null;
+  maxWeeklyLessonsPartTime: number | null;
+  maxWeeklyLessonsExtramural: number | null;
+  /** Когда у заочников занятия — очным группам не более fullTimeWeeklyOnExtramural пар в неделю */
+  reduceFullTimeOnExtramural: boolean;
+  fullTimeWeeklyOnExtramural: number | null;
   maxTeacherWindowsPerWeek: number;
   maxExamsPerWeek: number;
   maxBuildingChangesPerDay: number;
