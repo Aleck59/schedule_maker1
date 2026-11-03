@@ -204,6 +204,108 @@ describe('Расписание СПО (e2e)', () => {
     expect(res.body.ok).toBe(false);
   });
 
+  it('перенос: занятая аудитория заменяется свободной, а если свободных нет — ошибка', async () => {
+    const prisma = app.get(PrismaService);
+    const lessons = await http
+      .get(`/api/schedule-lessons?periodId=${periodId}&groupId=${groupId}&from=2026-02-09&to=2026-02-14`)
+      .set(auth('dispatcher'))
+      .expect(200);
+    const lesson = lessons.body.find(
+      (l: {
+        subgroupNumber: number | null;
+        classroom: { classroomType: string } | null;
+        streamKey: string | null;
+      }) =>
+        l.subgroupNumber === null &&
+        l.classroom &&
+        l.classroom.classroomType !== 'SPORTS_HALL' &&
+        !l.streamKey,
+    );
+    expect(lesson).toBeDefined();
+    const original = await prisma.scheduleLesson.findUniqueOrThrow({ where: { id: lesson.id } });
+    const roomId = original.classroomId!;
+    const slots = await http
+      .get(`/api/schedule-lessons/${lesson.id}/free-slots`)
+      .set(auth('dispatcher'))
+      .query({ from: '2026-02-09', to: '2026-02-14', limit: 5 })
+      .expect(200);
+    const slot = slots.body[0];
+    expect(slot).toBeDefined();
+    // Аудиторию занятия в целевом слоте занимает другая группа
+    const other = await prisma.studentGroup.findFirstOrThrow({ where: { id: { not: groupId } } });
+    const occupier = await prisma.scheduleLesson.create({
+      data: {
+        schedulePeriodId: original.schedulePeriodId,
+        date: new Date(`${slot.date}T00:00:00Z`),
+        weekday: slot.weekday,
+        lessonNumber: slot.lessonNumber,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        studentGroupId: other.id,
+        semesterCurriculumItemId: original.semesterCurriculumItemId,
+        classroomId: roomId,
+        lessonType: original.lessonType,
+      },
+    });
+    const deactivated: string[] = [];
+    try {
+      // Свободен только спортзал — обычную пару туда не ставим, перенос отклоняется
+      const room = await prisma.classroom.findUniqueOrThrow({ where: { id: roomId } });
+      const others = await prisma.classroom.findMany({
+        where: {
+          organizationId: room.organizationId,
+          isActive: true,
+          id: { not: roomId },
+          classroomType: { not: 'SPORTS_HALL' },
+        },
+        select: { id: true },
+      });
+      deactivated.push(...others.map((r) => r.id));
+      await prisma.classroom.updateMany({ where: { id: { in: deactivated } }, data: { isActive: false } });
+      const fail = await http
+        .post(`/api/schedule-lessons/${lesson.id}/move`)
+        .set(auth('dispatcher'))
+        .send({ date: slot.date, lessonNumber: slot.lessonNumber, mode: 'inplace' })
+        .expect(409);
+      const types = fail.body.details.issues.map((i: { validationType: string }) => i.validationType);
+      expect(types).toContain('CLASSROOM_CONFLICT');
+      expect(types).toContain('NO_FREE_CLASSROOM');
+      await prisma.classroom.updateMany({ where: { id: { in: deactivated } }, data: { isActive: true } });
+      deactivated.length = 0;
+
+      // Есть свободная — пара переносится в неё с мягким предупреждением
+      const ok = await http
+        .post(`/api/schedule-lessons/${lesson.id}/move`)
+        .set(auth('dispatcher'))
+        .send({ date: slot.date, lessonNumber: slot.lessonNumber, mode: 'inplace' })
+        .expect(200);
+      const replaced = ok.body.issues.find(
+        (i: { validationType: string }) => i.validationType === 'CLASSROOM_REPLACED',
+      );
+      expect(replaced?.severity).toBe('WARNING');
+      expect(replaced.message).toMatch(/занята/);
+      expect(ok.body.lesson.classroom.id).not.toBe(roomId);
+      expect(ok.body.lesson.classroom.classroomType).not.toBe('SPORTS_HALL');
+      expect(ok.body.roomChanged.to).toBe(ok.body.lesson.classroom.code);
+    } finally {
+      if (deactivated.length)
+        await prisma.classroom.updateMany({ where: { id: { in: deactivated } }, data: { isActive: true } });
+      await prisma.scheduleLesson.delete({ where: { id: occupier.id } });
+      await prisma.scheduleLesson.update({
+        where: { id: original.id },
+        data: {
+          date: original.date,
+          weekday: original.weekday,
+          lessonNumber: original.lessonNumber,
+          startTime: original.startTime,
+          endTime: original.endTime,
+          classroomId: original.classroomId,
+          isManual: original.isManual,
+        },
+      });
+    }
+  });
+
   it('отмена: часы не списываются, создаётся задача отработки, предлагаются слоты', async () => {
     const before = await http.get(`/api/groups/${groupId}/hour-control`).set(auth('dispatcher')).expect(200);
     const res = await http

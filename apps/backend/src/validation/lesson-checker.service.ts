@@ -3,7 +3,7 @@ import { CalendarEventType, ClassroomType, LessonType, Severity } from '@prisma/
 import { addDaysStr, formatDateRu, isoWeekday, parseDate, toDateStr, weekStart } from '../common/utils/dates';
 import { groupLessonNumbers } from '../common/utils/groups';
 import { CALENDAR_EVENT_LABELS, CLASSROOM_TYPE_LABELS, WEEKDAY_SHORT_LABELS } from '../common/utils/labels';
-import { effectiveRoomTypes } from '../common/utils/rooms';
+import { effectiveRoomTypes, rankRooms } from '../common/utils/rooms';
 import { describeRule, SlotVerdict, TeacherRules } from '../planning/availability-rules';
 import { PRACTICE_EVENT_TYPES, practiceEventTypeFor } from '../planning/calendar-context';
 import { ACTIVE_STATUSES, computeStreamHours, matchLessonsToStreams } from '../planning/hours-calculator';
@@ -32,6 +32,23 @@ export interface LessonCandidate {
   allowHoursExcess?: boolean;
   /** Пропустить проверку превышения часов (например, при переносе) */
   skipHoursCheck?: boolean;
+}
+
+/** Ошибки, которые снимаются выбором другой аудитории */
+export const ROOM_ISSUE_TYPES = new Set([
+  'CLASSROOM_CONFLICT',
+  'CAPACITY_EXCEEDED',
+  'CLASSROOM_UNAVAILABLE',
+  'NO_CLASSROOM',
+]);
+
+export interface FreeRoom {
+  id: string;
+  code: string;
+  classroomType: ClassroomType;
+  capacity: number;
+  /** Аудитория подходит по типу (иначе — запасной учебный кабинет) */
+  matchesType: boolean;
 }
 
 function issue(
@@ -504,5 +521,98 @@ export class LessonCheckerService {
       }
     }
     return issues;
+  }
+
+  /**
+   * Свободная подходящая аудитория для занятия в его слоте (кроме указанной в кандидате):
+   * доступна, не занята другими занятиями, вмещает группу (и группы потока из `extraGroupIds`).
+   * Сначала — кабинеты нужного типа, затем остальные учебные (тип — мягкое предпочтение).
+   * Спортзал и онлайн-аудитория запасными не бывают: обычную пару в спортзал не ставим.
+   */
+  async findFreeRoom(c: LessonCandidate, extraGroupIds: string[] = []): Promise<FreeRoom | null> {
+    const exclude = new Set([...(c.excludeIds ?? []), ...(c.lessonId ? [c.lessonId] : [])]);
+    const weekday = isoWeekday(c.date);
+    const [group, item, assignment, rooms, busyLessons, extraGroups] = await Promise.all([
+      this.prisma.studentGroup.findFirst({ where: { id: c.studentGroupId }, include: { subgroups: true } }),
+      this.prisma.semesterCurriculumItem.findFirst({ where: { id: c.semesterCurriculumItemId } }),
+      this.prisma.groupCurriculumAssignment.findFirst({
+        where: {
+          studentGroupId: c.studentGroupId,
+          semesterCurriculumItemId: c.semesterCurriculumItemId,
+          OR: [{ lessonType: c.lessonType }, { lessonType: null }],
+          subgroupNumber: c.subgroupNumber,
+        },
+        orderBy: { lessonType: 'asc' },
+      }),
+      this.prisma.classroom.findMany({
+        where: {
+          organizationId: c.organizationId,
+          isActive: true,
+          classroomType: { not: ClassroomType.ONLINE },
+          id: c.classroomId ? { not: c.classroomId } : undefined,
+        },
+        include: { availability: true },
+      }),
+      this.prisma.scheduleLesson.findMany({
+        where: {
+          schedulePeriod: { organizationId: c.organizationId },
+          date: parseDate(c.date),
+          lessonNumber: c.lessonNumber,
+          status: { in: ACTIVE_STATUSES },
+          classroomId: { not: null },
+          id: exclude.size ? { notIn: [...exclude] } : undefined,
+        },
+        select: { classroomId: true, streamKey: true, studentGroupId: true },
+      }),
+      extraGroupIds.length
+        ? this.prisma.studentGroup.findMany({
+            where: { id: { in: extraGroupIds } },
+            select: { studentCount: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    if (!group) return null;
+    const sameStream = (l: { streamKey: string | null }) => !!c.streamKey && l.streamKey === c.streamKey;
+    const busy = new Set(busyLessons.filter((l) => !sameStream(l)).map((l) => l.classroomId!));
+    const subgroup = c.subgroupNumber
+      ? group.subgroups.find((s) => s.number === c.subgroupNumber)
+      : undefined;
+    let size = c.subgroupNumber
+      ? subgroup && subgroup.studentCount > 0
+        ? subgroup.studentCount
+        : Math.ceil(group.studentCount / Math.max(1, group.subgroupCount))
+      : group.studentCount;
+    size += extraGroups.reduce((sum, g) => sum + g.studentCount, 0);
+    // Группы потока, уже стоящие в этом слоте, занимаются в той же аудитории
+    const streamGroups = new Set(
+      busyLessons
+        .filter((l) => sameStream(l) && l.studentGroupId !== c.studentGroupId)
+        .map((l) => l.studentGroupId),
+    );
+    if (streamGroups.size) {
+      const gs = await this.prisma.studentGroup.findMany({
+        where: { id: { in: [...streamGroups] } },
+        select: { studentCount: true },
+      });
+      size += gs.reduce((sum, g) => sum + g.studentCount, 0);
+    }
+    const free = rooms.filter(
+      (r) =>
+        !busy.has(r.id) &&
+        !r.availability.some(
+          (a) => a.weekday === weekday && a.lessonNumber === c.lessonNumber && !a.isAvailable,
+        ),
+    );
+    const allowed = effectiveRoomTypes(c.lessonType, item, assignment?.classroomTypes);
+    const ranked = rankRooms(free, allowed, size);
+    const best = ranked.rooms[0];
+    if (!best) return null;
+    return {
+      id: best.id,
+      code: best.code,
+      classroomType: best.classroomType,
+      capacity: best.capacity,
+      matchesType: ranked.matching > 0,
+    };
   }
 }

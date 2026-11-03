@@ -421,7 +421,7 @@ function MovePanel({ lesson, canForce, onDone }: { lesson: Lesson; canForce: boo
   const [loadingSlots, setLoadingSlots] = useState(false);
   const m = useApiMutation(
     (force: boolean) =>
-      api.post<{ mode: string }>(`/schedule-lessons/${lesson.id}/move`, {
+      api.post<{ mode: string; issues?: ValidationIssue[] }>(`/schedule-lessons/${lesson.id}/move`, {
         date,
         lessonNumber: Number(lessonNumber),
         classroomId: classroomId ?? undefined,
@@ -431,7 +431,9 @@ function MovePanel({ lesson, canForce, onDone }: { lesson: Lesson; canForce: boo
     {
       success: (r) => (r.mode === 'history' ? 'Занятие перенесено (история сохранена)' : 'Занятие перенесено'),
       invalidate: [['lessons'], ['hour-control']],
-      onSuccess: () => {
+      onSuccess: (r) => {
+        const replaced = r.issues?.find((i) => i.validationType === 'CLASSROOM_REPLACED');
+        if (replaced) toast.warning(replaced.message);
         setIssues(null);
         onDone();
       },

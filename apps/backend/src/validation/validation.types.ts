@@ -14,6 +14,8 @@ export const VALIDATION_TYPE_LABELS: Record<string, string> = {
   TEACHER_CONFLICT: 'Преподаватель на двух занятиях одновременно',
   GROUP_CONFLICT: 'Группа на двух занятиях одновременно',
   CLASSROOM_CONFLICT: 'Аудитория занята дважды',
+  CLASSROOM_REPLACED: 'Аудитория заменена на свободную',
+  NO_FREE_CLASSROOM: 'Нет свободных аудиторий',
   CAPACITY_EXCEEDED: 'Вместимость аудитории меньше размера группы',
   CLASSROOM_UNAVAILABLE: 'Недоступная аудитория',
   TEACHER_UNAVAILABLE: 'Недоступное время преподавателя',
