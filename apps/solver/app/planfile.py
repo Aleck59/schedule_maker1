@@ -40,6 +40,7 @@ from .ocr.structure import (
 
 Row = dict[str, str]
 
+PART_TIME_NAME_RE = re.compile(r"\(\s*(?:озо|о-з-о|о/з|оз|очно-заоч\w*)\s*\)|очно-заочн")
 CODE_RE = re.compile(r"(?<![\d.])(\d{2})\.(\d{2})\.(\d{2})(?![\d.])")
 HOUR_KEYS = (
     "lecture",
@@ -441,10 +442,17 @@ class PlanBuilder:
                 prefix = index_prefix(item["code"]) if "." in item["code"] else ""
                 item["cycleCode"] = max(owners, key=len) if owners else (prefix or item["fileCycle"] or "ПР")
             del item["fileCycle"]
-        # Экзамен по модулю (квалификационный) — отдельной строкой, как на скане
+        # Экзамен по модулю (квалификационный) — отдельной строкой, как на скане. Если в файле он
+        # есть своей строкой («ПМ.01.01(К) Экзамен по модулю»), строка модуля не нужна: у модуля .plx
+        # формы контроля — сумма форм контроля его МДК и практик.
+        explicit = {i["parentCode"] for i in items if i["kind"] == "MODULE_EXAM"}
+        for item in items:
+            if item["kind"] == "MODULE_EXAM":
+                for s in item["semesters"]:
+                    s["controlForm"] = "QUALIFICATION_EXAM"
         for item in [i for i in items if i["kind"] == "MODULE" and i["semesters"]]:
             exams = [s for s in item["semesters"] if s["controlForm"] in ("QUALIFICATION_EXAM", "EXAM")]
-            if exams:
+            if exams and item["code"] not in explicit:
                 items.append(
                     {
                         "code": f"{item['code']}.ЭК",
@@ -620,6 +628,15 @@ def parse_plx(root: ET.Element, builder: PlanBuilder) -> None:
                     if get(r, "Код") == form_code:
                         form_text = get(r, "ФормаОбучения", "Название", "Наименование")
     title["studyForm"] = study_form_of(form_text) or "FULL_TIME"
+    # Очно-заочную форму в программе часто ведут как «Заочную» (сессии, заезды), а настоящую форму
+    # пишут в имени плана: «40.02.04 ЮР(псо)(9кл)(озо)24акт.plx»
+    names = " ".join([get(plan, "ИмяФайла"), root.get("LastName", ""), root.get("PrevName", "")]).lower()
+    if title["studyForm"] != "PART_TIME" and PART_TIME_NAME_RE.search(names):
+        builder.warnings.append(
+            f"В программе указана форма «{form_text or 'не указана'}», а в имени плана — очно-заочная. "
+            "Выбрана очно-заочная форма, проверьте её"
+        )
+        title["studyForm"] = "PART_TIME"
     months = parse_duration(get(plan, "СрокОбучения", "СрокПолученияОбразования"))
     extra = num(get(plan, "СрокОбученияМесяцев"))
     if months is not None and extra and re.fullmatch(r"\d+", get(plan, "СрокОбучения")):
@@ -688,6 +705,30 @@ def parse_plx(root: ET.Element, builder: PlanBuilder) -> None:
     kinds = {get(r, "КодТипаЧасов") for r in hour_rows}
     base_kind = "1" if "1" in kinds else None
     hour_rows = [r for r in hour_rows if not base_kind or get(r, "КодТипаЧасов") in ("", base_kind)]
+    # Заочная форма: даты сессий (таблица «Заезды»: курс, сессия, дата начала, продолжительность в днях)
+    sessions: dict[tuple[int, int], tuple[dt.date, dt.date]] = {}
+    for r in own(table("Заезды")):
+        start = parse_date(get(r, "ДатаНачала"))
+        days = int(num(get(r, "Продолжительность")))
+        course, session = int(num(get(r, "Курс"))), int(num(get(r, "Сессия")))
+        if start and days > 0 and course > 0 and session > 0 and not start.startswith("0001"):
+            first = dt.date.fromisoformat(start)
+            sessions[(course, session)] = (first, first + dt.timedelta(days=days - 1))
+    per_course_sessions = int(num(get(plan, "ЧислоСессий"))) or int(num(root.get("СессийНаКурсе", "")))
+
+    def session_semester(course: int, session: int) -> int | None:
+        """Семестр сессии: осенние (сентябрь–январь) — нечётный, весенние и летние — чётный.
+        Без даты: при трёх сессиях на курсе (установочная, зимняя, летняя) первые две — нечётный."""
+        if course <= 0:
+            return None
+        dates = sessions.get((course, session))
+        if dates:
+            month = dates[0].month
+            return 2 * course - 1 if month >= 9 or month == 1 else 2 * course
+        if per_course_sessions >= 3:
+            return 2 * course - 1 if session < per_course_sessions else 2 * course
+        return semester_of(course, 0, session)
+
     # Заочная форма: часы курса даны и итогом (Семестр), и по сессиям — берутся сессии
     with_sessions = {
         (get(r, "КодОбъекта"), get(r, "Курс")) for r in hour_rows if int(num(get(r, "Сессия"))) > 0
@@ -704,7 +745,11 @@ def parse_plx(root: ET.Element, builder: PlanBuilder) -> None:
         if per_course == 1 and session <= 0 and semester_ == 1:
             semester_ = 0
             session = 1
-        number = semester_of(course, semester_, session)
+        number = (
+            session_semester(course, session)
+            if session > 0 and semester_ <= 0
+            else semester_of(course, semester_, session)
+        )
         if not number:
             continue
         type_code = get(r, "КодВидаРабот", "КодВидаРаботы", "КодВидаКонтроля")
@@ -723,14 +768,17 @@ def parse_plx(root: ET.Element, builder: PlanBuilder) -> None:
             "Неизвестные коды видов работ (часы учтены в общем объёме): " + ", ".join(sorted(unknown_types))
         )
     _plx_calendar(tables, builder, title.get("admissionYear"))
+    if sessions and title["studyForm"] != "FULL_TIME":
+        _apply_plx_sessions(builder, sessions)
 
 
 # Коды видов деятельности графика АС «Учебные планы» (ячейки ПланыГрафикиЯчейки без справочника
-# обозначений). 1, 3, 11, 12, 13, 15 сверены с реальным файлом; остальные — по порядку легенды графика.
+# обозначений). 1, 3, 4, 5, 11, 12, 13, 15 сверены с реальными файлами (заочные планы СПО и ВО:
+# 3 — сессия/аттестация в конце заезда, 12 — зимние и летние каникулы); остальные — по порядку легенды.
 PLX_ACTIVITY_CODES = {
     "1": "",  # теоретическое обучение
-    "2": "Э",  # экзаменационная сессия
-    "3": "К",  # каникулы
+    "2": "Э",
+    "3": "Э",  # промежуточная аттестация (экзаменационная сессия)
     "4": "У",  # учебная практика
     "5": "П",  # производственная практика
     "6": "У",  # научно-исследовательская работа
@@ -739,7 +787,7 @@ PLX_ACTIVITY_CODES = {
     "9": "Пд",
     "10": "Д",
     "11": "Г",  # государственная итоговая аттестация
-    "12": "Э",  # промежуточная аттестация (сессия)
+    "12": "К",  # каникулы
     "13": "=",  # неделя отсутствует (обучение не ведётся)
     "14": "С",
     "15": "*",  # нерабочие праздничные дни
@@ -747,7 +795,11 @@ PLX_ACTIVITY_CODES = {
 
 
 def _plx_calendar(tables: dict[str, list[Row]], builder: PlanBuilder, admission: int | None) -> None:
-    """Календарный график .plx: ячейки графика (курс, неделя, часть недели) с видом деятельности."""
+    """Календарный график .plx: ячейки графика (курс, неделя, часть недели) с видом деятельности.
+
+    В новых версиях программы у ячейки есть дата (DateElementGYP) — по ней график и строится: номер
+    недели считается от первой недели учебного года курса, а она у разных курсов начинается в разные
+    дни недели. В старых файлах даты нет — неделя отсчитывается от понедельника недели 1 сентября."""
     symbols: dict[str, str] = {}
     for name, rows in tables.items():
         if "справочник" in name and ("деятельност" in name or "график" in name or "обозначен" in name):
@@ -763,8 +815,9 @@ def _plx_calendar(tables: dict[str, list[Row]], builder: PlanBuilder, admission:
         week_field = next((f for f in ("НомерНедели", "Неделя", "НомерНед") if _key(f) in sample), None)
         if not week_field or _key("Курс") not in sample:
             continue
-        # course → index дня (6 дней в неделе) → код
+        # course → index дня (6 дней в неделе) → код; course → дата → код (если у ячеек есть даты)
         grid: dict[int, dict[int, str]] = defaultdict(dict)
+        dated: dict[int, dict[dt.date, str]] = defaultdict(dict)
         for r in rows:
             course = int(num(get(r, "Курс")))
             week = int(num(get(r, week_field)))
@@ -783,18 +836,36 @@ def _plx_calendar(tables: dict[str, list[Row]], builder: PlanBuilder, admission:
                 continue
             parts = int(num(get(r, "КоличествоЧастейВНеделе"))) or 1
             part = int(num(get(r, "НомерЧастиНедели", "ДеньНедели", "НомерДня"))) or 1
+            size = 1 if parts >= 6 else 6 // parts
+            date = parse_date(get(r, "DateElementGYP", "Дата", "ДатаНачала"))
+            if date and not date.startswith("0001"):
+                first = dt.date.fromisoformat(date)
+                for d in range(size):
+                    day = first + dt.timedelta(days=d)
+                    if day.weekday() < 6:
+                        dated[course][day] = code
+                continue
             base = (week - 1) * 6
             if parts >= 6:
                 grid[course][base + min(part, 6) - 1] = code
             else:
                 # Неделя делится на части (1 — вся неделя, 2 — по половинам, 3 — по два дня)
-                size = 6 // parts
                 for d in range((part - 1) * size, min(6, part * size)):
                     grid[course][base + d] = code
+        for course, days in dated.items():
+            year = admission + course - 1
+            monday = monday_of_first_week(year)
+            cells = grid[course]
+            for day, code in days.items():
+                index = (day - monday).days
+                cells[index // 7 * 6 + index % 7] = code
         for course, cells in sorted(grid.items()):
-            codes = [cells.get(i, "") for i in range(max(cells) + 1)]
+            if not cells:
+                continue
+            # День без ячейки (до начала учебного года курса или после его конца) — обучения нет
+            codes = [cells.get(i, "=" if course in dated else "") for i in range(max(cells) + 1)]
             if all(c in ("=", "*") for c in codes):
-                continue  # курса нет в плане (сокращённый срок)
+                continue  # курса нет в плане (сокращённый срок, запасные курсы сетки программы)
             builder.add_calendar_weeks(course, admission + course - 1, codes, per_day=True)
         if builder.calendar:
             break
@@ -803,6 +874,32 @@ def _plx_calendar(tables: dict[str, list[Row]], builder: PlanBuilder, admission:
             "Неизвестные обозначения календарного графика (поставлены как «прочее»): "
             + ", ".join(sorted(unknown))
         )
+
+
+def _apply_plx_sessions(
+    builder: PlanBuilder, sessions: dict[tuple[int, int], tuple[dt.date, dt.date]]
+) -> None:
+    """Заочная форма: занятия идут только в дни сессий (заездов), остальное время — межсессионный
+    период «С». Аттестация, практики, каникулы и праздники из графика сохраняются.
+
+    Если в графике сессии целиком отмечены аттестацией (так бывает в планах ВО), а теоретическое
+    обучение стоит между ними, график не меняется."""
+    for table in builder.calendar:
+        own = [d for (course, _), d in sessions.items() if course == table["course"]]
+        days = [
+            dt.date.fromisoformat(week["monday"]) + dt.timedelta(days=d)
+            for week in table["weeks"]
+            for d, code in enumerate(week["days"])
+            if code == ""
+        ]
+        if not any(start <= day <= end for day in days for start, end in own):
+            continue
+        for week in table["weeks"]:
+            monday = dt.date.fromisoformat(week["monday"])
+            for d, code in enumerate(week["days"]):
+                day = monday + dt.timedelta(days=d)
+                if code == "" and not any(start <= day <= end for start, end in own):
+                    week["days"][d] = "С"
 
 
 # ---------------------------------------------------------------------------- .xml (GosInsp)
