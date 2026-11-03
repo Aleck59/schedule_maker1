@@ -316,7 +316,7 @@ def test_plx_extramural_sessions_with_dated_cells(tmp_path: Path) -> None:
         )
     )
     xml = f"""<?xml version="1.0" encoding="utf-16"?>
-<Документ Тип="УЧЕБНЫЙ ПЛАН" ЧислоКурсов="11" СеместровНаКурсе="1" СессийНаКурсе="3">
+<Документ Тип="УЧЕБНЫЙ ПЛАН" LastName="40.02.04 ЮР(псо)(9кл)(озо)24акт.plx" ЧислоКурсов="11" СеместровНаКурсе="1" СессийНаКурсе="3">
 <diffgr:diffgram xmlns:msdata="urn:schemas-microsoft-com:xml-msdata" xmlns:diffgr="urn:schemas-microsoft-com:xml-diffgram-v1">
 <dsMMISDB xmlns="http://tempuri.org/dsMMISDB.xsd">
 <ООП diffgr:id="ООП1" Код="9550" Шифр="40.02.04" Название="ЮРИСПРУДЕНЦИЯ" />
@@ -338,7 +338,9 @@ def test_plx_extramural_sessions_with_dated_cells(tmp_path: Path) -> None:
     path = tmp_path / "zo.plx"
     path.write_bytes(xml.encode("utf-16"))
     result = import_plan_file(str(path))
-    assert result["title"]["studyForm"] == "EXTRAMURAL"
+    # В программе — «Заочная», в имени плана — «(озо)»: берётся очно-заочная, с предупреждением
+    assert result["title"]["studyForm"] == "PART_TIME"
+    assert any("очно-заочная" in w for w in result["warnings"])
     items = by_code(result)
     sems = {s["number"]: s for s in items["СОО.01.01"]["semesters"]}
     assert sems[1]["hours"]["total"] == 68 and sems[1]["controlForm"] == "OTHER"

@@ -40,6 +40,7 @@ from .ocr.structure import (
 
 Row = dict[str, str]
 
+PART_TIME_NAME_RE = re.compile(r"\(\s*(?:озо|о-з-о|о/з|оз|очно-заоч\w*)\s*\)|очно-заочн")
 CODE_RE = re.compile(r"(?<![\d.])(\d{2})\.(\d{2})\.(\d{2})(?![\d.])")
 HOUR_KEYS = (
     "lecture",
@@ -627,6 +628,15 @@ def parse_plx(root: ET.Element, builder: PlanBuilder) -> None:
                     if get(r, "Код") == form_code:
                         form_text = get(r, "ФормаОбучения", "Название", "Наименование")
     title["studyForm"] = study_form_of(form_text) or "FULL_TIME"
+    # Очно-заочную форму в программе часто ведут как «Заочную» (сессии, заезды), а настоящую форму
+    # пишут в имени плана: «40.02.04 ЮР(псо)(9кл)(озо)24акт.plx»
+    names = " ".join([get(plan, "ИмяФайла"), root.get("LastName", ""), root.get("PrevName", "")]).lower()
+    if title["studyForm"] != "PART_TIME" and PART_TIME_NAME_RE.search(names):
+        builder.warnings.append(
+            f"В программе указана форма «{form_text or 'не указана'}», а в имени плана — очно-заочная. "
+            "Выбрана очно-заочная форма, проверьте её"
+        )
+        title["studyForm"] = "PART_TIME"
     months = parse_duration(get(plan, "СрокОбучения", "СрокПолученияОбразования"))
     extra = num(get(plan, "СрокОбученияМесяцев"))
     if months is not None and extra and re.fullmatch(r"\d+", get(plan, "СрокОбучения")):
