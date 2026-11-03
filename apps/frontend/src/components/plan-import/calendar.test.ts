@@ -34,6 +34,15 @@ describe('календарный график из скана', () => {
     ]);
   });
 
+  it('межсессионный период заочников «С» — период «Прочее» с названием, не теория', () => {
+    const cal = year(2026, (w) => (w === 6 || w === 7 ? '' : w === 21 || w === 22 ? 'К' : 'С'));
+    const { semesters, periods } = deriveFromCalendar([cal], [1, 2]);
+    expect(semesters[0].theoryWeeks).toBe(2);
+    const other = periods.filter((p) => p.type === 'OTHER');
+    expect(other[0]).toMatchObject({ title: 'Межсессионный период (самостоятельная работа)', startDate: '2026-09-01' });
+    expect(other).toHaveLength(3);
+  });
+
   it('последний год заканчивается до недель «=»', () => {
     const cal = year(2028, (w) => (w >= 44 ? '=' : w === 21 ? 'К' : ''));
     const { semesters } = deriveFromCalendar([cal], [1, 2]);
