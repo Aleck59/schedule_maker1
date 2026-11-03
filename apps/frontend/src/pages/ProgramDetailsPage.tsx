@@ -10,7 +10,7 @@ import {
   Trash2,
   TriangleAlert,
 } from "lucide-react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Confirm } from "@/components/common/confirm";
 import { Field } from "@/components/common/field";
@@ -97,7 +97,9 @@ export default function ProgramDetailsPage() {
     ["program-semesters", id],
     `/programs/${id}/semesters`,
   );
-  const [itemId, setItemId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  // ?item=<id> — открыть карточку дисциплины сразу (ссылка из окна пары)
+  const [itemId, setItemId] = useState<string | null>(() => searchParams.get("item"));
   const [newItem, setNewItem] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [editSemester, setEditSemester] = useState<Semester | null>(null);
@@ -409,7 +411,10 @@ export default function ProgramDetailsPage() {
       <ItemDialog
         itemId={itemId}
         programId={id!}
-        onClose={() => setItemId(null)}
+        onClose={() => {
+          setItemId(null);
+          if (searchParams.has("item")) setSearchParams({}, { replace: true });
+        }}
         semesters={semesters.data ?? []}
       />
       <NewItemDialog

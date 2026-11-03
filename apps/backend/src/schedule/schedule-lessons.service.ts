@@ -51,7 +51,9 @@ export const LESSON_INCLUDE = {
     select: {
       id: true,
       semesterId: true,
-      curriculumItem: { select: { id: true, code: true, name: true, itemType: true, isDifficult: true } },
+      curriculumItem: {
+        select: { id: true, code: true, name: true, itemType: true, isDifficult: true, educationalProgramId: true },
+      },
     },
   },
   teacher: { select: { id: true, fullName: true } },
