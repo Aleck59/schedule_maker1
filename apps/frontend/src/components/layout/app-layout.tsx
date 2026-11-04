@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   BarChart3,
@@ -53,6 +53,8 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
   roles: UserRole[];
+  /** Цвет иконки при наведении (CSS-цвет) */
+  color: string;
 }
 
 const APP_VERSION = (import.meta.env.VITE_APP_VERSION as string | undefined) ?? 'dev';
@@ -64,38 +66,38 @@ const NAV: Array<{ section: string; items: NavItem[] }> = [
   {
     section: 'Работа',
     items: [
-      { to: '/setup', label: 'Мастер настройки', icon: Compass, roles: EDITORS },
-      { to: '/', label: 'Главная', icon: LayoutDashboard, roles: ['ADMIN', 'DISPATCHER', 'MANAGER', 'TEACHER', 'STUDENT'] },
-      { to: '/my', label: 'Моё расписание', icon: CalendarCheck2, roles: ['TEACHER', 'STUDENT'] },
-      { to: '/schedule', label: 'Расписание', icon: CalendarDays, roles: [...STAFF, 'TEACHER'] },
-      { to: '/generation', label: 'Составление', icon: Sparkles, roles: EDITORS },
-      { to: '/hour-control', label: 'Выполнение часов', icon: ClipboardCheck, roles: STAFF },
-      { to: '/makeup', label: 'Отработки', icon: RotateCcw, roles: [...EDITORS, 'TEACHER'] },
-      { to: '/reports', label: 'Отчёты', icon: BarChart3, roles: [...STAFF, 'TEACHER'] },
+      { to: '/setup', label: 'Мастер настройки', icon: Compass, roles: EDITORS, color: 'oklch(0.62 0.17 55)' },
+      { to: '/', label: 'Главная', icon: LayoutDashboard, roles: ['ADMIN', 'DISPATCHER', 'MANAGER', 'TEACHER', 'STUDENT'], color: 'oklch(0.58 0.2 265)' },
+      { to: '/my', label: 'Моё расписание', icon: CalendarCheck2, roles: ['TEACHER', 'STUDENT'], color: 'oklch(0.6 0.17 160)' },
+      { to: '/schedule', label: 'Расписание', icon: CalendarDays, roles: [...STAFF, 'TEACHER'], color: 'oklch(0.58 0.2 265)' },
+      { to: '/generation', label: 'Составление', icon: Sparkles, roles: EDITORS, color: 'oklch(0.6 0.22 300)' },
+      { to: '/hour-control', label: 'Выполнение часов', icon: ClipboardCheck, roles: STAFF, color: 'oklch(0.6 0.16 150)' },
+      { to: '/makeup', label: 'Отработки', icon: RotateCcw, roles: [...EDITORS, 'TEACHER'], color: 'oklch(0.64 0.17 45)' },
+      { to: '/reports', label: 'Отчёты', icon: BarChart3, roles: [...STAFF, 'TEACHER'], color: 'oklch(0.58 0.17 230)' },
     ],
   },
   {
     section: 'Справочники',
     items: [
-      { to: '/groups', label: 'Группы', icon: GraduationCap, roles: STAFF },
-      { to: '/teachers', label: 'Преподаватели', icon: Users, roles: STAFF },
-      { to: '/classrooms', label: 'Аудитории', icon: Building2, roles: STAFF },
+      { to: '/groups', label: 'Группы', icon: GraduationCap, roles: STAFF, color: 'oklch(0.6 0.2 285)' },
+      { to: '/teachers', label: 'Преподаватели', icon: Users, roles: STAFF, color: 'oklch(0.6 0.15 200)' },
+      { to: '/classrooms', label: 'Аудитории', icon: Building2, roles: STAFF, color: 'oklch(0.62 0.16 60)' },
     ],
   },
   {
     section: 'Планирование',
     items: [
-      { to: '/programs', label: 'Учебные планы', icon: BookOpen, roles: STAFF },
-      { to: '/calendar', label: 'Календарный график', icon: CalendarRange, roles: STAFF },
-      { to: '/holidays', label: 'Праздники', icon: PartyPopper, roles: STAFF },
-      { to: '/workload', label: 'Нагрузка', icon: FileSpreadsheet, roles: STAFF },
+      { to: '/programs', label: 'Учебные планы', icon: BookOpen, roles: STAFF, color: 'oklch(0.58 0.18 250)' },
+      { to: '/calendar', label: 'Календарный график', icon: CalendarRange, roles: STAFF, color: 'oklch(0.6 0.2 20)' },
+      { to: '/holidays', label: 'Праздники', icon: PartyPopper, roles: STAFF, color: 'oklch(0.63 0.21 350)' },
+      { to: '/workload', label: 'Нагрузка', icon: FileSpreadsheet, roles: STAFF, color: 'oklch(0.58 0.15 155)' },
     ],
   },
   {
     section: 'Администрирование',
     items: [
-      { to: '/users', label: 'Пользователи', icon: UserCog, roles: ['ADMIN'] },
-      { to: '/settings', label: 'Настройки', icon: Settings, roles: ['ADMIN', 'DISPATCHER'] },
+      { to: '/users', label: 'Пользователи', icon: UserCog, roles: ['ADMIN'], color: 'oklch(0.58 0.14 240)' },
+      { to: '/settings', label: 'Настройки', icon: Settings, roles: ['ADMIN', 'DISPATCHER'], color: 'oklch(0.55 0.04 260)' },
     ],
   },
 ];
@@ -160,6 +162,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                     to={item.to}
                     end={item.to === '/'}
                     onClick={onNavigate}
+                    style={{ '--nav-color': item.color } as CSSProperties}
                     className={({ isActive }) =>
                       cn(
                         'nav-item text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-foreground relative flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-sm transition-colors duration-200',

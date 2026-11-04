@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   DndContext,
@@ -43,6 +43,8 @@ interface GridProps {
   onCellClick?: (date: string, lessonNumber: number, column: GridColumn) => void;
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
+  /** Правый клик по паре */
+  onLessonContextMenu?: (lesson: Lesson, e: ReactMouseEvent) => void;
   /** Разрешать перенос только внутри колонки (сетка дня: колонка = группа) */
   sameColumnOnly?: boolean;
 }
@@ -125,6 +127,7 @@ export function ScheduleGrid({
   onCellClick,
   selectedIds,
   onToggleSelect,
+  onLessonContextMenu,
   sameColumnOnly,
 }: GridProps) {
   const [active, setActive] = useState<Lesson | null>(null);
@@ -213,6 +216,7 @@ export function ScheduleGrid({
                               lesson={l}
                               mode={mode}
                               onClick={() => onLessonClick(l)}
+                              onContextMenu={onLessonContextMenu ? (e) => onLessonContextMenu(l, e) : undefined}
                               selected={selectedIds?.has(l.id)}
                               onSelect={onToggleSelect ? () => onToggleSelect(l.id) : undefined}
                               dragHandleProps={props}

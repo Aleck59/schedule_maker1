@@ -101,7 +101,7 @@ export class ClassroomsService {
     };
   }
 
-  list(
+  async list(
     actor: AuthUser,
     params: {
       type?: ClassroomType;
@@ -111,7 +111,7 @@ export class ClassroomsService {
       search?: string;
     },
   ) {
-    return this.prisma.classroom.findMany({
+    const rooms = await this.prisma.classroom.findMany({
       where: {
         organizationId: actor.organizationId,
         classroomType: params.type || undefined,
@@ -128,6 +128,14 @@ export class ClassroomsService {
       include: { _count: { select: { availability: true } } },
       orderBy: [{ building: 'asc' }, { code: 'asc' }],
     });
+    // Сколько пар в неделю аудитория недоступна — для статуса «частично занята» в списке
+    const blocked = await this.prisma.classroomAvailability.groupBy({
+      by: ['classroomId'],
+      where: { isAvailable: false, classroomId: { in: rooms.map((r) => r.id) } },
+      _count: { _all: true },
+    });
+    const blockedBy = new Map(blocked.map((b) => [b.classroomId, b._count._all]));
+    return rooms.map((r) => ({ ...r, unavailableSlots: blockedBy.get(r.id) ?? 0 }));
   }
 
   async get(id: string, actor: AuthUser) {

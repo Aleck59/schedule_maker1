@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { CalendarSearch, Check, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Confirm } from '@/components/common/confirm';
@@ -13,7 +13,6 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { useGroups } from '@/hooks/use-reference';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { addDays, formatDate, today, weekdayName } from '@/lib/format';
@@ -29,7 +28,6 @@ export default function MakeupPage() {
   const { canEdit, user } = useAuth();
   const [status, setStatus] = useState<string | null>('OPEN');
   const [groupId, setGroupId] = useState<string | null>(null);
-  const groups = useGroups(user?.role !== 'TEACHER');
   const tasks = useApi<MakeupTask[]>(['makeup-tasks', status, groupId], '/makeup-tasks', { status: status ?? undefined, groupId: groupId ?? undefined });
   const all = useApi<MakeupTask[]>(['makeup-tasks', 'all'], '/makeup-tasks');
   const [task, setTask] = useState<MakeupTask | null>(null);
@@ -38,6 +36,16 @@ export default function MakeupPage() {
     invalidate: [['makeup-tasks'], ['dashboard'], ['hour-control']],
   });
   const open = (all.data ?? []).filter((t) => t.status === 'OPEN');
+  // В фильтре — только группы, у которых есть задачи с выбранным статусом (а не все группы колледжа)
+  const groupOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const t of all.data ?? []) if (!status || t.status === status) map.set(t.group.id, t.group.code);
+    if (groupId && !map.has(groupId)) {
+      const g = (all.data ?? []).find((t) => t.group.id === groupId)?.group;
+      if (g) map.set(g.id, g.code);
+    }
+    return [...map].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, 'ru', { numeric: true }));
+  }, [all.data, status, groupId]);
   return (
     <div className="space-y-5">
       <PageHeader
@@ -61,7 +69,7 @@ export default function MakeupPage() {
         </div>
         {user?.role !== 'TEACHER' && (
           <div className="w-48">
-            <SimpleSelect value={groupId} onChange={setGroupId} allowEmpty emptyLabel="Все группы" options={(groups.data ?? []).map((g) => ({ value: g.id, label: g.code }))} />
+            <SimpleSelect value={groupId} onChange={setGroupId} allowEmpty emptyLabel="Все группы" options={groupOptions} />
           </div>
         )}
       </div>

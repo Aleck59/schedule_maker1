@@ -340,6 +340,20 @@
 .nav-item:hover svg {
   transform: scale(1.12);
 }
+/* Цветные иконки меню при наведении и у активного пункта */
+.nav-item svg {
+  transition:
+    transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    color 0.2s ease;
+}
+.nav-item:hover svg,
+.nav-item.active svg {
+  color: var(--nav-color, currentColor);
+}
+.dark .nav-item:hover svg,
+.dark .nav-item.active svg {
+  color: color-mix(in oklch, var(--nav-color, currentColor) 70%, white);
+}
 
 /* Градиент фирменного знака */
 .brand-gradient {
@@ -361,4 +375,58 @@
     animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Изменение ширины колонок таблиц перетаскиванием границы заголовка */
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  z-index: 2;
+  width: 9px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+.col-resizer::after {
+  content: '';
+  position: absolute;
+  top: 22%;
+  bottom: 22%;
+  left: 4px;
+  width: 1px;
+  border-radius: 1px;
+  background: transparent;
+  transition:
+    background-color 0.15s ease,
+    width 0.15s ease,
+    left 0.15s ease;
+}
+tr:hover > th > .col-resizer::after {
+  background: var(--border);
+}
+th:last-child > .col-resizer {
+  right: 0;
+}
+th:last-child > .col-resizer::after {
+  left: 6px;
+}
+.col-resizer:hover::after,
+body.col-resizing .col-resizer:active::after {
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 3px;
+  background: var(--primary);
+}
+body.col-resizing,
+body.col-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+table[data-resized] > * > tr > th,
+table[data-resized] > * > tr > td {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
