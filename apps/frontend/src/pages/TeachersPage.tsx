@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { BookOpen, CalendarClock, Plus, Search, Users } from 'lucide-react';
+import type { ColumnDef } from '@tanstack/react-table';
+import { BookOpen, CalendarClock, LayoutGrid, List, Plus, Search, Users } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
+import { DataTable } from '@/components/common/data-table';
 import { Field } from '@/components/common/field';
 import { PageHeader } from '@/components/common/page-header';
 import { SimpleSelect } from '@/components/common/simple-select';
@@ -29,7 +31,19 @@ import {
   TEACHER_POSITIONS,
 } from '@/lib/labels';
 import { useApiMutation } from '@/lib/query';
+import { cn } from '@/lib/utils';
 import type { AcademicDegree, AcademicTitle, EducationLevel, Teacher, TeacherEducation } from '@/lib/types';
+
+type ViewMode = 'cards' | 'list';
+const VIEW_KEY = 'sm.teachers.view';
+
+function readView(): ViewMode {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'cards';
+  } catch {
+    return 'cards';
+  }
+}
 
 const STATUS_OPTIONS = [
   { value: 'active', label: 'Работают' },
@@ -47,6 +61,15 @@ export default function TeachersPage() {
   const [level, setLevel] = useState<string | null>(null);
   const [department, setDepartment] = useState<string | null>(null);
   const [status, setStatus] = useState('active');
+  const [view, setViewRaw] = useState<ViewMode>(readView);
+  const setView = (v: ViewMode) => {
+    setViewRaw(v);
+    try {
+      localStorage.setItem(VIEW_KEY, v);
+    } catch {
+      /* хранилище недоступно */
+    }
+  };
 
   const list = useMemo(() => teachers.data ?? [], [teachers.data]);
   const positions = useMemo(() => [...new Set(list.map((t) => t.position || 'Преподаватель'))].sort(), [list]);
@@ -96,6 +119,27 @@ export default function TeachersPage() {
         <span className="text-muted-foreground ml-auto text-sm">
           {shown.length} {pluralize(shown.length, 'преподаватель', 'преподавателя', 'преподавателей')}
         </span>
+        <div role="group" aria-label="Вид списка" className="bg-muted/60 inline-flex rounded-lg p-0.5">
+          {(
+            [
+              ['cards', 'Карточки', LayoutGrid],
+              ['list', 'Список', List],
+            ] as const
+          ).map(([value, label, Icon]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={view === value}
+              onClick={() => setView(value)}
+              className={cn(
+                'inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-sm transition-all duration-200',
+                view === value ? 'bg-card text-foreground font-medium shadow-xs' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Icon className="size-4" /> {label}
+            </button>
+          ))}
+        </div>
       </div>
       {teachers.isLoading ? (
         <LoadingState rows={6} />
@@ -105,6 +149,15 @@ export default function TeachersPage() {
         <EmptyState
           title={list.length ? 'Никого не нашлось' : 'Преподавателей пока нет'}
           description={list.length ? 'Измените условия поиска или фильтры.' : 'Добавьте преподавателей — затем распределите нагрузку по дисциплинам.'}
+        />
+      ) : view === 'list' ? (
+        <DataTable
+          data={shown}
+          columns={TEACHER_COLUMNS}
+          searchable={false}
+          pageSize={null}
+          dense
+          onRowClick={(t) => navigate(`/teachers/${t.id}`)}
         />
       ) : (
         <div className="stagger grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
@@ -117,6 +170,84 @@ export default function TeachersPage() {
     </div>
   );
 }
+
+/** Колонки табличного вида («Список») */
+const TEACHER_COLUMNS: ColumnDef<Teacher>[] = [
+  {
+    accessorKey: 'fullName',
+    header: 'Преподаватель',
+    cell: ({ row }) => {
+      const t = row.original;
+      return (
+        <div className="flex items-center gap-2.5">
+          <TeacherPhoto teacher={t} className="size-8 text-xs" />
+          <div className="max-w-80 min-w-0">
+            <div className="truncate font-medium">{t.fullName}</div>
+            <div className="text-muted-foreground line-clamp-2 text-xs whitespace-normal">{qualificationLine(t)}</div>
+          </div>
+        </div>
+      );
+    },
+  },
+  {
+    id: 'department',
+    header: 'Кафедра / ПЦК',
+    accessorFn: (t) => t.department ?? '',
+    cell: ({ getValue }) => <span className="text-sm">{getValue<string>() || '—'}</span>,
+  },
+  {
+    id: 'levels',
+    header: 'Может вести',
+    enableSorting: false,
+    cell: ({ row }) => <LevelBadges teacher={row.original} compact />,
+  },
+  {
+    id: 'disciplines',
+    header: 'Дисциплины',
+    enableSorting: false,
+    cell: ({ row }) => {
+      const d = row.original.disciplines ?? [];
+      return d.length ? (
+        <span className="line-clamp-2 text-xs whitespace-normal">
+          {d.slice(0, 3).join(', ')}
+          {d.length > 3 && <span className="text-muted-foreground"> и ещё {d.length - 3}</span>}
+        </span>
+      ) : (
+        <span className="text-muted-foreground text-xs">не назначены</span>
+      );
+    },
+  },
+  { id: 'groups', header: 'Групп', accessorFn: (t) => t.groupsCount ?? 0, meta: { className: 'text-right tabular-nums' } },
+  {
+    id: 'restrictions',
+    header: 'Ограничений',
+    accessorFn: (t) => (t._count?.availability ?? 0) + (t._count?.availabilityRules ?? 0),
+    meta: { className: 'text-right tabular-nums' },
+  },
+  {
+    id: 'limits',
+    header: 'Пар день / нед.',
+    enableSorting: false,
+    cell: ({ row }) => (
+      <span className="tabular-nums">
+        {row.original.maxDailyLessons} / {row.original.maxWeeklyLessons}
+      </span>
+    ),
+  },
+  {
+    id: 'state',
+    header: 'Статус',
+    accessorFn: (t) => employmentState(t).label,
+    cell: ({ row }) => {
+      const state = employmentState(row.original);
+      return state.label === 'Работает' ? (
+        <span className="text-muted-foreground text-xs">работает</span>
+      ) : (
+        <Badge variant={state.variant}>{state.label}</Badge>
+      );
+    },
+  },
+];
 
 function TeacherTile({ teacher: t }: { teacher: Teacher }) {
   const state = employmentState(t);

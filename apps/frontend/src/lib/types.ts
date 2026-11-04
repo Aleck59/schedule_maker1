@@ -422,6 +422,8 @@ export interface Classroom {
   equipmentJson: Record<string, unknown> | null;
   isActive: boolean;
   availability?: AvailabilitySlot[];
+  /** Пар в неделю, когда аудитория недоступна (в списке аудиторий) */
+  unavailableSlots?: number;
 }
 
 export interface Assignment {

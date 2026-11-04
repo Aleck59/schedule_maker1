@@ -19,9 +19,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { useClassrooms } from '@/hooks/use-reference';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { pluralize } from '@/lib/format';
 import { CLASSROOM_TYPE_LABELS } from '@/lib/labels';
 import { useApiMutation } from '@/lib/query';
 import type { Classroom } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 function equipmentText(e: Record<string, unknown> | null): string {
   if (!e) return '';
@@ -70,10 +72,10 @@ export default function ClassroomsPage() {
       cell: ({ row }) => <span className="text-muted-foreground text-xs">{equipmentDisplay(row.original.equipmentJson) || '—'}</span>,
     },
     {
-      accessorKey: 'isActive',
+      id: 'status',
       header: 'Статус',
-      cell: ({ getValue }) =>
-        getValue<boolean>() ? <span className="text-muted-foreground text-xs">доступна</span> : <Badge variant="muted">Не используется</Badge>,
+      accessorFn: (c) => (!c.isActive ? 2 : c.unavailableSlots ? 1 : 0),
+      cell: ({ row }) => <ClassroomStatus classroom={row.original} />,
     },
   ];
   const data = (classrooms.data ?? []).filter((c) => !type || c.classroomType === type);
@@ -84,7 +86,11 @@ export default function ClassroomsPage() {
         description="Аудитории, лаборатории, компьютерные классы и спортивные залы"
         actions={
           <>
-            <Button variant="outline" asChild>
+            <Button
+              variant="outline"
+              asChild
+              className="border-orange-200 bg-orange-100 text-orange-800 hover:border-orange-300 hover:bg-orange-200 hover:text-orange-900 dark:border-orange-400/25 dark:bg-orange-400/15 dark:text-orange-200 dark:hover:bg-orange-400/25"
+            >
               <Link to="/classrooms/heatmap">
                 <Flame /> Тепловая карта
               </Link>
@@ -122,6 +128,31 @@ export default function ClassroomsPage() {
       )}
       <ClassroomDialog open={open} onOpenChange={setOpen} onSaved={(id) => navigate(`/classrooms/${id}`)} />
     </div>
+  );
+}
+
+const STATUS_STYLE = {
+  free: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-400/15 dark:text-emerald-300',
+  partial: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-400/15 dark:text-yellow-300',
+  off: 'bg-red-100 text-red-700 dark:bg-red-400/15 dark:text-red-300',
+} as const;
+const STATUS_DOT = { free: 'bg-emerald-500', partial: 'bg-yellow-600', off: 'bg-red-500' } as const;
+
+/** Статус аудитории: доступна (зелёный), частично занята (тёмно-жёлтый), недоступна (красный) */
+function ClassroomStatus({ classroom: c }: { classroom: Classroom }) {
+  const kind = !c.isActive ? 'off' : c.unavailableSlots ? 'partial' : 'free';
+  const label = kind === 'off' ? 'недоступна' : kind === 'partial' ? 'частично занята' : 'доступна';
+  const title =
+    kind === 'off'
+      ? 'Не используется для занятий'
+      : kind === 'partial'
+        ? `Недоступна ${c.unavailableSlots} ${pluralize(c.unavailableSlots ?? 0, 'пару', 'пары', 'пар')} в неделю`
+        : 'Доступна для занятий без ограничений';
+  return (
+    <span title={title} className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap', STATUS_STYLE[kind])}>
+      <span className={cn('size-1.5 rounded-full', STATUS_DOT[kind])} />
+      {label}
+    </span>
   );
 }
 

@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   CalendarClock,
   CalendarPlus,
+  CheckSquare,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -11,6 +12,7 @@ import {
   LayoutGrid,
   ListChecks,
   MoreHorizontal,
+  Pencil,
   Printer,
   Lock,
   Send,
@@ -123,8 +125,10 @@ export default function SchedulePage() {
   const [createInitial, setCreateInitial] = useState<
     Record<string, string | number | undefined>
   >({});
-  const [bulkMode, setBulkMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Контекстное меню пары (правый клик): массовое редактирование
+  const [ctx, setCtx] = useState<{ lesson: Lesson; x: number; y: number } | null>(null);
+  const [deleteIds, setDeleteIds] = useState<string[] | null>(null);
   const [showValidation, setShowValidationRaw] = useState(false);
   // Панель с ошибками закрыта крестиком — до следующей проверки
   const [validationDismissed, setValidationDismissed] = useState(false);
@@ -147,14 +151,85 @@ export default function SchedulePage() {
     setParams(next, { replace: true });
   };
 
-  const period: SchedulePeriod | undefined = useMemo(() => {
-    const list = periods.data ?? [];
-    return (
-      list.find((p) => p.id === periodId) ??
-      list.find((p) => today() >= p.startDate && today() <= p.endDate) ??
-      list[0]
+  // Все группы колледжа одним списком; период (учебный план и семестр) определяется по выбранной группе и неделе
+  const allGroups = useMemo(
+    () =>
+      [...(groups.data ?? [])]
+        .filter((g) => g.isActive !== false)
+        .sort((a, b) => a.code.localeCompare(b.code, "ru", { numeric: true })),
+    [groups.data],
+  );
+  const refFrom =
+    view === "day"
+      ? (params.get("day") ?? today())
+      : (params.get("week") ?? weekStart(today()));
+  const refTo = view === "day" ? refFrom : addDays(refFrom, 6);
+  const periodsOfProgram = (programId: string | undefined) =>
+    (periods.data ?? []).filter(
+      (p) => !p.semester.program || p.semester.program.id === programId,
     );
-  }, [periods.data, periodId]);
+  const pickPeriod = (list: SchedulePeriod[]) => {
+    const now = today();
+    return (
+      list.find((p) => p.startDate <= refTo && p.endDate >= refFrom) ??
+      list.find((p) => now >= p.startDate && now <= p.endDate) ??
+      [...list].sort(
+        (a, b) =>
+          Math.abs(Date.parse(a.startDate) - Date.parse(refFrom)) -
+          Math.abs(Date.parse(b.startDate) - Date.parse(refFrom)),
+      )[0]
+    );
+  };
+  // Группы, для которых составлено расписание (есть хотя бы один период)
+  const programsWithPeriods = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of periods.data ?? [])
+      if (p.semester.program) set.add(p.semester.program.id);
+    return set;
+  }, [periods.data]);
+  const anyProgramPeriod = (periods.data ?? []).some(
+    (p) => !p.semester.program,
+  );
+  const hasPeriod = (g: { educationalProgramId: string }) =>
+    anyProgramPeriod || programsWithPeriods.has(g.educationalProgramId);
+  const explicitPeriod = (periods.data ?? []).find((p) => p.id === periodId);
+  const defaultGroup = useMemo(() => {
+    if (explicitPeriod?.semester.program)
+      return allGroups.find(
+        (g) => g.educationalProgramId === explicitPeriod.semester.program!.id,
+      );
+    const now = today();
+    const current = new Set(
+      (periods.data ?? [])
+        .filter((p) => now >= p.startDate && now <= p.endDate)
+        .map((p) => p.semester.program?.id),
+    );
+    return (
+      allGroups.find((g) => current.has(g.educationalProgramId)) ??
+      allGroups.find(hasPeriod)
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allGroups, periods.data, explicitPeriod]);
+  const selectedGroup = allGroups.find((g) => g.id === params.get("groupId"));
+  const groupForPeriod =
+    selectedGroup && hasPeriod(selectedGroup) ? selectedGroup : defaultGroup;
+
+  const period: SchedulePeriod | undefined = useMemo(() => {
+    const list = groupForPeriod
+      ? periodsOfProgram(groupForPeriod.educationalProgramId)
+      : (periods.data ?? []);
+    if (
+      explicitPeriod &&
+      list.includes(explicitPeriod) &&
+      explicitPeriod.startDate <= refTo &&
+      explicitPeriod.endDate >= refFrom
+    )
+      return explicitPeriod;
+    if (explicitPeriod && !params.get("week") && !params.get("day"))
+      if (list.includes(explicitPeriod)) return explicitPeriod;
+    return pickPeriod(list) ?? (periods.data ?? [])[0];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periods.data, groupForPeriod, explicitPeriod, refFrom, refTo]);
 
   const week =
     params.get("week") ??
@@ -172,24 +247,25 @@ export default function SchedulePage() {
       : (period?.startDate ?? today()));
 
   // Сущность по умолчанию
+  // Группы учебного плана текущего периода — столбцы режима «День»
   const periodGroups = useMemo(
     () =>
-      (groups.data ?? []).filter(
+      allGroups.filter(
         (g) =>
           !period?.semester.program ||
           g.educationalProgramId === period.semester.program.id,
       ),
-    [groups.data, period],
+    [allGroups, period],
   );
   useEffect(() => {
     if (!period) return;
-    // Группа из другого учебного плана (после смены периода) заменяется первой группой периода
+    // Без выбранной группы (или с группой без расписания) открывается первая группа с расписанием
     if (
       view === "group" &&
-      periodGroups[0] &&
-      (!entityId || !periodGroups.some((g) => g.id === entityId))
+      defaultGroup &&
+      (!selectedGroup || !hasPeriod(selectedGroup))
     ) {
-      setParam({ groupId: periodGroups[0].id });
+      setParam({ groupId: defaultGroup.id });
     }
     if (view === "teacher" && !entityId) {
       const id =
@@ -217,8 +293,13 @@ export default function SchedulePage() {
       ? "/schedule-lessons"
       : null,
     {
+      // Месяц по всем группам — занятия всех учебных планов
       periodId:
-        view === "teacher" || view === "classroom" ? undefined : period?.id,
+        view === "teacher" ||
+        view === "classroom" ||
+        (view === "month" && !params.get("groupId"))
+          ? undefined
+          : period?.id,
       groupId:
         view === "group" || (view === "month" && params.get("groupId"))
           ? (params.get("groupId") ?? undefined)
@@ -242,7 +323,7 @@ export default function SchedulePage() {
   );
   const blocked = useMemo(() => {
     const map: Record<string, string> = {};
-    const group = periodGroups.find((g) => g.id === params.get("groupId"));
+    const group = allGroups.find((g) => g.id === params.get("groupId"));
     for (const e of events.data ?? []) {
       if (!e.blocksSchedule || e.teacherId) continue;
       if (
@@ -260,7 +341,7 @@ export default function SchedulePage() {
       }
     }
     return map;
-  }, [events.data, periodGroups, params, view, range.from, range.to]);
+  }, [events.data, allGroups, params, view, range.from, range.to]);
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ["lessons"] });
@@ -309,7 +390,11 @@ export default function SchedulePage() {
   );
 
   const bulk = useApiMutation(
-    (vars: {
+    ({
+      ids,
+      ...vars
+    }: {
+      ids?: string[];
       action: string;
       patch?: Record<string, unknown>;
       reason?: string;
@@ -319,7 +404,7 @@ export default function SchedulePage() {
         succeeded: number;
         failed: Array<{ message?: string }>;
       }>("/schedule-lessons/bulk", {
-        ids: [...selected],
+        ids: ids ?? [...selected],
         ...vars,
       }),
     {
@@ -349,6 +434,12 @@ export default function SchedulePage() {
     return weekColumns(week, workingDays, view === "group" ? blocked : {});
   }, [view, periodGroups, day, week, blocked, settings.data]);
 
+  const groupOptions = allGroups.map((g) => ({
+    value: g.id,
+    label: g.code,
+    disabled: !hasPeriod(g),
+    hint: hasPeriod(g) ? undefined : "расписание ещё не составлено",
+  }));
   const entityOptions =
     view === "teacher"
       ? (teachers.data ?? []).map((t) => ({ value: t.id, label: t.fullName }))
@@ -357,7 +448,7 @@ export default function SchedulePage() {
             value: c.id,
             label: `${c.code} — ${c.name}`,
           }))
-        : periodGroups.map((g) => ({ value: g.id, label: g.code }));
+        : groupOptions;
 
   const exportPdf = async (whole: boolean) => {
     if (!period) return;
@@ -424,18 +515,6 @@ export default function SchedulePage() {
         description={`${formatDate(period.startDate)} — ${formatDate(period.endDate)}`}
         actions={
           <>
-            <div className="w-full sm:w-72">
-              <SimpleSelect
-                value={period.id}
-                onChange={(v) =>
-                  setParam({ period: v, week: null, day: null, groupId: null })
-                }
-                options={(periods.data ?? []).map((p) => ({
-                  value: p.id,
-                  label: p.title,
-                }))}
-              />
-            </div>
             <PeriodStatusBadge status={period.status} />
             {showPermanent && (
               <Button variant="outline" asChild>
@@ -643,25 +722,22 @@ export default function SchedulePage() {
             view === "teacher" ||
             view === "classroom" ||
             view === "month") && (
-            <div className="w-full sm:w-64">
+            <div className="w-full sm:w-80 lg:w-96">
               <SimpleSelect
+                searchable
                 value={view === "month" ? params.get("groupId") : entityId}
                 onChange={(v) =>
-                  setParam({
-                    [view === "teacher"
-                      ? "teacherId"
+                  setParam(
+                    view === "teacher"
+                      ? { teacherId: v }
                       : view === "classroom"
-                        ? "classroomId"
-                        : "groupId"]: v,
-                  })
+                        ? { classroomId: v }
+                        : { groupId: v, period: null },
+                  )
                 }
                 allowEmpty={view === "month"}
                 emptyLabel="Все группы"
-                options={
-                  view === "month"
-                    ? periodGroups.map((g) => ({ value: g.id, label: g.code }))
-                    : entityOptions
-                }
+                options={view === "month" ? groupOptions : entityOptions}
                 placeholder="Выберите…"
               />
             </div>
@@ -714,21 +790,6 @@ export default function SchedulePage() {
             </div>
           )}
           <div className="ml-auto flex items-center gap-2">
-            {editable && view !== "month" && (
-              <Button
-                variant={bulkMode ? "secondary" : "ghost"}
-                aria-label="Массовое редактирование"
-                onClick={() => {
-                  setBulkMode(!bulkMode);
-                  setSelected(new Set());
-                }}
-              >
-                <ListChecks />{" "}
-                <span className="hidden md:inline">
-                  Массовое редактирование
-                </span>
-              </Button>
-            )}
             {editable && (
               <Button
                 aria-label="Добавить занятие"
@@ -748,14 +809,50 @@ export default function SchedulePage() {
         </CardContent>
       </Card>
 
-      {bulkMode && selected.size > 0 && (
+      {editable && selected.size > 0 && (
         <BulkBar
           count={selected.size}
           pending={bulk.isPending}
-          onAction={(action, extra) => bulk.mutate({ action, ...extra })}
+          onAction={(action, extra) =>
+            action === "delete"
+              ? setDeleteIds([...selected])
+              : bulk.mutate({ action, ...extra })
+          }
           onClear={() => setSelected(new Set())}
         />
       )}
+
+      {editable && (
+        <LessonContextMenu
+          ctx={ctx}
+          onClose={() => setCtx(null)}
+          selected={selected}
+          visibleIds={lessons.map((l) => l.id)}
+          pending={bulk.isPending}
+          onOpenLesson={(id) => setLessonId(id)}
+          onSelect={setSelected}
+          onAction={(ids, action) =>
+            action === "delete"
+              ? setDeleteIds(ids)
+              : bulk.mutate({ ids, action })
+          }
+        />
+      )}
+      <Confirm
+        open={!!deleteIds}
+        onOpenChange={(o) => !o && setDeleteIds(null)}
+        title={
+          deleteIds?.length === 1
+            ? "Удалить занятие?"
+            : `Удалить занятий: ${deleteIds?.length ?? 0}?`
+        }
+        destructive
+        confirmText="Удалить"
+        onConfirm={() => {
+          if (deleteIds) bulk.mutate({ ids: deleteIds, action: "delete" });
+          setDeleteIds(null);
+        }}
+      />
 
       {view === "day" && (
         <div className="text-sm font-medium">
@@ -817,9 +914,14 @@ export default function SchedulePage() {
             });
             setCreateOpen(true);
           }}
-          selectedIds={bulkMode ? selected : undefined}
+          onLessonContextMenu={
+            editable
+              ? (lesson, e) => setCtx({ lesson, x: e.clientX, y: e.clientY })
+              : undefined
+          }
+          selectedIds={selected.size > 0 ? selected : undefined}
           onToggleSelect={
-            bulkMode
+            selected.size > 0
               ? (id) =>
                   setSelected((s) => {
                     const n = new Set(s);
@@ -837,7 +939,7 @@ export default function SchedulePage() {
           Занятий на экране: {lessons.length}
           {editable &&
             view !== "month" &&
-            " · перетащите карточку, чтобы перенести занятие"}
+            " · перетащите карточку, чтобы перенести занятие; правый клик — массовое редактирование"}
         </div>
       </div>
 
@@ -975,21 +1077,141 @@ function BulkBar({
         >
           Отменить
         </Button>
-        <Confirm
-          trigger={
-            <Button size="sm" variant="destructive" disabled={pending}>
-              <Trash2 /> Удалить
-            </Button>
-          }
-          title={`Удалить ${count} занятий?`}
-          destructive
-          confirmText="Удалить"
-          onConfirm={() => onAction("delete")}
-        />
+        <Button
+          size="sm"
+          variant="destructive"
+          disabled={pending}
+          onClick={() => onAction("delete")}
+        >
+          <Trash2 /> Удалить
+        </Button>
         <Button size="sm" variant="ghost" onClick={onClear}>
           Сбросить выбор
         </Button>
       </CardContent>
     </Card>
+  );
+}
+
+/** Контекстное меню пары (правый клик): выбор занятий и массовые действия */
+function LessonContextMenu({
+  ctx,
+  onClose,
+  selected,
+  visibleIds,
+  pending,
+  onOpenLesson,
+  onSelect,
+  onAction,
+}: {
+  ctx: { lesson: Lesson; x: number; y: number } | null;
+  onClose: () => void;
+  selected: Set<string>;
+  visibleIds: string[];
+  pending: boolean;
+  onOpenLesson: (id: string) => void;
+  onSelect: (next: Set<string>) => void;
+  onAction: (ids: string[], action: "lock" | "unlock" | "delete") => void;
+}) {
+  const lesson = ctx?.lesson;
+  const isSelected = !!lesson && selected.has(lesson.id);
+  // Действия применяются к выделенным занятиям, если пара входит в выделение, иначе — к ней одной
+  const targets = lesson
+    ? isSelected
+      ? [...selected]
+      : [lesson.id]
+    : [];
+  const many = targets.length > 1;
+  return (
+    <DropdownMenu
+      open={!!ctx}
+      onOpenChange={(o) => !o && onClose()}
+      modal={false}
+    >
+      <DropdownMenuTrigger asChild>
+        <span
+          aria-hidden
+          className="pointer-events-none fixed size-0"
+          style={{ left: ctx?.x ?? 0, top: ctx?.y ?? 0 }}
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        side="bottom"
+        sideOffset={2}
+        className="w-72"
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
+        {lesson && (
+          <>
+            <DropdownMenuLabel className="line-clamp-2 text-xs font-medium">
+              {lesson.semesterItem.curriculumItem.name}
+              <span className="text-muted-foreground block font-normal">
+                {lesson.studentGroup.code} · {formatDate(lesson.date)} ·{" "}
+                {lesson.lessonNumber} пара
+              </span>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => onOpenLesson(lesson.id)}>
+              <FileText /> Открыть занятие
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => {
+                const next = new Set(selected);
+                if (isSelected) next.delete(lesson.id);
+                else next.add(lesson.id);
+                onSelect(next);
+              }}
+            >
+              <ListChecks />
+              {isSelected ? "Снять выделение" : "Выделить"}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => onSelect(new Set([...selected, ...visibleIds]))}
+            >
+              <CheckSquare /> Выделить все на экране
+            </DropdownMenuItem>
+            {selected.size > 0 && (
+              <DropdownMenuItem onSelect={() => onSelect(new Set())}>
+                <X /> Сбросить выделение ({selected.size})
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-muted-foreground text-xs font-normal">
+              {many ? `Выделенные занятия: ${targets.length}` : "Это занятие"}
+            </DropdownMenuLabel>
+            <DropdownMenuItem
+              disabled={pending}
+              onSelect={() => onAction(targets, "lock")}
+            >
+              <Lock /> Закрепить
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={pending}
+              onSelect={() => onAction(targets, "unlock")}
+            >
+              <Unlock /> Открепить
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              variant="destructive"
+              disabled={pending}
+              onSelect={() => onAction(targets, "delete")}
+            >
+              <Trash2 /> Удалить…
+            </DropdownMenuItem>
+            {!isSelected && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={() => onSelect(new Set([...selected, lesson.id]))}
+                >
+                  <Pencil /> Массовое редактирование…
+                </DropdownMenuItem>
+              </>
+            )}
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

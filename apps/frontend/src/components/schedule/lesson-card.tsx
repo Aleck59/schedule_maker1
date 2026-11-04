@@ -1,3 +1,4 @@
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import { Lock, Repeat2, UserRoundCog } from 'lucide-react';
 import { shortName } from '@/lib/format';
 import { LESSON_STATUS_LABELS, LESSON_TYPE_SHORT } from '@/lib/labels';
@@ -27,6 +28,7 @@ export function LessonCard({
   lesson,
   mode,
   onClick,
+  onContextMenu,
   selected,
   onSelect,
   className,
@@ -35,6 +37,8 @@ export function LessonCard({
   lesson: Lesson;
   mode: GridMode;
   onClick?: () => void;
+  /** Правый клик по паре (контекстное меню) */
+  onContextMenu?: (e: ReactMouseEvent) => void;
   selected?: boolean;
   onSelect?: () => void;
   className?: string;
@@ -52,6 +56,15 @@ export function LessonCard({
       role="button"
       tabIndex={0}
       onClick={onClick}
+      onContextMenu={
+        onContextMenu
+          ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onContextMenu(e);
+            }
+          : undefined
+      }
       onKeyDown={(e) => e.key === 'Enter' && onClick?.()}
       className={cn(
         'group relative w-full min-w-0 cursor-pointer rounded-lg border border-l-[3px] px-1.5 py-1 text-left text-[11px] leading-tight shadow-xs transition duration-200 hover:-translate-y-px hover:shadow-soft',

@@ -28,11 +28,13 @@ interface SimpleSelectProps {
   size?: 'sm' | 'default';
   disabled?: boolean;
   id?: string;
+  /** Показывать поиск даже в коротком списке */
+  searchable?: boolean;
 }
 
 /** Выпадающий список с поддержкой пустого значения; длинные списки — с поиском */
 export function SimpleSelect(props: SimpleSelectProps) {
-  if (props.options.length > SEARCH_THRESHOLD) return <SearchSelect {...props} />;
+  if (props.searchable || props.options.length > SEARCH_THRESHOLD) return <SearchSelect {...props} />;
   const { value, onChange, options, placeholder = 'Выберите…', allowEmpty, emptyLabel = 'Не выбрано', className, size, disabled, id } = props;
   return (
     <Select
