@@ -87,3 +87,23 @@ export function formatNumber(n: number | null | undefined, digits = 0): string {
 export function percent(part: number, total: number): number {
   return total > 0 ? Math.round((part / total) * 1000) / 10 : 0;
 }
+
+/** Маска телефона +7(###)###-##-## — форматирует по мере ввода */
+export function formatPhone(raw: string): string {
+  const withCode = raw.trimStart().startsWith('+7');
+  let d = (withCode ? raw.trimStart().slice(2) : raw).replace(/\D/g, '');
+  if (!withCode) {
+    // «8» или «7» первой цифрой — код страны: 8 912 … / 7 912 …
+    if (d.length === 1 && /[78]/.test(d)) return '+7(';
+    if (d.length === 11 && /^[78]/.test(d)) d = d.slice(1);
+  }
+  d = d.slice(0, 10);
+  if (!d) return withCode && raw.trim().length > 2 ? '+7(' : '';
+  let s = `+7(${d.slice(0, 3)}`;
+  if (d.length > 3) s += `)${d.slice(3, 6)}`;
+  if (d.length > 6) s += `-${d.slice(6, 8)}`;
+  if (d.length > 8) s += `-${d.slice(8, 10)}`;
+  return s;
+}
+
+export const PHONE_RE = /^\+7\(\d{3}\)\d{3}-\d{2}-\d{2}$/;

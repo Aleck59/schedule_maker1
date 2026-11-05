@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { ColumnDef } from '@tanstack/react-table';
-import { BookOpen, CalendarClock, LayoutGrid, List, Plus, Search, Users } from 'lucide-react';
+import { BookOpen, CalendarClock, Check, LayoutGrid, List, Plus, Search, Users } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { Link, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
+import { ComboInput } from '@/components/common/combo-input';
 import { DataTable } from '@/components/common/data-table';
 import { Field } from '@/components/common/field';
 import { PageHeader } from '@/components/common/page-header';
@@ -12,7 +13,7 @@ import { SimpleSelect } from '@/components/common/simple-select';
 import { EmptyState, ErrorState, LoadingState, Spinner } from '@/components/common/states';
 import { employmentState, LevelBadges, qualificationLine } from '@/components/teachers/qualification';
 import { TeacherPhoto } from '@/components/teachers/teacher-photo';
-import { Badge } from '@/components/ui/badge';
+import { Badge, badgeVariants } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -21,12 +22,13 @@ import { Switch } from '@/components/ui/switch';
 import { useTeachers } from '@/hooks/use-reference';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { pluralize } from '@/lib/format';
+import { formatPhone, PHONE_RE, pluralize } from '@/lib/format';
 import {
   ACADEMIC_DEGREE_LABELS,
   ACADEMIC_TITLE_LABELS,
   allowedLevelsOf,
   EDUCATION_LEVEL_LABELS,
+  levelBadgeVariant,
   TEACHER_EDUCATION_LABELS,
   TEACHER_POSITIONS,
 } from '@/lib/labels';
@@ -314,7 +316,10 @@ const teacherSchema = z
     department: z.string().optional(),
     position: z.string().optional(),
     email: z.union([z.literal(''), z.string().email('Некорректный e-mail')]).optional(),
-    phone: z.string().optional(),
+    phone: z
+      .string()
+      .optional()
+      .refine((x) => !x || !x.startsWith('+7') || PHONE_RE.test(x), 'Введите номер полностью: +7(###)###-##-##'),
     educationLevel: z.string().nullable(),
     academicDegree: z.string(),
     academicTitle: z.string(),
@@ -327,10 +332,6 @@ const teacherSchema = z
     preferredStartLesson: z.number({ invalid_type_error: 'Введите число' }).int().min(1).max(8),
     preferredEndLesson: z.number({ invalid_type_error: 'Введите число' }).int().min(1).max(8),
     isActive: z.boolean(),
-  })
-  .refine((v) => v.preferredStartLesson <= v.preferredEndLesson, {
-    message: 'Первая пара не может быть позже последней',
-    path: ['preferredEndLesson'],
   })
   .refine((v) => !v.employedFrom || !v.employedTo || v.employedFrom <= v.employedTo, {
     message: 'Дата окончания раньше даты начала',
@@ -429,19 +430,19 @@ export function TeacherDialog({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{teacher ? 'Преподаватель' : 'Новый преподаватель'}</DialogTitle>
-          <DialogDescription>Образование, учёная степень и звание определяют, у каких групп (СПО, бакалавриат…) преподаватель может вести занятия.</DialogDescription>
+          <DialogDescription className="sr-only">Карточка преподавателя</DialogDescription>
         </DialogHeader>
         <form id="teacher-form" className="grid gap-3 sm:grid-cols-2" onSubmit={form.handleSubmit((x) => save.mutate(x))}>
           <Field label="ФИО" required error={e.fullName?.message} className="sm:col-span-2">
             <Input {...form.register('fullName')} />
           </Field>
-          <Field label="Должность" hint="Выберите из списка или введите свою">
-            <Input list="teacher-positions" {...form.register('position')} />
-            <datalist id="teacher-positions">
-              {TEACHER_POSITIONS.map((p) => (
-                <option key={p} value={p} />
-              ))}
-            </datalist>
+          <Field label="Должность">
+            <ComboInput
+              value={v.position ?? ''}
+              onChange={(x) => form.setValue('position', x, { shouldDirty: true })}
+              options={TEACHER_POSITIONS}
+              placeholder="Выберите или введите"
+            />
           </Field>
           <Field label="Кафедра / ПЦК">
             <Input {...form.register('department')} />
@@ -471,35 +472,53 @@ export function TeacherDialog({
                 options={Object.entries(ACADEMIC_TITLE_LABELS).map(([value, label]) => ({ value, label }))}
               />
             </Field>
-            <div className="space-y-2 text-sm sm:col-span-3">
-              <div>
-                <span className="text-muted-foreground">
-                  Может вести {v.academicDegree !== 'NONE' || v.academicTitle !== 'NONE' ? '(есть степень или звание)' : v.educationLevel ? '(по образованию)' : '(образование не указано)'}:{' '}
-                </span>
-                {autoLevels.map((l) => EDUCATION_LEVEL_LABELS[l]).join(', ')}
-              </div>
-              <label className="flex items-center gap-2">
-                <Checkbox checked={v.manualLevels} onCheckedChange={(x) => form.setValue('manualLevels', x === true, { shouldDirty: true })} />
+            <div className="space-y-2.5 text-sm sm:col-span-3">
+              <label className="flex w-fit cursor-pointer items-center gap-2">
+                <Checkbox checked={v.manualLevels} onCheckedChange={(x) => form.setValue('manualLevels', x === true, { shouldDirty: true, shouldValidate: true })} />
                 Задать уровни вручную (например, по решению учёного совета)
               </label>
-              {v.manualLevels && (
-                <div className="flex flex-wrap gap-3 pl-6">
-                  {LEVELS.map((l) => (
-                    <label key={l} className="flex items-center gap-1.5">
-                      <Checkbox
-                        checked={v.teachableLevels.includes(l)}
-                        onCheckedChange={(x) =>
-                          form.setValue('teachableLevels', x === true ? [...v.teachableLevels, l] : v.teachableLevels.filter((y) => y !== l), {
-                            shouldDirty: true,
-                            shouldValidate: true,
-                          })
-                        }
-                      />
-                      {EDUCATION_LEVEL_LABELS[l]}
-                    </label>
-                  ))}
-                </div>
-              )}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-muted-foreground mr-1">
+                  Может вести
+                  {!v.manualLevels &&
+                    (v.academicDegree !== 'NONE' || v.academicTitle !== 'NONE'
+                      ? ' (есть степень или звание)'
+                      : v.educationLevel
+                        ? ' (по образованию)'
+                        : ' (образование не указано)')}
+                  :
+                </span>
+                {v.manualLevels
+                  ? LEVELS.map((l) => {
+                      const on = v.teachableLevels.includes(l);
+                      return (
+                        <button
+                          key={l}
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() =>
+                            form.setValue('teachableLevels', on ? v.teachableLevels.filter((y) => y !== l) : [...v.teachableLevels, l], {
+                              shouldDirty: true,
+                              shouldValidate: true,
+                            })
+                          }
+                          className={cn(
+                            badgeVariants({ variant: on ? levelBadgeVariant(l) : 'outline' }),
+                            'cursor-pointer px-2.5 py-1 transition-[color,background-color,border-color,transform] duration-200 hover:-translate-y-px active:scale-95',
+                            !on && 'text-muted-foreground hover:border-primary/40 hover:text-foreground border-dashed bg-card',
+                          )}
+                        >
+                          {on && <Check aria-hidden />}
+                          {EDUCATION_LEVEL_LABELS[l]}
+                        </button>
+                      );
+                    })
+                  : autoLevels.map((l) => (
+                      <Badge key={l} variant={levelBadgeVariant(l)} className="px-2.5 py-1">
+                        {EDUCATION_LEVEL_LABELS[l]}
+                      </Badge>
+                    ))}
+              </div>
               {e.teachableLevels?.message && <div className="text-destructive text-xs">{e.teachableLevels.message}</div>}
             </div>
           </div>
@@ -513,20 +532,19 @@ export function TeacherDialog({
           <Field label="E-mail" error={e.email?.message}>
             <Input type="email" {...form.register('email')} />
           </Field>
-          <Field label="Телефон">
-            <Input {...form.register('phone')} />
+          <Field label="Телефон" error={e.phone?.message}>
+            <Input
+              type="tel"
+              inputMode="tel"
+              placeholder="+7(___)___-__-__"
+              {...form.register('phone', { onChange: (ev) => form.setValue('phone', formatPhone(ev.target.value)) })}
+            />
           </Field>
           <Field label="Макс. пар в неделю" required error={e.maxWeeklyLessons?.message}>
             <Input type="number" {...form.register('maxWeeklyLessons', { valueAsNumber: true })} />
           </Field>
           <Field label="Макс. пар в день" required error={e.maxDailyLessons?.message}>
             <Input type="number" {...form.register('maxDailyLessons', { valueAsNumber: true })} />
-          </Field>
-          <Field label="Предпочтительно с пары" error={e.preferredStartLesson?.message}>
-            <Input type="number" {...form.register('preferredStartLesson', { valueAsNumber: true })} />
-          </Field>
-          <Field label="по пару" error={e.preferredEndLesson?.message}>
-            <Input type="number" {...form.register('preferredEndLesson', { valueAsNumber: true })} />
           </Field>
           <label className="flex items-center justify-between gap-3 text-sm sm:col-span-2">
             Работает (участвует в составлении расписания)

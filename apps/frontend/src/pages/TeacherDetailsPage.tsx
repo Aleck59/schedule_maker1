@@ -430,7 +430,7 @@ function RestrictionsTab({ teacher: t, canEdit }: { teacher: Teacher; canEdit: b
         <CardContent className="space-y-1 text-sm">
           <Badge variant={state.variant}>{state.label}</Badge>
           <div>
-            Не больше <b>{t.maxDailyLessons}</b> пар в день и <b>{t.maxWeeklyLessons}</b> в неделю; предпочтительно с {t.preferredStartLesson} по {t.preferredEndLesson} пару.
+            Не больше <b>{t.maxDailyLessons}</b> пар в день и <b>{t.maxWeeklyLessons}</b> в неделю.
           </div>
         </CardContent>
       </Card>

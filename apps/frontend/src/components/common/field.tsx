@@ -19,7 +19,7 @@ export function Field({
   required?: boolean;
 }) {
   return (
-    <div className={cn('grid gap-1.5', className)}>
+    <div className={cn('grid content-start gap-1.5', className)}>
       <Label>
         {label}
         {required && <span className="text-destructive">*</span>}

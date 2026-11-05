@@ -18,7 +18,7 @@ import { Input } from '@/components/ui/input';
 import { useGroups, usePrograms } from '@/hooks/use-reference';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { EDUCATION_LEVEL_LABELS, STUDY_FORM_LABELS } from '@/lib/labels';
+import { EDUCATION_LEVEL_LABELS, levelBadgeVariant, STUDY_FORM_LABELS } from '@/lib/labels';
 import { useApiMutation } from '@/lib/query';
 import { cn } from '@/lib/utils';
 import type { Group } from '@/lib/types';
@@ -89,7 +89,7 @@ export default function GroupsPage() {
               {g.program?.specialty?.code} {g.program?.specialty?.name}
             </div>
             <div className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-xs">
-              <Badge variant={level === 'SPO' ? 'secondary' : 'violet'} className="px-1.5 py-0 text-[11px]">
+              <Badge variant={levelBadgeVariant(level)} className="px-1.5 py-0 text-[11px]">
                 {EDUCATION_LEVEL_LABELS[level]}
               </Badge>
               <span className="truncate">

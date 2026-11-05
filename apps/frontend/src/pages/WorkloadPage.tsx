@@ -177,9 +177,20 @@ function GroupAssignments() {
           <Search className="text-muted-foreground absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Дисциплина или преподаватель…" className="pl-8" />
         </div>
-        <Button variant={onlyMissing ? 'secondary' : 'ghost'} onClick={() => setOnlyMissing(!onlyMissing)} disabled={!missingCount && !onlyMissing}>
-          <TriangleAlert className={missingCount ? 'text-amber-600' : undefined} /> Без преподавателя: {missingCount}
-        </Button>
+        {(missingCount > 0 || onlyMissing) && (
+          <Button
+            variant="outline"
+            aria-pressed={onlyMissing}
+            title={onlyMissing ? 'Показать все строки' : 'Показать только строки без преподавателя'}
+            onClick={() => setOnlyMissing(!onlyMissing)}
+            className={cn(
+              'border-amber-300 bg-amber-50 text-amber-800 hover:border-amber-400 hover:bg-amber-100 hover:text-amber-900 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200 dark:hover:bg-amber-400/20',
+              onlyMissing && 'bg-amber-100 ring-2 ring-amber-400/40 dark:bg-amber-400/20',
+            )}
+          >
+            <TriangleAlert className="text-amber-600 dark:text-amber-300" /> Без преподавателя: {missingCount}
+          </Button>
+        )}
         {canEdit && semester && (
           <Button variant="outline" className="sm:ml-auto" onClick={() => generate.mutate(undefined)} disabled={generate.isPending}>
             {generate.isPending ? <Spinner /> : <Sparkles />} Сформировать по плану
