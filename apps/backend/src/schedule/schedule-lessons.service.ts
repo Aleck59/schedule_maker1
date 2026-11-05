@@ -238,7 +238,9 @@ export class ScheduleLessonsService {
     const lessons = await this.prisma.scheduleLesson.findMany({ ...args, include: LESSON_OWN_INCLUDE });
     if (lessons.length === 0) return [];
     const ids = <K extends keyof (typeof lessons)[number]>(key: K) =>
-      [...new Set(lessons.map((l) => l[key]).filter((v): v is NonNullable<typeof v> => v != null))] as string[];
+      [
+        ...new Set(lessons.map((l) => l[key]).filter((v): v is NonNullable<typeof v> => v != null)),
+      ] as string[];
     const [groups, items, teachers, classrooms, periods] = await Promise.all([
       this.prisma.studentGroup.findMany({
         where: { id: { in: ids('studentGroupId') } },

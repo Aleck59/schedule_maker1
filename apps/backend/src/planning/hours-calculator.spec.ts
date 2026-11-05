@@ -88,6 +88,37 @@ describe('Контроль часов', () => {
     expect(hourStatus(h, { start: '2025-09-01', end: '2025-12-31' }, '2025-09-15').status).toBe('DEFICIT');
   });
 
+  it('суммированные в SQL записи (count) дают те же часы, что и отдельные занятия', () => {
+    const s = stream({});
+    const single = [
+      lesson({
+        status: LessonStatus.CONDUCTED,
+        conducted: { status: ConductedStatus.CONDUCTED, actualHours: 2, actualTeacherId: null },
+      }),
+      lesson({
+        status: LessonStatus.CONDUCTED,
+        conducted: { status: ConductedStatus.CONDUCTED, actualHours: 1, actualTeacherId: null },
+      }),
+      lesson({ status: LessonStatus.CANCELLED }),
+      lesson({ status: LessonStatus.CANCELLED }),
+      lesson({ date: '2025-10-01' }),
+      lesson({ date: '2025-10-08' }),
+      lesson({ date: '2025-09-02' }),
+    ];
+    const grouped = [
+      lesson({
+        status: LessonStatus.CONDUCTED,
+        academicHours: 4,
+        conducted: { status: ConductedStatus.CONDUCTED, actualHours: 3, actualTeacherId: null },
+        count: 2,
+      }),
+      lesson({ status: LessonStatus.CANCELLED, academicHours: 4, count: 2 }),
+      lesson({ date: '2025-09-15', academicHours: 4, count: 2 }),
+      lesson({ date: '0000-01-01', academicHours: 2, count: 1 }),
+    ];
+    expect(computeStreamHours(s, grouped, '2025-09-15')).toEqual(computeStreamHours(s, single, '2025-09-15'));
+  });
+
   it('превышение плана', () => {
     const s = stream({ plannedHours: 4 });
     const lessons = [lesson({}), lesson({}), lesson({})];
