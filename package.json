@@ -1,6 +1,6 @@
 {
   "name": "schedule-maker",
-  "version": "1.6.2",
+  "version": "1.6.3",
   "private": true,
   "description": "Автоматизированное составление расписания занятий колледжа СПО",
   "license": "MIT",

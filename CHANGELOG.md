@@ -2,6 +2,12 @@
 
 Формируется автоматически по сообщениям коммитов (Conventional Commits).
 
+## [1.6.3](https://github.com/Aleck59/schedule_maker1/compare/v1.6.2...v1.6.3) (2026-11-05)
+
+### Исправления
+
+* правки интерфейса 1.6.3 ([#51](https://github.com/Aleck59/schedule_maker1/issues/51)) ([0f0e490](https://github.com/Aleck59/schedule_maker1/commit/0f0e490f5804866131b95cee62c61b338a7557ae))
+
 ## [1.6.2](https://github.com/Aleck59/schedule_maker1/compare/v1.6.1...v1.6.2) (2026-11-04)
 
 ### Исправления
