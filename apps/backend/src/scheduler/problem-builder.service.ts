@@ -10,7 +10,7 @@ import {
   toDateStr,
   weekStart,
 } from '../common/utils/dates';
-import { groupLessonNumbers } from '../common/utils/groups';
+import { groupDailyLimit, groupLessonNumbers } from '../common/utils/groups';
 import { fullTimeLimitOnExtramural, weeklyLessonLimit } from '../common/utils/weekly-limits';
 import { rankRooms } from '../common/utils/rooms';
 import { LESSON_TYPE_SHORT } from '../common/utils/labels';
@@ -724,7 +724,8 @@ export class ProblemBuilderService {
         size: g.studentCount,
         subgroups: g.subgroups.map((s) => s.number).sort((a, b) => a - b),
         allowedDates: groupAllowed.get(g.id) ?? [],
-        maxLessonsPerDay: maxGroupLessonsPerDay,
+        // Если у группы заданы пары «с–по» — лимит в день берётся из них
+        maxLessonsPerDay: groupDailyLimit(g, lessonsPerDay, maxGroupLessonsPerDay),
         allowedLessons: groupLessonNumbers(g, lessonsPerDay),
         ...(weekLimits?.get(g.id) ?? {}),
       })),

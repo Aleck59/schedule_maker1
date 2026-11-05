@@ -404,7 +404,10 @@ export default function GenerationPage() {
                         <Field label="Пар в сетке дня" error={form.formState.errors.lessonsPerDay?.message}>
                           <Input type="number" {...form.register('lessonsPerDay', { valueAsNumber: true })} />
                         </Field>
-                        <Field label="Пар у группы в день" error={form.formState.errors.maxGroupLessonsPerDay?.message}>
+                        <Field
+                          label="Пар у группы в день"
+                          hint="Для групп, у которых в ограничениях не заданы пары «с–по»"
+                          error={form.formState.errors.maxGroupLessonsPerDay?.message}>
                           <Input type="number" {...form.register('maxGroupLessonsPerDay', { valueAsNumber: true })} />
                         </Field>
                         <Field label="Одной дисциплины в день" error={form.formState.errors.maxSameDisciplinePerDay?.message}>

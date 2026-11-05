@@ -7,6 +7,9 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ReplaceLessonTimesDto, UpdateOrganizationDto, UpdateSettingsDto } from './dto/settings.dto';
 
 /** Веса мягких ограничений генератора по умолчанию */
+/** Пара всегда длится 2 академических часа */
+export const ACADEMIC_HOURS_PER_LESSON = 2;
+
 export const DEFAULT_SOLVER_WEIGHTS: Record<string, number> = {
   groupWindows: 30,
   teacherWindows: 10,
@@ -121,8 +124,12 @@ export class SettingsService {
       `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
     const base = last ? toMin(last.endTime) + 10 : 8 * 60 + 30;
     const extra = last ? lessonNumber - last.lessonNumber - 1 : lessonNumber - 1;
-    const start = base + extra * (settings.lessonDurationMinutes + 10);
-    return { startTime: fmt(start), endTime: fmt(start + settings.lessonDurationMinutes) };
+    // Длительность пары — как у последнего звонка, иначе 2 академических часа
+    const bellDuration = last ? toMin(last.endTime) - toMin(last.startTime) : 0;
+    const duration =
+      bellDuration > 0 ? bellDuration : settings.academicHourMinutes * ACADEMIC_HOURS_PER_LESSON;
+    const start = base + extra * (duration + 10);
+    return { startTime: fmt(start), endTime: fmt(start + duration) };
   }
 
   async getAll(organizationId: string) {
@@ -147,6 +154,10 @@ export class SettingsService {
       throw new BadRequestException('Номер «поздней» пары не может превышать количество пар в день');
     }
     const data: Prisma.OrganizationSettingsUpdateInput = { ...dto } as Prisma.OrganizationSettingsUpdateInput;
+    // Пара — всегда 2 академических часа; её длительность выводится из длительности часа
+    data.academicHoursPerLesson = ACADEMIC_HOURS_PER_LESSON;
+    data.lessonDurationMinutes =
+      (dto.academicHourMinutes ?? before.academicHourMinutes) * ACADEMIC_HOURS_PER_LESSON;
     if (dto.workingDays) {
       data.workingDays = Array.from(new Set(dto.workingDays)).sort();
     }

@@ -264,15 +264,15 @@ model Organization {
 model OrganizationSettings {
   id                         String   @id @default(uuid())
   organizationId             String   @unique
-  /// Академических часов в одной паре
+  /// Академических часов в одной паре (всегда 2, в интерфейсе не меняется)
   academicHoursPerLesson     Int      @default(2)
   /// Длительность академического часа, мин
   academicHourMinutes        Int      @default(45)
-  /// Длительность пары, мин
+  /// Длительность пары, мин (= academicHourMinutes × 2, считается при сохранении)
   lessonDurationMinutes      Int      @default(90)
   /// Количество пар в день (слотов)
   lessonsPerDay              Int      @default(6)
-  /// Рекомендуемый максимум пар у группы в день (мягкое ограничение)
+  /// Максимум пар у группы в день для групп без ограничения «пары с–по» (в настройках не показывается)
   maxGroupLessonsPerDay      Int      @default(4)
   /// Максимум пар одной дисциплины у группы в день
   maxSameDisciplinePerDay    Int      @default(2)
