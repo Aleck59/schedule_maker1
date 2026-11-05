@@ -98,7 +98,8 @@ export class SettingsService {
     const extra = last ? lessonNumber - last.lessonNumber - 1 : lessonNumber - 1;
     // Длительность пары — как у последнего звонка, иначе 2 академических часа
     const bellDuration = last ? toMin(last.endTime) - toMin(last.startTime) : 0;
-    const duration = bellDuration > 0 ? bellDuration : settings.academicHourMinutes * ACADEMIC_HOURS_PER_LESSON;
+    const duration =
+      bellDuration > 0 ? bellDuration : settings.academicHourMinutes * ACADEMIC_HOURS_PER_LESSON;
     const start = base + extra * (duration + 10);
     return { startTime: fmt(start), endTime: fmt(start + duration) };
   }
@@ -127,7 +128,8 @@ export class SettingsService {
     const data: Prisma.OrganizationSettingsUpdateInput = { ...dto } as Prisma.OrganizationSettingsUpdateInput;
     // Пара — всегда 2 академических часа; её длительность выводится из длительности часа
     data.academicHoursPerLesson = ACADEMIC_HOURS_PER_LESSON;
-    data.lessonDurationMinutes = (dto.academicHourMinutes ?? before.academicHourMinutes) * ACADEMIC_HOURS_PER_LESSON;
+    data.lessonDurationMinutes =
+      (dto.academicHourMinutes ?? before.academicHourMinutes) * ACADEMIC_HOURS_PER_LESSON;
     if (dto.workingDays) {
       data.workingDays = Array.from(new Set(dto.workingDays)).sort();
     }
