@@ -78,17 +78,35 @@ export class PlanningService {
       id: filter.semesterIds?.length ? { in: filter.semesterIds } : undefined,
       educationalProgramId: filter.programId || undefined,
     };
+    // Потоки одного преподавателя: сначала его назначения, и дальше читаются только эти группы и строки
+    // плана. Без этого на каждый запрос «моя нагрузка» читалась нагрузка всей организации.
+    let groupIds = filter.groupIds?.length ? filter.groupIds : undefined;
+    let itemIds: string[] | undefined = filter.semesterItemId ? [filter.semesterItemId] : undefined;
+    if (filter.teacherId) {
+      const own = await this.prisma.groupCurriculumAssignment.findMany({
+        where: {
+          teacherId: filter.teacherId,
+          studentGroupId: groupIds ? { in: groupIds } : undefined,
+          semesterCurriculumItemId: itemIds ? { in: itemIds } : undefined,
+          semesterItem: { semester: semesterWhere },
+        },
+        select: { studentGroupId: true, semesterCurriculumItemId: true },
+      });
+      if (own.length === 0) return [];
+      groupIds = [...new Set(own.map((a) => a.studentGroupId))];
+      itemIds = [...new Set(own.map((a) => a.semesterCurriculumItemId))];
+    }
     const items = await this.prisma.semesterCurriculumItem.findMany({
       where: {
         semester: semesterWhere,
-        id: filter.semesterItemId || undefined,
+        id: itemIds ? { in: itemIds } : undefined,
       },
       include: {
         curriculumItem: true,
         semester: true,
         assignments: {
           where: {
-            studentGroupId: filter.groupIds?.length ? { in: filter.groupIds } : undefined,
+            studentGroupId: groupIds ? { in: groupIds } : undefined,
           },
           include: { teacher: { select: { id: true, fullName: true } } },
         },
@@ -99,20 +117,32 @@ export class PlanningService {
     const groups = await this.prisma.studentGroup.findMany({
       where: {
         educationalProgramId: { in: programIds },
-        id: filter.groupIds?.length ? { in: filter.groupIds } : undefined,
+        id: groupIds ? { in: groupIds } : undefined,
         isActive: filter.includeInactiveGroups || filter.groupIds?.length ? undefined : true,
       },
       include: { subgroups: true },
       orderBy: { code: 'asc' },
     });
 
+    // Индексы вместо перебора: строки плана по программе, назначения по строке и группе
+    const itemsByProgram = new Map<string, typeof items>();
+    const assignmentsOf = new Map<string, AssignmentWithTeacher[]>();
+    for (const item of items) {
+      const list = itemsByProgram.get(item.semester.educationalProgramId);
+      if (list) list.push(item);
+      else itemsByProgram.set(item.semester.educationalProgramId, [item]);
+      for (const a of item.assignments as AssignmentWithTeacher[]) {
+        const key = `${item.id}|${a.studentGroupId}`;
+        const arr = assignmentsOf.get(key);
+        if (arr) arr.push(a);
+        else assignmentsOf.set(key, [a]);
+      }
+    }
     const streams: DemandStream[] = [];
     for (const group of groups) {
-      const groupItems = items.filter((i) => i.semester.educationalProgramId === group.educationalProgramId);
+      const groupItems = itemsByProgram.get(group.educationalProgramId) ?? [];
       for (const item of groupItems) {
-        const assignments = (item.assignments as AssignmentWithTeacher[]).filter(
-          (a) => a.studentGroupId === group.id,
-        );
+        const assignments = assignmentsOf.get(`${item.id}|${group.id}`) ?? [];
         // Дисциплины по выбору и факультативы ставятся только группам, которые их выбрали (есть нагрузка)
         if (!item.curriculumItem.isRequired && assignments.length === 0) continue;
         for (const { type, hours } of this.schedulableTypes(item, settings.scheduleConsultations)) {

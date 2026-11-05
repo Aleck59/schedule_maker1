@@ -409,7 +409,7 @@ describe('Расписание СПО (e2e)', () => {
     expect(Array.isArray(notifications.body)).toBe(true);
   });
 
-  it('кэш Redis: повторный просмотр из кэша, изменение сразу видно, подбор пароля ограничен', async () => {
+  it('кэш Redis: повторный просмотр из кэша, изменение сразу видно, доступность сбрасывает только свой раздел, подбор пароля ограничен', async () => {
     const url = `/api/schedule-lessons?groupId=${groupId}`;
     const first = await http.get(url).set(auth('dispatcher')).expect(200);
     expect(first.body.length).toBeGreaterThan(0);
@@ -429,6 +429,23 @@ describe('Расписание СПО (e2e)', () => {
     const after = await http.get(url).set(auth('dispatcher')).expect(200);
     expect(after.body.find((l: { id: string }) => l.id === lesson.id).notes).toBe(note);
     if (cached) expect(after.headers['x-cache']).toBe('MISS');
+
+    // Правка доступности преподавателя сбрасывает только раздел «доступность»: расписание остаётся в кэше
+    const me = await http.get('/api/auth/me').set(auth('teacher')).expect(200);
+    const rulesUrl = `/api/teachers/${me.body.teacherId}/availability-rules`;
+    const rulesBefore = await http.get(rulesUrl).set(auth('teacher')).expect(200);
+    const rule = await http
+      .post(rulesUrl)
+      .set(auth('teacher'))
+      .send({ kind: 'UNDESIRED', weekdays: [6], lessonNumbers: [6], note: 'кэш' })
+      .expect(201);
+    const rulesAfter = await http.get(rulesUrl).set(auth('teacher')).expect(200);
+    expect(rulesAfter.body.length).toBe(rulesBefore.body.length + 1);
+    const stillCached = await http.get(url).set(auth('dispatcher')).expect(200);
+    if (cached) expect(stillCached.headers['x-cache']).toBe('HIT');
+    await http.delete(`${rulesUrl}/${rule.body.id}`).set(auth('teacher')).expect(200);
+    const rulesBack = await http.get(rulesUrl).set(auth('teacher')).expect(200);
+    expect(rulesBack.body.length).toBe(rulesBefore.body.length);
 
     if (cached) {
       const email = `nobody-${Date.now()}@college.ru`;

@@ -26,7 +26,7 @@ import { AvailabilityRulesService } from './availability-rules.service';
 import { AvailabilityRuleDto, UpdateAvailabilityRuleDto } from './dto/availability-rule.dto';
 import { CreateTeacherDto, UpdateTeacherDto } from './dto/teachers.dto';
 import { TeachersService } from './teachers.service';
-import { CacheResponse } from '../cache/cache.decorators';
+import { CacheResponse, InvalidatesCache, NoCacheInvalidate } from '../cache/cache.decorators';
 
 @ApiTags('Преподаватели')
 @ApiBearerAuth()
@@ -45,7 +45,7 @@ export class TeachersController {
   }
 
   @Get()
-  @CacheResponse(120)
+  @CacheResponse(120, 'viewer', ['data', 'availability'])
   @Roles(...STAFF_ROLES)
   @ApiOperation({ summary: 'Список преподавателей' })
   @ApiQuery({ name: 'search', required: false })
@@ -125,13 +125,14 @@ export class TeachersController {
   }
 
   @Get(':id/availability')
-  @CacheResponse(60)
+  @CacheResponse(60, 'viewer', ['data', 'availability'])
   @Roles(...STAFF_ROLES)
   getAvailability(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
     return this.teachers.getAvailability(id, user);
   }
 
   @Post(':id/availability')
+  @InvalidatesCache('availability')
   @Roles(UserRole.ADMIN, UserRole.DISPATCHER, UserRole.TEACHER)
   @ApiOperation({ summary: 'Замена сетки доступности преподавателя (преподаватель может менять свою)' })
   replaceAvailability(
@@ -144,6 +145,7 @@ export class TeachersController {
   }
 
   @Get(':id/availability-rules')
+  @CacheResponse(60, 'viewer', ['data', 'availability'])
   @Roles(...STAFF_ROLES, UserRole.TEACHER)
   @ApiOperation({ summary: 'Гибкие правила доступности преподавателя (с описанием на русском)' })
   listRules(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
@@ -152,6 +154,7 @@ export class TeachersController {
   }
 
   @Post(':id/availability-rules')
+  @InvalidatesCache('availability')
   @Roles(UserRole.ADMIN, UserRole.DISPATCHER, UserRole.TEACHER)
   @ApiOperation({
     summary:
@@ -167,6 +170,7 @@ export class TeachersController {
   }
 
   @Post(':id/availability-rules/preview')
+  @NoCacheInvalidate()
   @HttpCode(200)
   @Roles(UserRole.ADMIN, UserRole.DISPATCHER, UserRole.TEACHER)
   @ApiOperation({ summary: 'Предпросмотр правила: описание и ближайшие даты, к которым оно применяется' })
@@ -182,6 +186,7 @@ export class TeachersController {
   }
 
   @Patch(':id/availability-rules/:ruleId')
+  @InvalidatesCache('availability')
   @Roles(UserRole.ADMIN, UserRole.DISPATCHER, UserRole.TEACHER)
   @ApiOperation({ summary: 'Изменить правило доступности' })
   updateRule(
@@ -195,6 +200,7 @@ export class TeachersController {
   }
 
   @Delete(':id/availability-rules/:ruleId')
+  @InvalidatesCache('availability')
   @Roles(UserRole.ADMIN, UserRole.DISPATCHER, UserRole.TEACHER)
   @ApiOperation({ summary: 'Удалить правило доступности' })
   removeRule(

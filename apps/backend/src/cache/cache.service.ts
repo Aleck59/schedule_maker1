@@ -3,7 +3,13 @@ import Redis from 'ioredis';
 import { loadConfig } from '../config/configuration';
 import { redisConnectionOptions } from './redis-options';
 
-const VERSION_KEY = 'data-version';
+/**
+ * Разделы данных со своей версией. «data» — всё, кроме доступности преподавателей: её меняют
+ * сами преподаватели (сотни правок в день), и раньше каждая правка сбрасывала кэш расписания всем.
+ */
+export const CACHE_SECTIONS = ['data', 'availability'] as const;
+export type CacheSection = (typeof CACHE_SECTIONS)[number];
+const versionKey = (section: CacheSection) => (section === 'data' ? 'data-version' : `${section}-version`);
 
 /**
  * Общий кэш в Redis.
@@ -55,11 +61,16 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Значение, сохранённое для текущей версии данных; undefined — промах */
-  async getVersioned<T>(key: string): Promise<{ value: T | undefined; version: string }> {
+  async getVersioned<T>(
+    key: string,
+    sections: readonly CacheSection[] = ['data'],
+  ): Promise<{ value: T | undefined; version: string }> {
     if (!this.enabled) return { value: undefined, version: '' };
     try {
-      const [version, raw] = await this.redis!.mget(VERSION_KEY, key);
-      const ver = version ?? '0';
+      const values = await this.redis!.mget(...sections.map(versionKey), key);
+      const raw = values.pop();
+      // Версия записи — версии всех разделов, от которых она зависит
+      const ver = values.map((v) => v ?? '0').join('.');
       if (raw) {
         const nl = raw.indexOf('\n');
         if (nl > 0 && raw.slice(0, nl) === ver)
@@ -81,11 +92,13 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** Данные изменились: все записи «под версией» становятся недействительными */
-  async invalidate(): Promise<void> {
+  /** Данные изменились: записи, зависящие от этих разделов (по умолчанию — все), становятся недействительными */
+  async invalidate(sections: readonly CacheSection[] = CACHE_SECTIONS): Promise<void> {
     if (!this.enabled) return;
     try {
-      await this.redis!.incr(VERSION_KEY);
+      const tx = this.redis!.multi();
+      for (const s of sections) tx.incr(versionKey(s));
+      await tx.exec();
     } catch {
       /* кэш необязателен */
     }

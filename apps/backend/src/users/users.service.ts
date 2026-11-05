@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, UserRole } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
+import { hashPassword } from '../auth/password';
 import { publicUser } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types/auth-user';
@@ -60,7 +60,7 @@ export class UsersService {
     if (dto.teacherId !== undefined) data.teacherId = dto.teacherId;
     if (dto.studentGroupId !== undefined) data.studentGroupId = dto.studentGroupId;
     if (dto.password) {
-      data.passwordHash = await bcrypt.hash(dto.password, 10);
+      data.passwordHash = await hashPassword(dto.password);
       data.refreshTokenHash = null;
     }
     if (dto.isActive === false) data.refreshTokenHash = null;

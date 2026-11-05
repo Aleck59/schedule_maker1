@@ -64,9 +64,16 @@ async function main() {
       .filter((id) => id && !linked.has(id))
       .slice(0, teachers);
     if (teacherIds.length < teachers) {
-      console.warn(
-        `Преподавателей с занятиями без учётной записи: ${teacherIds.length} (запрошено ${teachers})`,
-      );
+      // Не хватает преподавателей с парами — добавляются остальные (их расписание пустое)
+      const rest = await prisma.teacher.findMany({
+        where: { id: { notIn: [...teacherIds, ...linked].filter(Boolean) }, isActive: true },
+        select: { id: true },
+        orderBy: { fullName: 'asc' },
+        take: teachers - teacherIds.length,
+      });
+      const withLessons = teacherIds.length;
+      teacherIds.push(...rest.map((t) => t.id));
+      console.warn(`Преподавателей с занятиями: ${withLessons}, без занятий: ${rest.length}`);
     }
 
     const pad = (n) => String(n).padStart(4, '0');
