@@ -44,6 +44,15 @@ export interface EffectiveSettings extends OrganizationSettings {
   lessonTimes: LessonTime[];
 }
 
+/** Сколько живут запомненные настройки организации в процессе */
+const SETTINGS_TTL_MS = 2000;
+const effectiveCache = new Map<string, { value: Promise<EffectiveSettings>; expires: number }>();
+
+/** Сбросить запомненные настройки организации (после любого их изменения) */
+export function forgetEffectiveSettings(organizationId: string): void {
+  effectiveCache.delete(organizationId);
+}
+
 @Injectable()
 export class SettingsService {
   private readonly workingDaysListeners: Array<(organizationId: string) => Promise<void>> = [];
@@ -53,7 +62,26 @@ export class SettingsService {
     private readonly audit: AuditService,
   ) {}
 
+  /**
+   * Настройки нужны почти каждому запросу (часовой пояс, дни недели, звонки), часто по нескольку раз.
+   * Поэтому они запоминаются в процессе на {@link SETTINGS_TTL_MS}; изменения в этом процессе сбрасывают
+   * запомненное сразу, а в других процессах API видны не позже чем через это время
+   */
   async getEffective(organizationId: string): Promise<EffectiveSettings> {
+    const now = Date.now();
+    const hit = effectiveCache.get(organizationId);
+    if (hit && hit.expires > now) return { ...(await hit.value) };
+    const value = this.loadEffective(organizationId);
+    effectiveCache.set(organizationId, { value, expires: now + SETTINGS_TTL_MS });
+    try {
+      return { ...(await value) };
+    } catch (e) {
+      effectiveCache.delete(organizationId);
+      throw e;
+    }
+  }
+
+  private async loadEffective(organizationId: string): Promise<EffectiveSettings> {
     const org = await this.prisma.organization.findUnique({
       where: { id: organizationId },
       include: { settings: true, lessonTimes: { orderBy: { lessonNumber: 'asc' } } },
@@ -129,6 +157,7 @@ export class SettingsService {
       data.printFormJson = normalizePrintForm(dto.printFormJson) as unknown as Prisma.InputJsonValue;
     }
     const updated = await this.prisma.organizationSettings.update({ where: { organizationId }, data });
+    forgetEffectiveSettings(organizationId);
     await this.audit.log(actor.id, 'UPDATE', 'OrganizationSettings', updated.id, before, updated);
     if (before.workingDays.join() !== updated.workingDays.join()) {
       for (const listener of this.workingDaysListeners) await listener(organizationId);
@@ -149,6 +178,7 @@ export class SettingsService {
     if (dto.appLogo !== undefined) data.appLogo = dto.appLogo || null;
     const before = await this.prisma.organization.findUnique({ where: { id: organizationId } });
     const org = await this.prisma.organization.update({ where: { id: organizationId }, data });
+    forgetEffectiveSettings(organizationId);
     await this.audit.log(actor.id, 'UPDATE', 'Organization', org.id, auditOrg(before), auditOrg(org));
     return org;
   }
@@ -191,6 +221,7 @@ export class SettingsService {
       this.prisma.lessonTime.deleteMany({ where: { organizationId } }),
       this.prisma.lessonTime.createMany({ data: sorted.map((t) => ({ ...t, organizationId })) }),
     ]);
+    forgetEffectiveSettings(organizationId);
     await this.audit.log(actor.id, 'UPDATE', 'LessonTime', organizationId, null, sorted);
     return this.prisma.lessonTime.findMany({ where: { organizationId }, orderBy: { lessonNumber: 'asc' } });
   }

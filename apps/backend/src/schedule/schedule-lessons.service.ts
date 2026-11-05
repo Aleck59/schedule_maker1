@@ -49,6 +49,15 @@ import {
 } from './dto/schedule.dto';
 import { SlotFinderService } from './slot-finder.service';
 
+/**
+ * Занятие для списков (сетка недели, расписание группы): без служебных полей, которые интерфейс
+ * не показывает. Неделя всех групп — тысячи занятий, каждое лишнее поле умножается на них
+ */
+export function presentListLesson(l: LessonWithRelations) {
+  const { createdAt: _c, updatedAt: _u, generationJobId: _g, ...rest } = presentLesson(l);
+  return rest;
+}
+
 export const LESSON_INCLUDE = {
   studentGroup: { select: { id: true, code: true, studentCount: true } },
   semesterItem: {
@@ -86,6 +95,17 @@ export const LESSON_INCLUDE = {
 } satisfies Prisma.ScheduleLessonInclude;
 
 export type LessonWithRelations = Prisma.ScheduleLessonGetPayload<{ include: typeof LESSON_INCLUDE }>;
+
+/** Связи занятия, которые читаются вместе с ним; справочные (группа, дисциплина…) — отдельно */
+const LESSON_OWN_INCLUDE = {
+  conducted: LESSON_INCLUDE.conducted,
+  originalLesson: LESSON_INCLUDE.originalLesson,
+  derivedLessons: LESSON_INCLUDE.derivedLessons,
+  substitutions: LESSON_INCLUDE.substitutions,
+} satisfies Prisma.ScheduleLessonInclude;
+
+/** Неделя всех групп — около 7 тыс. пар на большой базе; больше 20 тыс. за раз не отдаём */
+const LESSON_LIST_LIMIT = 20_000;
 
 export function presentLesson(l: LessonWithRelations) {
   return {
@@ -136,18 +156,17 @@ export class ScheduleLessonsService {
     else if (query.activeOnly === 'true')
       where.status = { notIn: [LessonStatus.CANCELLED, LessonStatus.MOVED] };
     this.applyRoleScope(where, actor);
-    const lessons = await this.prisma.scheduleLesson.findMany({
+    const lessons = await this.findWithRelations({
       where,
-      include: LESSON_INCLUDE,
       orderBy: [
         { date: 'asc' },
         { lessonNumber: 'asc' },
         { studentGroup: { code: 'asc' } },
         { subgroupNumber: 'asc' },
       ],
-      take: 5000,
+      take: LESSON_LIST_LIMIT,
     });
-    return lessons.map(presentLesson);
+    return lessons.map(presentListLesson);
   }
 
   private applyRoleScope(where: Prisma.ScheduleLessonWhereInput, actor: AuthUser) {
@@ -200,13 +219,62 @@ export class ScheduleLessonsService {
       ];
     }
     this.applyRoleScope(where, actor);
-    const lessons = await this.prisma.scheduleLesson.findMany({
+    const lessons = await this.findWithRelations({
       where,
-      include: LESSON_INCLUDE,
       orderBy: [{ updatedAt: 'desc' }],
       take: 300,
     });
     return lessons.map(presentLesson);
+  }
+
+  /**
+   * То же, что findMany с LESSON_INCLUDE, но группы, дисциплины, преподаватели, аудитории и периоды
+   * читаются отдельными запросами по уникальным id. На тысячах занятий это в разы меньше строк:
+   * у недели всех групп всего ~600 групп и ~200 аудиторий, а не 7 тыс. копий каждой
+   */
+  async findWithRelations(
+    args: Pick<Prisma.ScheduleLessonFindManyArgs, 'where' | 'orderBy' | 'take'>,
+  ): Promise<LessonWithRelations[]> {
+    const lessons = await this.prisma.scheduleLesson.findMany({ ...args, include: LESSON_OWN_INCLUDE });
+    if (lessons.length === 0) return [];
+    const ids = <K extends keyof (typeof lessons)[number]>(key: K) =>
+      [...new Set(lessons.map((l) => l[key]).filter((v): v is NonNullable<typeof v> => v != null))] as string[];
+    const [groups, items, teachers, classrooms, periods] = await Promise.all([
+      this.prisma.studentGroup.findMany({
+        where: { id: { in: ids('studentGroupId') } },
+        select: LESSON_INCLUDE.studentGroup.select,
+      }),
+      this.prisma.semesterCurriculumItem.findMany({
+        where: { id: { in: ids('semesterCurriculumItemId') } },
+        select: LESSON_INCLUDE.semesterItem.select,
+      }),
+      this.prisma.teacher.findMany({
+        where: { id: { in: ids('teacherId') } },
+        select: LESSON_INCLUDE.teacher.select,
+      }),
+      this.prisma.classroom.findMany({
+        where: { id: { in: ids('classroomId') } },
+        select: LESSON_INCLUDE.classroom.select,
+      }),
+      this.prisma.schedulePeriod.findMany({
+        where: { id: { in: ids('schedulePeriodId') } },
+        select: LESSON_INCLUDE.schedulePeriod.select,
+      }),
+    ]);
+    const byId = <T extends { id: string }>(list: T[]) => new Map(list.map((x) => [x.id, x]));
+    const g = byId(groups);
+    const i = byId(items);
+    const t = byId(teachers);
+    const c = byId(classrooms);
+    const p = byId(periods);
+    return lessons.map((l) => ({
+      ...l,
+      studentGroup: g.get(l.studentGroupId)!,
+      semesterItem: i.get(l.semesterCurriculumItemId)!,
+      teacher: l.teacherId ? (t.get(l.teacherId) ?? null) : null,
+      classroom: l.classroomId ? (c.get(l.classroomId) ?? null) : null,
+      schedulePeriod: p.get(l.schedulePeriodId)!,
+    }));
   }
 
   // ---------------------------------------------------------------- доступ

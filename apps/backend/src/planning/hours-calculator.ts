@@ -15,6 +15,12 @@ export interface LessonForHours {
   teacherId: string | null;
   allowHoursExcess: boolean;
   conducted: { status: ConductedStatus; actualHours: number; actualTeacherId: string | null } | null;
+  /**
+   * Сколько занятий объединено в записи (по умолчанию 1). Для сводок занятия с одинаковыми
+   * ключом потока, статусами и признаком «будущее» суммируются в SQL: academicHours и
+   * conducted.actualHours тогда — суммы, а date — любая дата по ту же сторону от «сегодня»
+   */
+  count?: number;
 }
 
 export type HourStatus = 'NORMAL' | 'RISK' | 'DEFICIT' | 'EXCESS';
@@ -125,22 +131,23 @@ export function computeStreamHours(
   const h = emptyStreamHours(stream.plannedHours);
   h.excessApproved = stream.allowHoursExcess;
   for (const l of lessons) {
+    const n = l.count ?? 1;
     const active = ACTIVE_STATUSES.includes(l.status);
     if (active) {
       h.scheduled += l.academicHours;
-      h.lessons++;
+      h.lessons += n;
       if (l.allowHoursExcess) h.excessApproved = true;
     }
     if (l.conducted?.status === ConductedStatus.CONDUCTED) {
       h.conducted += l.conducted.actualHours;
-      h.conductedLessons++;
+      h.conductedLessons += n;
     } else if (active && l.status !== LessonStatus.CONDUCTED) {
       if (l.date >= today) h.future += l.academicHours;
       else h.unmarkedPast += l.academicHours;
     }
     if (l.status === LessonStatus.CANCELLED) {
       h.cancelled += l.academicHours;
-      h.cancelledLessons++;
+      h.cancelledLessons += n;
     }
   }
   h.remaining = Math.max(0, h.planned - h.conducted);

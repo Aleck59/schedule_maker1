@@ -103,14 +103,25 @@ export class DashboardService {
     // Занятость аудиторий на текущей неделе
     const days = eachDay(wFrom, wTo).filter((d) => settings.workingDays.includes(isoWeekday(d)));
     const slots = days.length * settings.lessonsPerDay;
+    // Занятия недели по аудиториям и преподавателям — один проход вместо фильтра на каждую запись
+    const usedSlots = new Map<string, Set<string>>();
+    const byTeacher = new Map<string, typeof weekLessons>();
+    for (const l of weekLessons) {
+      if (l.classroomId) {
+        const set = usedSlots.get(l.classroomId) ?? new Set<string>();
+        set.add(`${toDateStr(l.date)}#${l.lessonNumber}`);
+        usedSlots.set(l.classroomId, set);
+      }
+      if (l.teacherId) {
+        const list = byTeacher.get(l.teacherId) ?? [];
+        list.push(l);
+        byTeacher.set(l.teacherId, list);
+      }
+    }
     const occupancy = classrooms
       .filter((c) => c.classroomType !== 'ONLINE')
       .map((c) => {
-        const used = new Set(
-          weekLessons
-            .filter((l) => l.classroomId === c.id)
-            .map((l) => `${toDateStr(l.date)}#${l.lessonNumber}`),
-        ).size;
+        const used = usedSlots.get(c.id)?.size ?? 0;
         return {
           classroomId: c.id,
           code: c.code,
@@ -129,7 +140,7 @@ export class DashboardService {
     });
     const workloadWarnings = [];
     for (const t of teacherList) {
-      const own = weekLessons.filter((l) => l.teacherId === t.id);
+      const own = byTeacher.get(t.id) ?? [];
       const units = new Set(
         own.map((l) => (l.streamKey ? `${l.streamKey}#${toDateStr(l.date)}#${l.lessonNumber}` : l.id)),
       );
@@ -291,15 +302,18 @@ export class DashboardService {
     const today = todayInTimezone(settings.timezone);
     const groupId = actor.studentGroupId;
     if (!groupId) return { role: actor.role, today, todayLessons: [], tomorrowLessons: [], changes: [] };
-    const [todayLessons, tomorrowLessons, changes, group] = await Promise.all([
-      this.lessons.list({ groupId, from: today, to: today }, actor),
-      this.lessons.list({ groupId, from: addDaysStr(today, 1), to: addDaysStr(today, 1) }, actor),
+    const tomorrow = addDaysStr(today, 1);
+    // Сегодня и завтра — одним запросом
+    const [twoDays, changes, group] = await Promise.all([
+      this.lessons.list({ groupId, from: today, to: tomorrow }, actor),
       this.lessons.changes(actor, { groupId, from: today, to: addDaysStr(today, 14) }),
       this.prisma.studentGroup.findUnique({
         where: { id: groupId },
         select: { id: true, code: true, title: true },
       }),
     ]);
+    const todayLessons = twoDays.filter((l) => l.date === today);
+    const tomorrowLessons = twoDays.filter((l) => l.date === tomorrow);
     const conducted = await this.prisma.conductedLesson.count({
       where: { scheduleLesson: { studentGroupId: groupId }, status: ConductedStatus.CONDUCTED },
     });

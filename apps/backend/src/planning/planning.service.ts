@@ -96,22 +96,64 @@ export class PlanningService {
       groupIds = [...new Set(own.map((a) => a.studentGroupId))];
       itemIds = [...new Set(own.map((a) => a.semesterCurriculumItemId))];
     }
-    const items = await this.prisma.semesterCurriculumItem.findMany({
-      where: {
-        semester: semesterWhere,
-        id: itemIds ? { in: itemIds } : undefined,
-      },
-      include: {
-        curriculumItem: true,
-        semester: true,
-        assignments: {
-          where: {
-            studentGroupId: groupIds ? { in: groupIds } : undefined,
-          },
-          include: { teacher: { select: { id: true, fullName: true } } },
+    // Строки плана, их дисциплины, семестры и назначения — отдельными параллельными запросами.
+    // Вложенные include в Prisma превращаются в IN-списки на тысячи id и на большой базе
+    // читаются втрое дольше
+    const itemWhere: Prisma.SemesterCurriculumItemWhereInput = {
+      semester: semesterWhere,
+      id: itemIds ? { in: itemIds } : undefined,
+    };
+    const [rawItems, curriculumItems, semesters, rawAssignments, orgTeachers] = await Promise.all([
+      this.prisma.semesterCurriculumItem.findMany({ where: itemWhere }),
+      this.prisma.curriculumItem.findMany({
+        where: itemIds
+          ? { semesterItems: { some: { id: { in: itemIds } } } }
+          : {
+              program: { organizationId: filter.organizationId },
+              educationalProgramId: filter.programId || undefined,
+            },
+      }),
+      this.prisma.semester.findMany({ where: semesterWhere }),
+      this.prisma.groupCurriculumAssignment.findMany({
+        where: {
+          semesterItem: itemWhere,
+          studentGroupId: groupIds ? { in: groupIds } : undefined,
         },
-      },
-    });
+      }),
+      // Имена преподавателей — одним списком организации, а не связью на каждое назначение.
+      // Для выборки по группам или строкам плана (нагрузка одного преподавателя) — дочитываются ниже
+      groupIds || itemIds
+        ? Promise.resolve(null)
+        : this.prisma.teacher.findMany({
+            where: { organizationId: filter.organizationId },
+            select: { id: true, fullName: true },
+          }),
+    ]);
+    const teachers =
+      orgTeachers ??
+      (await this.prisma.teacher.findMany({
+        where: { id: { in: [...new Set(rawAssignments.map((a) => a.teacherId).filter((x) => x !== null))] } },
+        select: { id: true, fullName: true },
+      }));
+    const teacherById = new Map(teachers.map((t) => [t.id, t]));
+    const assignments: AssignmentWithTeacher[] = rawAssignments.map((a) => ({
+      ...a,
+      teacher: a.teacherId ? (teacherById.get(a.teacherId) ?? null) : null,
+    }));
+    const curriculumById = new Map(curriculumItems.map((c) => [c.id, c]));
+    const semesterById = new Map(semesters.map((x) => [x.id, x]));
+    const assignmentsByItem = new Map<string, AssignmentWithTeacher[]>();
+    for (const a of assignments) {
+      const list = assignmentsByItem.get(a.semesterCurriculumItemId);
+      if (list) list.push(a);
+      else assignmentsByItem.set(a.semesterCurriculumItemId, [a]);
+    }
+    const items = rawItems.map((item) => ({
+      ...item,
+      curriculumItem: curriculumById.get(item.curriculumItemId)!,
+      semester: semesterById.get(item.semesterId)!,
+      assignments: assignmentsByItem.get(item.id) ?? [],
+    }));
     if (items.length === 0) return [];
     const programIds = Array.from(new Set(items.map((i) => i.semester.educationalProgramId)));
     const groups = await this.prisma.studentGroup.findMany({
