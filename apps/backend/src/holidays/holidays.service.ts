@@ -11,7 +11,7 @@ import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types/auth-user';
 import { eachDay, isoWeekday, parseDate, toDateStr } from '../common/utils/dates';
 import { PrismaService } from '../prisma/prisma.service';
-import { SettingsService } from '../settings/settings.service';
+import { forgetEffectiveSettings, SettingsService } from '../settings/settings.service';
 import { CreateHolidayDto, CreateTransferDto, UpdateHolidayDto } from './dto/holidays.dto';
 import { DECREE_TRANSFERS, FEDERAL_HOLIDAYS } from './holiday-presets';
 import {
@@ -126,6 +126,7 @@ export class HolidaysService implements OnModuleInit, OnApplicationBootstrap {
       }
       return true;
     });
+    forgetEffectiveSettings(organizationId);
     if (!initialized) return;
     await this.resyncAll(organizationId);
     this.logger.log(`Справочник праздников заполнен для организации ${organizationId}`);
@@ -341,6 +342,7 @@ export class HolidaysService implements OnModuleInit, OnApplicationBootstrap {
       where: { organizationId: actor.organizationId },
       data: { holidayAutoTransfer: autoTransfer },
     });
+    forgetEffectiveSettings(actor.organizationId);
     await this.audit.log(actor.id, 'UPDATE', 'HolidaySettings', actor.organizationId, null, { autoTransfer });
     await this.resyncAll(actor.organizationId);
     return { autoTransfer };

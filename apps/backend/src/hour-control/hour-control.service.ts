@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { ConductedStatus, LessonType, Prisma } from '@prisma/client';
+import { ConductedStatus, LessonStatus, LessonType, Prisma } from '@prisma/client';
 import { addDaysStr, parseDate, toDateStr, todayInTimezone, weekStart } from '../common/utils/dates';
 import {
   ACTIVE_STATUSES,
@@ -62,36 +62,63 @@ export class HourControlService {
     private readonly settings: SettingsService,
   ) {}
 
-  private async loadLessons(streams: DemandStream[]): Promise<LessonForHours[]> {
+  /**
+   * Занятия потоков для подсчёта часов. Занятия суммируются в SQL по ключу потока, статусам и
+   * признаку «сегодня или позже»: вместо десятков тысяч строк приходят тысячи (см. LessonForHours.count)
+   */
+  private async loadLessons(streams: DemandStream[], today: string): Promise<LessonForHours[]> {
     if (streams.length === 0) return [];
     const groupIds = Array.from(new Set(streams.map((s) => s.groupId)));
     const itemIds = Array.from(new Set(streams.map((s) => s.semesterItemId)));
-    const lessons = await this.prisma.scheduleLesson.findMany({
-      where: { studentGroupId: { in: groupIds }, semesterCurriculumItemId: { in: itemIds } },
-      select: {
-        id: true,
-        studentGroupId: true,
-        semesterCurriculumItemId: true,
-        lessonType: true,
-        subgroupNumber: true,
-        status: true,
-        academicHours: true,
-        date: true,
-        teacherId: true,
-        allowHoursExcess: true,
-        conducted: { select: { status: true, actualHours: true, actualTeacherId: true } },
-      },
-    });
-    return lessons.map((l) => ({ ...l, date: toDateStr(l.date) }));
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        g: string;
+        i: string;
+        t: LessonType;
+        sg: number | null;
+        s: LessonStatus;
+        ax: boolean;
+        cs: ConductedStatus | null;
+        f: boolean;
+        n: number;
+        h: number;
+        ah: number;
+      }>
+    >`
+      SELECT l."studentGroupId" AS g, l."semesterCurriculumItemId" AS i, l."lessonType"::text AS t,
+             l."subgroupNumber" AS sg, l.status::text AS s, l."allowHoursExcess" AS ax,
+             c.status::text AS cs, (l.date >= ${today}::date) AS f,
+             count(*)::int AS n, sum(l."academicHours")::int AS h, coalesce(sum(c."actualHours"), 0)::int AS ah
+      FROM schedule_lessons l
+      LEFT JOIN conducted_lessons c ON c."scheduleLessonId" = l.id
+      WHERE l."studentGroupId" = ANY(${groupIds}::text[]) AND l."semesterCurriculumItemId" = ANY(${itemIds}::text[])
+      GROUP BY 1, 2, 3, 4, 5, 6, 7, 8`;
+    return rows.map((r, idx) => ({
+      id: `agg${idx}`,
+      studentGroupId: r.g,
+      semesterCurriculumItemId: r.i,
+      lessonType: r.t,
+      subgroupNumber: r.sg,
+      status: r.s,
+      academicHours: r.h,
+      // Только сравнение с «сегодня» имеет значение для расчёта
+      date: r.f ? today : '0000-01-01',
+      teacherId: null,
+      allowHoursExcess: r.ax,
+      conducted: r.cs ? { status: r.cs, actualHours: r.ah, actualTeacherId: null } : null,
+      count: r.n,
+    }));
   }
 
+  /** @param known потоки этого же фильтра, если они уже прочитаны (чтобы не читать план второй раз) */
   async rows(
     filter: StreamFilter,
+    known?: DemandStream[],
   ): Promise<{ rows: HourControlRow[]; summary: HourControlSummary; today: string }> {
     const settings = await this.settings.getEffective(filter.organizationId);
     const today = todayInTimezone(settings.timezone);
-    const streams = await this.planning.getStreams(filter);
-    const lessons = await this.loadLessons(streams);
+    const streams = known ?? (await this.planning.getStreams(filter));
+    const lessons = await this.loadLessons(streams, today);
     const { matched } = matchLessonsToStreams(streams, lessons);
 
     const byRow = new Map<string, HourControlRow>();
@@ -419,12 +446,10 @@ export class HourControlService {
       .sort((a, b) => a.week.localeCompare(b.week));
 
     // Разбивка по группам и дисциплинам
-    const { rows } = await this.rows({
-      organizationId,
-      teacherId,
-      semesterIds,
-      includeInactiveGroups: true,
-    });
+    const { rows } = await this.rows(
+      { organizationId, teacherId, semesterIds, includeInactiveGroups: true },
+      streams,
+    );
     return {
       teacher: {
         id: teacher.id,
@@ -476,44 +501,59 @@ export class HourControlService {
         : undefined;
     const settings = await this.settings.getEffective(organizationId);
     const today = todayInTimezone(settings.timezone);
-    const lessonWhere: Prisma.ScheduleLessonWhereInput = {
-      schedulePeriod: { organizationId },
-      semesterItem: semesterIds ? { semesterId: { in: semesterIds } } : undefined,
-    };
+    // Все занятия организации — десятки тысяч строк. Через SQL с JOIN, а не через связи Prisma:
+    // так нет списков IN на десятки тысяч id и вдвое меньше работы по разбору строк
+    const semFilter = semesterIds
+      ? Prisma.sql`AND sci."semesterId" = ANY(${semesterIds}::text[])`
+      : Prisma.empty;
     const [allStreams, lessons, conducted] = await Promise.all([
       this.planning.getStreams({ organizationId, semesterIds, includeInactiveGroups: true }),
-      this.prisma.scheduleLesson.findMany({
-        where: lessonWhere,
-        select: {
-          id: true,
-          date: true,
-          lessonNumber: true,
-          status: true,
-          academicHours: true,
-          lessonType: true,
-          streamKey: true,
-          teacherId: true,
-          studentGroupId: true,
-          semesterCurriculumItemId: true,
-          subgroupNumber: true,
-          substitutions: { select: { originalTeacherId: true }, orderBy: { createdAt: 'asc' } },
-        },
-      }),
-      this.prisma.conductedLesson.findMany({
-        where: {
-          status: ConductedStatus.CONDUCTED,
-          actualTeacherId: { not: null },
-          scheduleLesson: lessonWhere,
-        },
-        select: {
-          scheduleLessonId: true,
-          actualHours: true,
-          actualTeacherId: true,
-          scheduleLesson: {
-            select: { date: true, lessonNumber: true, streamKey: true, lessonType: true, teacherId: true },
-          },
-        },
-      }),
+      this.prisma.$queryRaw<
+        Array<{
+          id: string;
+          date: Date;
+          lessonNumber: number;
+          status: LessonStatus;
+          academicHours: number;
+          lessonType: LessonType;
+          streamKey: string | null;
+          teacherId: string | null;
+          studentGroupId: string;
+          semesterCurriculumItemId: string;
+          subgroupNumber: number | null;
+          /** Заменённый преподаватель первой замены — владелец часов занятия */
+          originalTeacherId: string | null;
+        }>
+      >`
+        SELECT l.id, l.date, l."lessonNumber", l.status::text AS status, l."academicHours",
+               l."lessonType"::text AS "lessonType", l."streamKey", l."teacherId", l."studentGroupId",
+               l."semesterCurriculumItemId", l."subgroupNumber",
+               (SELECT ts."originalTeacherId" FROM teacher_substitutions ts
+                 WHERE ts."scheduleLessonId" = l.id ORDER BY ts."createdAt" ASC LIMIT 1) AS "originalTeacherId"
+        FROM schedule_lessons l
+        JOIN schedule_periods sp ON sp.id = l."schedulePeriodId"
+        JOIN semester_curriculum_items sci ON sci.id = l."semesterCurriculumItemId"
+        WHERE sp."organizationId" = ${organizationId} ${semFilter}`,
+      this.prisma.$queryRaw<
+        Array<{
+          scheduleLessonId: string;
+          actualHours: number;
+          actualTeacherId: string;
+          date: Date;
+          lessonNumber: number;
+          streamKey: string | null;
+          lessonType: LessonType;
+          teacherId: string | null;
+        }>
+      >`
+        SELECT c."scheduleLessonId", c."actualHours", c."actualTeacherId", l.date, l."lessonNumber",
+               l."streamKey", l."lessonType"::text AS "lessonType", l."teacherId"
+        FROM conducted_lessons c
+        JOIN schedule_lessons l ON l.id = c."scheduleLessonId"
+        JOIN schedule_periods sp ON sp.id = l."schedulePeriodId"
+        JOIN semester_curriculum_items sci ON sci.id = l."semesterCurriculumItemId"
+        WHERE c.status = 'CONDUCTED' AND c."actualTeacherId" IS NOT NULL
+          AND sp."organizationId" = ${organizationId} ${semFilter}`,
     ]);
 
     const push = <K, V>(map: Map<K, V[]>, key: K, value: V) => {
@@ -522,7 +562,7 @@ export class HourControlService {
       else map.set(key, [value]);
     };
     type L = (typeof lessons)[number];
-    const lessonOwner = (l: L) => l.substitutions[0]?.originalTeacherId ?? l.teacherId;
+    const lessonOwner = (l: L) => l.originalTeacherId ?? l.teacherId;
     const keyOf = (l: L) =>
       streamKeyOf(l.studentGroupId, l.semesterCurriculumItemId, l.lessonType, l.subgroupNumber);
     const unitKey = (l: { id: string; streamKey: string | null; date: Date; lessonNumber: number }) =>
@@ -541,7 +581,7 @@ export class HourControlService {
       push(activeByKey, keyOf(l), l);
     }
     const conductedBy = new Map<string, typeof conducted>();
-    for (const c of conducted) push(conductedBy, c.actualTeacherId!, c);
+    for (const c of conducted) push(conductedBy, c.actualTeacherId, c);
 
     const weekFrom = weekStart(today);
     const weekTo = addDaysStr(weekFrom, 6);
@@ -601,12 +641,11 @@ export class HourControlService {
       const seenConducted = new Set<string>();
       let substitutedHours = 0;
       for (const c of conductedBy.get(t.id) ?? []) {
-        const u = unitKey({ id: c.scheduleLessonId, ...c.scheduleLesson });
+        const u = unitKey({ id: c.scheduleLessonId, ...c });
         if (seenConducted.has(u)) continue;
         seenConducted.add(u);
-        conductedByType[c.scheduleLesson.lessonType] =
-          (conductedByType[c.scheduleLesson.lessonType] ?? 0) + c.actualHours;
-        if (c.scheduleLesson.teacherId !== t.id) substitutedHours += c.actualHours;
+        conductedByType[c.lessonType] = (conductedByType[c.lessonType] ?? 0) + c.actualHours;
+        if (c.teacherId !== t.id) substitutedHours += c.actualHours;
       }
 
       const overloadWeeks = [...byWeek.values()].filter((set) => set.size > t.maxWeeklyLessons).length;

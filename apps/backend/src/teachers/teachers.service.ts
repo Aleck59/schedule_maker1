@@ -183,8 +183,17 @@ export class TeachersService {
     return { success: true };
   }
 
+  /** Проверка, что преподаватель есть в организации — без чтения его нагрузки и связей */
+  private async ensureExists(id: string, actor: AuthUser) {
+    const found = await this.prisma.teacher.findFirst({
+      where: { id, organizationId: actor.organizationId },
+      select: { id: true },
+    });
+    if (!found) throw new NotFoundException('Преподаватель не найден');
+  }
+
   async getAvailability(id: string, actor: AuthUser) {
-    await this.get(id, actor);
+    await this.ensureExists(id, actor);
     return this.prisma.teacherAvailability.findMany({
       where: { teacherId: id },
       orderBy: [{ weekday: 'asc' }, { lessonNumber: 'asc' }],

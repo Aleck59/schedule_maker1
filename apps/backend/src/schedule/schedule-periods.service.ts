@@ -26,7 +26,7 @@ export class SchedulePeriodsService {
 
   async list(
     actor: AuthUser,
-    params: { semesterId?: string; status?: SchedulePeriodStatus; programId?: string },
+    params: { semesterId?: string; status?: SchedulePeriodStatus; programId?: string; stats?: boolean },
   ) {
     const where: Prisma.SchedulePeriodWhereInput = {
       organizationId: actor.organizationId,
@@ -41,9 +41,19 @@ export class SchedulePeriodsService {
       const group = await this.prisma.studentGroup.findUnique({ where: { id: actor.studentGroupId } });
       where.semester = { educationalProgramId: group?.educationalProgramId };
     }
+    // Список запрашивают почти все страницы, а периодов — по одному на семестр каждой программы
+    // (сотни). Поэтому только нужные поля; число пар и ошибки проверки — по ?stats=true
     const periods = await this.prisma.schedulePeriod.findMany({
       where,
-      include: {
+      select: {
+        id: true,
+        title: true,
+        startDate: true,
+        endDate: true,
+        status: true,
+        semesterId: true,
+        academicYearId: true,
+        publishedAt: true,
         semester: {
           select: {
             id: true,
@@ -55,10 +65,13 @@ export class SchedulePeriodsService {
           },
         },
         academicYear: { select: { id: true, title: true } },
-        _count: { select: { lessons: true } },
+        ...(params.stats ? { _count: { select: { lessons: true } } } : {}),
       },
-      orderBy: [{ startDate: 'desc' }, { title: 'asc' }],
+      orderBy: [{ startDate: 'desc' }, { title: 'asc' }, { id: 'asc' }],
     });
+    if (!params.stats) {
+      return periods.map((p) => ({ ...p, startDate: toDateStr(p.startDate), endDate: toDateStr(p.endDate) }));
+    }
     const errors = await this.prisma.validationResult.groupBy({
       by: ['schedulePeriodId', 'severity'],
       where: { schedulePeriodId: { in: periods.map((p) => p.id) }, isResolved: false },

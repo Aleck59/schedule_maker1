@@ -20,6 +20,9 @@
  *   THINK     — пауза между действиями студента/преподавателя, с: "3-10" или "0" (без пауз)
  *   ADMIN_THINK — пауза администратора, с (по умолчанию "2-6")
  *   GENERATE_EVERY — раз в сколько секунд каждый администратор запускает генерацию (0 — никогда)
+ *   STUDENT_POOL — сколько учётных записей студентов создано (STUDENTS выбираются из них случайно)
+ *   PREF_SHARE — доля действий преподавателя «предпочтения» (правила доступности), напр. 0.3
+ *   LOGIN_RETRIES — сколько раз пользователь пробует войти, прежде чем сдаться (по умолчанию 3)
  *   STEADY_AFTER — с какой секунды считать установившийся режим (по умолчанию RAMP + 15)
  *   WORKERS   — число потоков генератора нагрузки (по умолчанию 2)
  *   BACKEND_PID / PG_URL — для замеров CPU/памяти API и активности Postgres (необязательно)
@@ -64,7 +67,18 @@ function addDays(dateStr, n) {
 
 // ───────────────────────────── поток-генератор нагрузки ─────────────────────────────
 if (!isMainThread) {
-  const { vus, endAt, steadyAfter, startAt, think, adminThink, generateEvery, today } = workerData;
+  const {
+    vus,
+    endAt,
+    steadyAfter,
+    startAt,
+    think,
+    adminThink,
+    generateEvery,
+    today,
+    prefShare,
+    loginRetries,
+  } = workerData;
   const stats = new Map(); // name -> { lat: number[], codes: {}, bytes }
   // Отдельно — установившийся режим: после того как все вошли (RAMP + 15 с)
   const steadyStats = new Map();
@@ -127,15 +141,22 @@ if (!isMainThread) {
     return out;
   }
 
+  // Пользователь, у которого вход не удался, пробует снова (LOGIN_RETRIES раз, пауза растёт до 10 с).
+  // «вход до успеха» — время от первой попытки до входа, с повторами: так его ощущает человек
   async function login(email) {
-    for (let attempt = 0; attempt < 3; attempt++) {
+    const t0 = performance.now();
+    for (let attempt = 0; attempt < loginRetries; attempt++) {
       const r = await req('POST /auth/login', null, '/auth/login', {
         method: 'POST',
         body: { email, password: PASSWORD },
       });
-      if (r?.accessToken) return r;
-      await sleep(1000 * (attempt + 1));
+      if (r?.accessToken) {
+        rec('вход до успеха (с повторами)', performance.now() - t0, 200);
+        return r;
+      }
+      await sleep(Math.min(10_000, 1000 * (attempt + 1)));
     }
+    rec('вход до успеха (с повторами)', performance.now() - t0, 'ERR:gave-up');
     return null;
   }
 
@@ -173,7 +194,8 @@ if (!isMainThread) {
 
   async function teacher(token, user) {
     const t = user.teacherId;
-    const r = Math.random();
+    // r ∈ [0, 1 + prefShare): доля действий «предпочтения» добавляется к прежней смеси
+    const r = Math.random() * (1 + prefShare);
     if (r < 0.25) {
       await page('преподаватель — главная', [
         ...shell(token),
@@ -189,7 +211,44 @@ if (!isMainThread) {
           }),
         () => req('GET /teachers/:id/availability', token, `/teachers/${t}/availability`),
       ]);
-    } else if (r < 0.95) {
+    } else if (r < 0.75 + prefShare) {
+      // Мои предпочтения: правила доступности — посмотреть, проверить и сохранить, позже удалить
+      const [, rules] = await page('преподаватель — предпочтения (открыть)', [
+        () => req('GET /teachers/:id/availability', token, `/teachers/${t}/availability`),
+        () => req('GET /teachers/:id/availability-rules', token, `/teachers/${t}/availability-rules`),
+      ]);
+      const own = Array.isArray(rules) ? rules.filter((x) => x.note === 'нагрузочный тест') : [];
+      if (own.length && Math.random() < 0.5) {
+        await req(
+          'DELETE /teachers/:id/availability-rules/:ruleId',
+          token,
+          `/teachers/${t}/availability-rules/${own[0].id}`,
+          {
+            method: 'DELETE',
+          },
+        );
+      } else {
+        const rule = {
+          kind: pick(['PREFERRED', 'UNDESIRED', 'UNAVAILABLE']),
+          weekdays: [1 + Math.floor(Math.random() * 6)],
+          lessonNumbers: [1 + Math.floor(Math.random() * 6)],
+          note: 'нагрузочный тест',
+        };
+        await req(
+          'POST /teachers/:id/availability-rules/preview',
+          token,
+          `/teachers/${t}/availability-rules/preview`,
+          {
+            method: 'POST',
+            body: rule,
+          },
+        );
+        await req('POST /teachers/:id/availability-rules', token, `/teachers/${t}/availability-rules`, {
+          method: 'POST',
+          body: rule,
+        });
+      }
+    } else if (r < 0.95 + prefShare) {
       await page('преподаватель — нагрузка', [
         () => req('GET /teachers/:id/workload', token, `/teachers/${t}/workload`),
       ]);
@@ -335,6 +394,9 @@ if (isMainThread) {
   const args = process.argv.slice(2);
   const outPath = args.includes('--out') ? args[args.indexOf('--out') + 1] : null;
   const STUDENTS = Number(env.STUDENTS ?? 1000);
+  const STUDENT_POOL = Number(env.STUDENT_POOL ?? STUDENTS);
+  const PREF_SHARE = Number(env.PREF_SHARE ?? 0);
+  const LOGIN_RETRIES = Number(env.LOGIN_RETRIES ?? 3);
   const TEACHERS = Number(env.TEACHERS ?? 25);
   const ADMINS = Number(env.ADMINS ?? 3);
   const DURATION = Number(env.DURATION ?? 300);
@@ -350,7 +412,14 @@ if (isMainThread) {
   const run = promisify(execFile);
 
   const vus = [];
-  for (let i = 0; i < STUDENTS; i++) vus.push({ role: 'student', email: `student-${pad(i)}@${DOMAIN}` });
+  // Из пула STUDENT_POOL учётных записей одновременно работают STUDENTS случайных (по разным группам)
+  const pool = Array.from({ length: Math.max(STUDENT_POOL, STUDENTS) }, (_, i) => i);
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  for (const i of pool.slice(0, STUDENTS))
+    vus.push({ role: 'student', email: `student-${pad(i)}@${DOMAIN}` });
   for (let i = 0; i < TEACHERS; i++) vus.push({ role: 'teacher', email: `teacher-${pad(i)}@${DOMAIN}` });
   for (let i = 0; i < ADMINS; i++) vus.push({ role: 'admin', email: `admin-${pad(i)}@${DOMAIN}` });
   for (const v of vus) v.delay = 500 + Math.random() * RAMP * 1000;
@@ -473,6 +542,8 @@ if (isMainThread) {
               adminThink,
               generateEvery,
               today,
+              prefShare: PREF_SHARE,
+              loginRetries: LOGIN_RETRIES,
             },
           });
           w.on('message', resolve);
@@ -535,10 +606,10 @@ if (isMainThread) {
       timeline.set(sec, t);
     }
   const totalReq = rows
-    .filter((r) => !r.name.startsWith('страница') && !r.name.startsWith('генерация'))
+    .filter((r) => !/^(страница|генерация|вход до)/.test(r.name))
     .reduce((a, r) => a + r.count, 0);
   const totalErr = rows
-    .filter((r) => !r.name.startsWith('страница') && !r.name.startsWith('генерация'))
+    .filter((r) => !/^(страница|генерация|вход до)/.test(r.name))
     .reduce((a, r) => a + r.errors, 0);
   const hLat = health.map((h) => h[1]).sort((a, b) => a - b);
   const steady = samples.filter((s) => s.t > STEADY_AFTER && s.apiCpuPct != null);
@@ -585,7 +656,7 @@ if (isMainThread) {
     endpoints: rows,
     steady: steadyRows,
     steadyTotals: (() => {
-      const r = steadyRows.filter((x) => !x.name.startsWith('страница') && !x.name.startsWith('генерация'));
+      const r = steadyRows.filter((x) => !/^(страница|генерация|вход до)/.test(x.name));
       const n = r.reduce((a, x) => a + x.count, 0);
       const e = r.reduce((a, x) => a + x.errors, 0);
       return {

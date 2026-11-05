@@ -32,13 +32,19 @@ export class SchedulePeriodsController {
   @ApiQuery({ name: 'semesterId', required: false })
   @ApiQuery({ name: 'programId', required: false })
   @ApiQuery({ name: 'status', enum: SchedulePeriodStatus, required: false })
+  @ApiQuery({
+    name: 'stats',
+    required: false,
+    description: 'true — добавить число пар (_count.lessons) и нерешённые ошибки проверки (validation)',
+  })
   list(
     @CurrentUser() user: AuthUser,
     @Query('semesterId') semesterId?: string,
     @Query('programId') programId?: string,
     @Query('status') status?: SchedulePeriodStatus,
+    @Query('stats') stats?: string,
   ) {
-    return this.periods.list(user, { semesterId, programId, status });
+    return this.periods.list(user, { semesterId, programId, status, stats: stats === 'true' });
   }
 
   @Post()

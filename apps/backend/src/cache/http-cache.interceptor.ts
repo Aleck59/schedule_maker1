@@ -3,7 +3,13 @@ import { Reflector } from '@nestjs/core';
 import type { Request, Response } from 'express';
 import { from, Observable, of, switchMap, tap, finalize } from 'rxjs';
 import { AuthUser } from '../common/types/auth-user';
-import { CACHE_RESPONSE_KEY, CacheResponseOptions, NO_CACHE_INVALIDATE_KEY } from './cache.decorators';
+import {
+  CACHE_INVALIDATES_KEY,
+  CACHE_RESPONSE_KEY,
+  CacheResponseOptions,
+  NO_CACHE_INVALIDATE_KEY,
+} from './cache.decorators';
+import type { CacheSection } from './cache.service';
 import { CacheService } from './cache.service';
 
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -32,8 +38,12 @@ export class HttpCacheInterceptor implements NestInterceptor {
 
     if (!READ_METHODS.has(req.method)) {
       if (this.reflector.getAllAndOverride<boolean>(NO_CACHE_INVALIDATE_KEY, targets)) return next.handle();
+      const sections = this.reflector.getAllAndOverride<CacheSection[] | undefined>(
+        CACHE_INVALIDATES_KEY,
+        targets,
+      );
       // И при ошибке: часть изменений могла успеть записаться
-      return next.handle().pipe(finalize(() => void this.cache.invalidate()));
+      return next.handle().pipe(finalize(() => void this.cache.invalidate(sections)));
     }
 
     const opts = this.reflector.getAllAndOverride<CacheResponseOptions | undefined>(
@@ -43,7 +53,7 @@ export class HttpCacheInterceptor implements NestInterceptor {
     if (!opts || !req.user || req.method !== 'GET') return next.handle();
     const res = ctx.switchToHttp().getResponse<Response>();
     const key = `http:${scopeKey(req.user, opts.scope)}:${req.originalUrl}`;
-    return from(this.cache.getVersioned<unknown>(key)).pipe(
+    return from(this.cache.getVersioned<unknown>(key, opts.sections)).pipe(
       switchMap(({ value, version }) => {
         if (value !== undefined) {
           res.setHeader('X-Cache', 'HIT');

@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { User, UserRole } from '@prisma/client';
-import * as bcrypt from 'bcryptjs';
+import { hashPassword, verifyPassword } from './password';
 import { createHash } from 'crypto';
 import { loadConfig } from '../config/configuration';
 import { CacheService } from '../cache/cache.service';
@@ -73,7 +73,7 @@ export class AuthService {
       );
     }
     const user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
+    if (!user || !(await verifyPassword(dto.password, user.passwordHash))) {
       await this.cache.hit(failKey, LOGIN_FAIL_WINDOW_SECONDS);
       throw new UnauthorizedException('Неверный email или пароль');
     }
@@ -143,7 +143,7 @@ export class AuthService {
         email,
         fullName: dto.fullName.trim(),
         role: dto.role,
-        passwordHash: await bcrypt.hash(dto.password, 10),
+        passwordHash: await hashPassword(dto.password),
         teacherId: dto.role === UserRole.TEACHER ? (dto.teacherId ?? null) : null,
         studentGroupId: dto.role === UserRole.STUDENT ? (dto.studentGroupId ?? null) : null,
       },
