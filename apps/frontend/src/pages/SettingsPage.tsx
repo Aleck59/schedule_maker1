@@ -25,10 +25,7 @@ import type { LessonTime, Settings, SettingsResponse } from '@/lib/types';
 
 const NUMERIC: Array<[keyof Settings, string, string?]> = [
   ['academicHourMinutes', 'Длительность академического часа, мин'],
-  ['academicHoursPerLesson', 'Академических часов в паре'],
-  ['lessonDurationMinutes', 'Длительность пары, мин'],
   ['lessonsPerDay', 'Пар в день (сетка звонков)'],
-  ['maxGroupLessonsPerDay', 'Макс. пар у группы в день'],
   ['maxSameDisciplinePerDay', 'Макс. пар одной дисциплины в день'],
   ['maxSameDisciplinePerWeek', 'Макс. пар одной дисциплины в неделю'],
   ['lateLessonNumber', 'Поздняя пара начинается с №', 'Пары с этим номером и позже считаются поздними'],
@@ -148,7 +145,6 @@ function RulesForm({ settings, editable }: { settings: Settings; editable: boole
       <Card>
         <CardHeader>
           <CardTitle>Жёсткие и мягкие ограничения</CardTitle>
-          <CardDescription>1 пара = {draft.academicHoursPerLesson} академических часа</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
@@ -242,15 +238,12 @@ function WeeklyLimitsCard({
   setDraft: (s: Settings) => void;
   editable: boolean;
 }) {
-  const h = draft.academicHoursPerLesson;
-  const hours = (n: number | null) => (n == null ? 'без ограничения' : `${n} пар = ${n * h} ак. ч в неделю`);
+  // Пара — всегда 2 академических часа
+  const hours = (n: number | null) => (n == null ? undefined : `${n} пар = ${n * 2} ак. ч в неделю`);
   return (
     <Card>
       <CardHeader>
         <CardTitle>Максимум пар в неделю</CardTitle>
-        <CardDescription>
-          Генератор не ставит группе больше пар за неделю, чем указано для её формы обучения. Пустое поле — без ограничения.
-        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-3">
