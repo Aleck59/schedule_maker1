@@ -236,6 +236,11 @@ export const ACADEMIC_TITLE_LABELS: Record<string, string> = {
   PROFESSOR: "Профессор",
 };
 /** Типовые должности (можно ввести свою) */
+/** Цвет бейджа уровня образования — один и тот же во всей системе (СПО — серый, ВО — фиолетовый) */
+export function levelBadgeVariant(level: string): 'secondary' | 'violet' {
+  return level === 'SPO' ? 'secondary' : 'violet';
+}
+
 export const TEACHER_POSITIONS = [
   "Ассистент",
   "Преподаватель",

@@ -11,9 +11,10 @@ const buttonVariants = cva(
         default:
           'bg-primary text-primary-foreground shadow-[0_1px_2px_oklch(0.4_0.2_272/0.25),inset_0_1px_0_oklch(1_0_0/0.15)] hover:bg-primary/92 hover:shadow-[0_6px_18px_-6px_oklch(0.5_0.22_272/0.55)] hover:-translate-y-px',
         destructive: 'bg-destructive text-white shadow-xs hover:bg-destructive/90 focus-visible:ring-destructive/20',
-        outline: 'border bg-card shadow-xs hover:bg-accent hover:text-accent-foreground hover:border-primary/25',
+        outline:
+          'border bg-card shadow-xs hover:bg-[color:var(--btn-tint-bg)] hover:text-[color:var(--btn-tint-fg)] hover:border-[color:var(--btn-tint-border)] hover:[&_svg]:text-[color:var(--btn-tint)] hover:[&_svg]:scale-110',
         secondary: 'bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80',
-        ghost: 'hover:bg-accent hover:text-accent-foreground',
+        ghost: 'hover:bg-[color:var(--btn-tint-bg)] hover:text-[color:var(--btn-tint-fg)] hover:[&_svg]:text-[color:var(--btn-tint)] hover:[&_svg]:scale-110',
         link: 'text-primary underline-offset-4 hover:underline',
         success: 'bg-success text-white shadow-xs hover:bg-success/90',
       },

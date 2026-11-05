@@ -1,6 +1,6 @@
 import { GraduationCap } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { ACADEMIC_DEGREE_LABELS, ACADEMIC_TITLE_LABELS, allowedLevelsOf, EDUCATION_LEVEL_LABELS } from '@/lib/labels';
+import { ACADEMIC_DEGREE_LABELS, ACADEMIC_TITLE_LABELS, allowedLevelsOf, EDUCATION_LEVEL_LABELS, levelBadgeVariant } from '@/lib/labels';
 import { addDays, formatDate, today } from '@/lib/format';
 import type { Teacher } from '@/lib/types';
 
@@ -24,7 +24,7 @@ export function LevelBadges({ teacher, compact }: { teacher: Teacher; compact?: 
         <Badge variant="success">все уровни</Badge>
       ) : (
         levels.map((l) => (
-          <Badge key={l} variant="info">
+          <Badge key={l} variant={levelBadgeVariant(l)}>
             {EDUCATION_LEVEL_LABELS[l]}
           </Badge>
         ))

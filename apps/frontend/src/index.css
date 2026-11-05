@@ -430,3 +430,70 @@ table[data-resized] > * > tr > td {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* После ручного изменения ширины колонок ячейка занимает всю ширину колонки:
+   ограничения max-w-* внутри ячеек больше не обрезают текст многоточием раньше времени */
+table[data-resized] > tbody > tr > td [class*='max-w-'] {
+  max-width: none;
+}
+table[data-resized] > tbody > tr > td [class*='min-w-'] {
+  min-width: 0;
+}
+
+/* Цвет кнопок при наведении — по смыслу иконки (как у иконок меню).
+   Используется вариантами outline и ghost компонента Button. */
+[data-slot='button'] {
+  --btn-tint: var(--primary);
+  --btn-tint-fg: color-mix(in srgb, var(--btn-tint) 82%, var(--foreground));
+  --btn-tint-bg: color-mix(in srgb, var(--btn-tint) 9%, var(--card));
+  --btn-tint-border: color-mix(in srgb, var(--btn-tint) 38%, transparent);
+}
+.dark [data-slot='button'] {
+  --btn-tint-fg: color-mix(in srgb, var(--btn-tint) 55%, white);
+  --btn-tint-bg: color-mix(in srgb, var(--btn-tint) 18%, var(--card));
+}
+/* Excel, выгрузка, таблицы — зелёный */
+[data-slot='button']:has(.lucide-download, .lucide-file-down, .lucide-file-spreadsheet, .lucide-sheet, .lucide-table, .lucide-table-2) {
+  --btn-tint: oklch(0.58 0.15 155);
+}
+/* Сохранить, подтвердить — изумрудный */
+[data-slot='button']:has(.lucide-save, .lucide-check, .lucide-check-check, .lucide-list-checks) {
+  --btn-tint: oklch(0.6 0.15 165);
+}
+/* Удалить — красный */
+[data-slot='button']:has(.lucide-trash, .lucide-trash-2, .lucide-trash2) {
+  --btn-tint: var(--destructive);
+}
+/* Редактировать — янтарный */
+[data-slot='button']:has(.lucide-pencil, .lucide-square-pen, .lucide-pen, .lucide-pen-line) {
+  --btn-tint: oklch(0.66 0.16 65);
+}
+/* Предупреждения — жёлтый */
+[data-slot='button']:has(.lucide-triangle-alert, .lucide-circle-alert) {
+  --btn-tint: oklch(0.7 0.16 75);
+}
+/* Загрузка, импорт — бирюзовый */
+[data-slot='button']:has(.lucide-upload, .lucide-file-up, .lucide-import) {
+  --btn-tint: oklch(0.6 0.12 200);
+}
+/* Печать, PDF, документы — синий */
+[data-slot='button']:has(.lucide-printer, .lucide-file-text, .lucide-external-link, .lucide-link-2) {
+  --btn-tint: oklch(0.58 0.17 245);
+}
+/* Автоматика, генерация — фиолетовый */
+[data-slot='button']:has(.lucide-sparkles, .lucide-wand-2, .lucide-wand-sparkles) {
+  --btn-tint: oklch(0.6 0.22 300);
+}
+/* Откат, история, сброс — оранжевый */
+[data-slot='button']:has(.lucide-rotate-ccw, .lucide-undo-2, .lucide-history, .lucide-refresh-cw, .lucide-flame) {
+  --btn-tint: oklch(0.64 0.17 45);
+}
+/* Календарь — малиновый */
+[data-slot='button']:has(.lucide-calendar-plus, .lucide-calendar-clock, .lucide-calendar-days, .lucide-calendar-search) {
+  --btn-tint: oklch(0.6 0.2 20);
+}
+[data-slot='button'] svg {
+  transition:
+    color 0.2s ease,
+    transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
