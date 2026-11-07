@@ -164,4 +164,6 @@ def test_session_schedule_and_extramural_calendar():
     semesters, periods = rec.semesters(calendar)
     assert [s["number"] for s in semesters] == [1, 2]
     other = [p for p in periods if p["code"] == "С"]
-    assert other and all(p["type"] == "OTHER" and p["title"].startswith("Межсессионный") for p in other)
+    assert other and all(
+        p["type"] == "OTHER" and p["title"].startswith("Самостоятельная работа") for p in other
+    )

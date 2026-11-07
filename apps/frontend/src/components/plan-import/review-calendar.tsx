@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Paintbrush, TriangleAlert } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,13 +10,15 @@ import { CALENDAR_EVENT_LABELS } from '@/lib/labels';
 import { cn } from '@/lib/utils';
 import { CODE_LABELS, addDays } from './calendar';
 import type { Draft, DraftSemester, RecognizedCalendar } from './types';
+import type { WarningFocus } from './warnings';
 
 const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 const BRUSHES = ['', 'Э', 'К', 'У', 'П', 'Пд', 'Д', 'Г', 'С', '='];
 const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
 
 const CODE_COLORS: Record<string, string> = {
-  '': 'bg-sky-50 dark:bg-sky-950/30',
+  // Теоретическое обучение — основной цвет графика, хорошо заметен
+  '': 'bg-sky-300 text-sky-950 dark:bg-sky-700/70 dark:text-sky-50',
   Э: 'bg-rose-200 text-rose-900 dark:bg-rose-900/50 dark:text-rose-100',
   К: 'bg-emerald-200 text-emerald-900 dark:bg-emerald-900/50 dark:text-emerald-100',
   У: 'bg-amber-200 text-amber-900 dark:bg-amber-900/50 dark:text-amber-100',
@@ -24,11 +26,11 @@ const CODE_COLORS: Record<string, string> = {
   Пд: 'bg-orange-400 text-orange-950',
   Д: 'bg-violet-200 text-violet-900',
   Г: 'bg-violet-300 text-violet-950 dark:bg-violet-800/60 dark:text-violet-100',
-  // Межсессионный период заочной и очно-заочной формы: занятий нет, самостоятельная работа
-  С: 'bg-stone-100 text-stone-500 dark:bg-stone-800/60 dark:text-stone-300',
+  // Самостоятельная работа (межсессионный период заочной и очно-заочной формы): занятий нет
+  С: 'bg-gray-400 text-white dark:bg-gray-600 dark:text-gray-100',
   '=': 'bg-slate-200 text-slate-500 dark:bg-slate-800',
   '?': 'bg-red-500 text-white',
-  '*': 'bg-slate-300',
+  '*': 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-200',
 };
 
 /** Шаг 2: календарный учебный график — сетка недель как на бумаге, с исправлением «кистью» */
@@ -37,13 +39,28 @@ export function ReviewCalendar({
   draft,
   onCalendarChange,
   onSemestersChange,
+  focus,
+  onClearFocus,
 }: {
   calendar: RecognizedCalendar[];
   draft: Draft;
   onCalendarChange: (calendar: RecognizedCalendar[]) => void;
   onSemestersChange: (semesters: DraftSemester[]) => void;
+  /** Замечание, к которому перешли: его дни подсвечиваются, к первому из них прокручивается сетка */
+  focus?: WarningFocus | null;
+  onClearFocus?: () => void;
 }) {
   const [brush, setBrush] = useState<string>('К');
+  const highlighted = useMemo(() => new Set((focus?.cells ?? []).map((c) => `${c.course}|${c.date}`)), [focus]);
+  const firstHighlight = useRef<HTMLButtonElement | null>(null);
+  const focusBanner = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!focus) return;
+    const target = firstHighlight.current ?? focusBanner.current;
+    // Сначала страница к сетке, затем горизонтальная прокрутка сетки к первому дню
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+  }, [focus]);
+  let firstSeen = false;
   const unknown = calendar.reduce((n, c) => n + c.weeks.reduce((m, w) => m + w.days.filter((d) => d === '?').length, 0), 0);
 
   const paint = (course: number, week: number, day: number | null) => {
@@ -101,6 +118,23 @@ export function ReviewCalendar({
                 </button>
               ))}
             </div>
+            {focus && (
+              <div ref={focusBanner}>
+                <Alert variant="warning" className="ring-2 ring-amber-400">
+                  <TriangleAlert />
+                  <AlertTitle>Замечание</AlertTitle>
+                  <AlertDescription>
+                    <div>{focus.text}</div>
+                    {highlighted.size > 0 && <div className="mt-1">Дни, к которым оно относится, обведены оранжевой рамкой.</div>}
+                    {onClearFocus && (
+                      <button type="button" className="mt-1 underline underline-offset-2" onClick={onClearFocus}>
+                        Скрыть подсветку
+                      </button>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              </div>
+            )}
             {unknown > 0 && (
               <Alert variant="destructive">
                 <TriangleAlert />
@@ -122,7 +156,7 @@ export function ReviewCalendar({
                           const month = Number(addDays(w.monday, 3).slice(5, 7)) - 1;
                           const prev = i > 0 ? Number(addDays(cal.weeks[i - 1].monday, 3).slice(5, 7)) - 1 : -1;
                           return (
-                            <th key={w.number} className="text-muted-foreground h-4 px-0 text-left font-normal">
+                            <th key={w.monday} className="text-muted-foreground h-4 px-0 text-left font-normal">
                               {month !== prev ? MONTHS[month] : ''}
                             </th>
                           );
@@ -131,14 +165,14 @@ export function ReviewCalendar({
                       <tr>
                         <th className="text-muted-foreground pr-1 text-right font-normal">Нед</th>
                         {cal.weeks.map((w, i) => (
-                          <th key={w.number} className="p-0">
+                          <th key={w.monday} className="p-0">
                             <button
                               type="button"
-                              title={`Неделя ${w.number} с ${formatDate(w.monday)} — закрасить всю неделю`}
+                              title={`Неделя ${w.number ?? i + 1} с ${formatDate(w.monday)} — закрасить всю неделю`}
                               onClick={() => paint(cal.course, i, null)}
                               className="hover:bg-muted text-muted-foreground h-5 w-6 rounded-sm font-normal"
                             >
-                              {w.number}
+                              {w.number ?? i + 1}
                             </button>
                           </th>
                         ))}
@@ -153,22 +187,27 @@ export function ReviewCalendar({
                             const date = addDays(w.monday, d);
                             const inYear = date >= `${cal.startYear}-09-01` && date <= `${cal.startYear + 1}-08-31`;
                             const crop = code === '?' ? cal.uncertain.find((u) => u.weeks.includes(i) && u.days.includes(d))?.crop : undefined;
+                            const marked = inYear && highlighted.has(`${cal.course}|${date}`);
+                            const first = marked && !firstSeen;
+                            if (first) firstSeen = true;
                             const cell = (
                               <button
+                                ref={first ? firstHighlight : undefined}
                                 type="button"
                                 disabled={!inYear}
                                 onClick={() => paint(cal.course, i, d)}
                                 className={cn(
-                                  'h-5 w-6 border border-white text-[10px] font-semibold dark:border-slate-900',
+                                  'h-6 w-6 border border-white text-[10px] font-semibold dark:border-slate-900',
                                   inYear ? CODE_COLORS[code] ?? CODE_COLORS['?'] : 'bg-transparent',
                                   inYear && 'hover:ring-primary hover:ring-1',
+                                  marked && 'animate-pulse ring-2 ring-amber-500 ring-inset',
                                 )}
                               >
-                                {inYear && code !== '' ? code : ''}
+                                {inYear ? code || 'Т' : ''}
                               </button>
                             );
                             return (
-                              <td key={w.number} className="p-0">
+                              <td key={w.monday} className="p-0">
                                 {inYear ? (
                                   <Tooltip>
                                     <TooltipTrigger asChild>{cell}</TooltipTrigger>

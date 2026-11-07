@@ -8,7 +8,18 @@ import { sumMismatch } from './review-items';
 import type { Draft } from './types';
 
 /** Шаг 4: что будет создано, учебная группа */
-export function ReviewFinish({ draft, warnings, onChange }: { draft: Draft; warnings: string[]; onChange: (draft: Draft) => void }) {
+export function ReviewFinish({
+  draft,
+  warnings,
+  onChange,
+  onWarningClick,
+}: {
+  draft: Draft;
+  warnings: string[];
+  onChange: (draft: Draft) => void;
+  /** Переход к месту замечания (шаг проверки и подсветка) */
+  onWarningClick?: (warning: string) => void;
+}) {
   const included = draft.items.filter((i) => i.include);
   const disciplines = included.filter((i) => !['GROUP', 'MODULE_EXAM'].includes(i.kind));
   const rows = included.filter((i) => !['GROUP', 'MODULE'].includes(i.kind)).reduce((n, i) => n + i.semesters.length, 0);
@@ -55,7 +66,20 @@ export function ReviewFinish({ draft, warnings, onChange }: { draft: Draft; warn
               <AlertDescription>
                 <ul className="list-disc pl-4">
                   {warnings.map((w) => (
-                    <li key={w}>{w}</li>
+                    <li key={w}>
+                      {onWarningClick ? (
+                        <button
+                          type="button"
+                          className="text-left underline decoration-dotted underline-offset-2 hover:decoration-solid"
+                          title="Показать, где замечание"
+                          onClick={() => onWarningClick(w)}
+                        >
+                          {w}
+                        </button>
+                      ) : (
+                        w
+                      )}
+                    </li>
                   ))}
                 </ul>
               </AlertDescription>

@@ -250,7 +250,7 @@ export function AssessmentBoard({ semesterId, editable }: { semesterId: string; 
             {columns.map((i) => {
               const d = data.days[i];
               return (
-                <div key={d} className={cn('border-b border-l px-0.5 py-1 text-center', isoWeekday(d) === 1 && 'border-l-foreground/20')}>
+                <div key={d} className={cn('border-b border-l px-0.5 py-1.5 text-center', isoWeekday(d) === 1 && 'border-l-foreground/20')}>
                   <div className="text-muted-foreground text-[10px]">{weekdayName(isoWeekday(d), true)}</div>
                   <div className="font-medium tabular-nums">{d.slice(8, 10)}</div>
                 </div>
@@ -361,7 +361,7 @@ function DayCell({
       ref={setNodeRef}
       title={`${formatDate(date)} · ${kind === 'STUDY' ? 'Теоретическое обучение' : kind === 'NONE' ? 'Вне семестра' : CALENDAR_EVENT_LABELS[kind]}`}
       className={cn(
-        'relative flex min-h-[52px] flex-col gap-0.5 border-b border-l p-0.5 transition-colors',
+        'relative flex min-h-[84px] flex-col gap-0.5 border-b border-l p-0.5 transition-colors',
         monday && 'border-l-foreground/20',
         kind === 'NONE' && 'bg-muted/40',
         closed && 'bg-[repeating-linear-gradient(135deg,transparent,transparent_4px,rgb(148_163_184/0.25)_4px,rgb(148_163_184/0.25)_6px)]',
