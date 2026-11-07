@@ -2,6 +2,12 @@
 
 Формируется автоматически по сообщениям коммитов (Conventional Commits).
 
+## [1.6.5](https://github.com/Aleck59/schedule_maker1/compare/v1.6.4...v1.6.5) (2026-11-07)
+
+### Исправления
+
+* сетка графика при импорте, переход к замечаниям, редактор экзаменов выше 1.6.5 ([#54](https://github.com/Aleck59/schedule_maker1/issues/54)) ([9678239](https://github.com/Aleck59/schedule_maker1/commit/9678239837e413be56ecf32ca2698c67e8c24da4))
+
 ## [1.6.4](https://github.com/Aleck59/schedule_maker1/compare/v1.6.3...v1.6.4) (2026-11-05)
 
 ### Исправления
