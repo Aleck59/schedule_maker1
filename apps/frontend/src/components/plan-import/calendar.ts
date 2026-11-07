@@ -15,7 +15,7 @@ export const CODE_TYPES: Record<string, string> = {
 
 /** Названия периодов, у которых тип «Прочее» */
 export const CODE_TITLES: Record<string, string> = {
-  С: 'Межсессионный период (самостоятельная работа)',
+  С: 'Самостоятельная работа (межсессионный период)',
 };
 
 export const CODE_LABELS: Record<string, string> = {
@@ -28,7 +28,7 @@ export const CODE_LABELS: Record<string, string> = {
   Д: 'Подготовка к ГИА',
   Г: 'ГИА',
   '*': 'Праздничный день',
-  С: 'Межсессионный период',
+  С: 'Самостоятельная работа',
   '=': 'Обучение не ведётся',
   '?': 'Не распознано',
 };

@@ -1,5 +1,5 @@
 import { CalendarEventType, CurriculumItemType } from '@prisma/client';
-import { CalendarContext, ContextGroup, NormalizedEvent } from './calendar-context';
+import { CalendarContext, ContextGroup, defaultBlocksSchedule, NormalizedEvent } from './calendar-context';
 
 const group: ContextGroup = {
   id: 'g1',
@@ -91,5 +91,26 @@ describe('Календарный контекст', () => {
     expect(ctx.teacherBlocks('t2', '2025-10-27')).toHaveLength(0);
     // Праздник организации блокирует всех преподавателей
     expect(ctx.teacherBlocks('t2', '2025-11-04')).toHaveLength(1);
+  });
+
+  it('самостоятельная работа из графика (тип «Прочее») закрывает дни для пар', () => {
+    const own = new CalendarContext(
+      [
+        event({
+          eventType: CalendarEventType.OTHER,
+          title: 'Самостоятельная работа (межсессионный период)',
+          start: '2026-09-21',
+          end: '2026-10-03',
+          blocksSchedule: defaultBlocksSchedule(CalendarEventType.OTHER),
+          programId: 'p1',
+          courseNumber: 3,
+        }),
+      ],
+      [1, 2, 3, 4, 5, 6],
+      new Map([[group.id, group]]),
+    );
+    expect(own.isRegularAllowed('g1', '2026-09-21')).toBe(false);
+    expect(own.isRegularAllowed('g1', '2026-10-03')).toBe(false);
+    expect(own.isRegularAllowed('g1', '2026-10-05')).toBe(true);
   });
 });

@@ -95,7 +95,8 @@ export interface Draft {
 }
 
 export interface CalendarWeek {
-  number: number;
+  /** Номер недели (в распознанном скане; в файлах .plx нет — считается по порядку) */
+  number?: number;
   monday: string;
   days: string[];
 }
@@ -107,12 +108,20 @@ export interface RecognizedCalendar {
   uncertain: Array<{ weeks: number[]; days: number[]; crop: string }>;
 }
 
+/** День графика, к которому относится замечание (подсветка в сетке) */
+export interface WarningCell {
+  course: number;
+  date: string;
+}
+
 export interface ScanResult {
   /** plx / gosinsp — данные из файла учебного плана; нет — распознанный скан */
   source?: 'plx' | 'gosinsp';
   title: Record<string, unknown>;
   calendar: RecognizedCalendar[];
   warnings: string[];
+  /** Текст замечания → дни графика, где его искать (для .plx) */
+  warningCells?: Record<string, WarningCell[]>;
   stats: { pages: number; items: number; corrected: number; uncertain: number; durationMs: number };
   pages: Array<{ index: number; kind: string; cells?: number }>;
 }

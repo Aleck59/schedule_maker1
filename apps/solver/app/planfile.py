@@ -303,6 +303,8 @@ class PlanBuilder:
         self.source = source
         self.title: dict[str, Any] = {}
         self.warnings: list[str] = []
+        # Где искать замечание: текст замечания → дни графика {"course", "date"} (подсветка в сетке)
+        self.warning_cells: dict[str, list[dict[str, Any]]] = {}
         # code → {"code", "name", "cycle", "semesters": {n: {"hours": {...}, "controls": set}}}
         self.rows: dict[str, dict[str, Any]] = {}
         self.calendar: list[dict[str, Any]] = []
@@ -375,6 +377,7 @@ class PlanBuilder:
             "items": items,
             "pages": [],
             "warnings": self.warnings,
+            "warningCells": self.warning_cells,
             "stats": {
                 "pages": 0,
                 "textPages": 0,
@@ -808,6 +811,8 @@ def _plx_calendar(tables: dict[str, list[Row]], builder: PlanBuilder, admission:
                 if symbol:
                     symbols[get(r, "Код")] = symbol
     unknown: set[str] = set()
+    # Дни с неизвестным обозначением: курс → даты (для подсветки в сетке графика)
+    unknown_days: dict[int, set[dt.date]] = defaultdict(set)
     for name, rows in tables.items():
         if "график" not in name or "справочник" in name or not rows or admission is None:
             continue
@@ -838,13 +843,25 @@ def _plx_calendar(tables: dict[str, list[Row]], builder: PlanBuilder, admission:
             part = int(num(get(r, "НомерЧастиНедели", "ДеньНедели", "НомерДня"))) or 1
             size = 1 if parts >= 6 else 6 // parts
             date = parse_date(get(r, "DateElementGYP", "Дата", "ДатаНачала"))
+            unknown_ref = bool(ref) and not symbol and ref not in PLX_ACTIVITY_CODES
             if date and not date.startswith("0001"):
                 first = dt.date.fromisoformat(date)
                 for d in range(size):
                     day = first + dt.timedelta(days=d)
                     if day.weekday() < 6:
                         dated[course][day] = code
+                        if unknown_ref:
+                            unknown_days[course].add(day)
                 continue
+            if unknown_ref:
+                first_monday = monday_of_first_week(admission + course - 1) + dt.timedelta(weeks=week - 1)
+                days_range = (
+                    range(min(part, 6) - 1, min(part, 6))
+                    if parts >= 6
+                    else range((part - 1) * size, min(6, part * size))
+                )
+                for d in days_range:
+                    unknown_days[course].add(first_monday + dt.timedelta(days=d))
             base = (week - 1) * 6
             if parts >= 6:
                 grid[course][base + min(part, 6) - 1] = code
@@ -870,10 +887,19 @@ def _plx_calendar(tables: dict[str, list[Row]], builder: PlanBuilder, admission:
         if builder.calendar:
             break
     if unknown:
-        builder.warnings.append(
-            "Неизвестные обозначения календарного графика (поставлены как «прочее»): "
-            + ", ".join(sorted(unknown))
+        # Чаще всего это самостоятельная работа (межсессионный период): занятия в эти дни не ставятся
+        total = sum(len(days) for days in unknown_days.values())
+        text = (
+            f"Обозначения календарного графика с кодом {', '.join(sorted(unknown, key=lambda c: (len(c), c)))} "
+            f"поставлены как самостоятельная работа (серые клетки, {total} дн.) — занятия в эти дни не "
+            "ставятся. Проверьте их по графику"
         )
+        builder.warnings.append(text)
+        builder.warning_cells[text] = [
+            {"course": course, "date": day.isoformat()}
+            for course, days in sorted(unknown_days.items())
+            for day in sorted(days)
+        ]
 
 
 def _apply_plx_sessions(

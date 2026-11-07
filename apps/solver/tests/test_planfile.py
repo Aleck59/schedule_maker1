@@ -361,3 +361,37 @@ def test_plx_extramural_sessions_with_dated_cells(tmp_path: Path) -> None:
     assert ("К", "2025-06-30", "2025-08-30") in periods
     assert ("С", "2024-09-02", "2024-10-12") in periods
     assert second["weeks"]["theory"] == 2.5  # 2–18 июня без воскресений
+
+
+def test_plx_unknown_activity_code_is_self_study(tmp_path: Path) -> None:
+    """Неизвестный код вида деятельности (45 — в планах ВО новых версий) ставится как самостоятельная
+    работа «С»: занятия не ставятся, а замечание указывает на дни графика для подсветки."""
+    start = dt.date(2026, 8, 31)  # неделя 1 сентября 2026
+    cells = []
+    for i in range(52):
+        code = "45" if i in (3, 4) else "12" if i >= 44 else "1"
+        cells.append((i + 1, code, start + dt.timedelta(weeks=i)))
+    cell_xml = "".join(
+        f'<ПланыГрафикиЯчейки Код="-{w}" КодВидаДеятельности="{a}" НомерНедели="{w}" НомерЧастиНедели="1" '
+        f'Курс="1" Семестр="1" КоличествоЧастейВНеделе="1" DateElementGYP="{d.isoformat()}T00:00:00" />'
+        for w, a, d in cells
+    )
+    xml = f"""<?xml version="1.0" encoding="utf-8"?>
+<Документ><dsMMISDB xmlns="http://tempuri.org/dsMMISDB.xsd">
+<ООП Код="1" Шифр="06.03.01" Название="Биология" />
+<Планы Код="-1" КодООП="1" ГодНачалаПодготовки="2026" ФормаОбучения="очная" СрокОбучения="4г" Квалификация="бакалавр" />
+<ПланыСтроки Код="-5" КодПлана="-1" Дисциплина="Философия" ДисциплинаКод="Б1.О.01" />
+{cell_xml}
+</dsMMISDB></Документ>"""
+    path = tmp_path / "plan.plx"
+    path.write_text(xml, encoding="utf-8")
+    result = import_plan_file(str(path))
+    week4 = result["calendar"][0]["weeks"][3]
+    assert week4["days"] == ["С"] * 6
+    warning = next(w for w in result["warnings"] if "кодом 45" in w)
+    assert "самостоятельная работа" in warning
+    days = result["warningCells"][warning]
+    assert len(days) == 12
+    assert days[0] == {"course": 1, "date": "2026-09-21"}
+    other = next(p for p in result["periods"] if p["type"] == "OTHER")
+    assert (other["startDate"], other["endDate"]) == ("2026-09-21", "2026-10-03")

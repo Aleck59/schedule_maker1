@@ -10,6 +10,7 @@ import { calendarErrors, ReviewCalendar } from '@/components/plan-import/review-
 import { ReviewFinish } from '@/components/plan-import/review-finish';
 import { generalErrors, ReviewGeneral } from '@/components/plan-import/review-general';
 import { itemsErrors, ReviewItems } from '@/components/plan-import/review-items';
+import { warningStep, type WarningFocus } from '@/components/plan-import/warnings';
 import type {
   ApplyResult,
   CurriculumScan,
@@ -21,6 +22,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Progress } from '@/components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { api, ApiError } from '@/lib/api';
@@ -275,6 +277,9 @@ export default function PlanImportPage() {
   const [reviewStep, setReviewStep] = useState(0);
   const [result, setResult] = useState<ApplyResult | null>(null);
   const [serverErrors, setServerErrors] = useState<string[]>([]);
+  const [focus, setFocus] = useState<WarningFocus | null>(null);
+  const [warningsOpen, setWarningsOpen] = useState(false);
+  const focusBanner = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const data = scan.data;
@@ -284,8 +289,14 @@ export default function PlanImportPage() {
       setLoadedFor(data.id);
       setReviewStep(0);
       setServerErrors([]);
+      setFocus(null);
     }
   }, [scan.data, loadedFor]);
+
+  // Замечание не в сетке графика: прокрутить к плашке с его текстом над шагом
+  useEffect(() => {
+    if (focus && focus.step !== 1) focusBanner.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [focus]);
 
   const apply = useApiMutation((d: Draft) => api.post<ApplyResult>(`/curriculum-scans/${scanId}/apply`, payload(d)), {
     success: 'Учебный план создан',
@@ -326,6 +337,26 @@ export default function PlanImportPage() {
     draft && s?.status !== 'APPLIED'
       ? [generalErrors(draft), calendarErrors(calendar, draft), itemsErrors(draft), []][reviewStep]
       : [];
+  const warnings = s?.resultJson?.warnings ?? [];
+
+  /** Переход к замечанию: нужный шаг проверки + подсветка (вперёд — не дальше шага с ошибками) */
+  const goToWarning = (text: string) => {
+    if (!draft) return;
+    const cells = s?.resultJson?.warningCells?.[text] ?? [];
+    let step = warningStep(text, cells);
+    if (step > reviewStep) {
+      const stepErrors = [generalErrors(draft), calendarErrors(calendar, draft), itemsErrors(draft)];
+      for (let i = reviewStep; i < step; i++) {
+        if (stepErrors[i].length) {
+          step = i;
+          break;
+        }
+      }
+    }
+    setWarningsOpen(false);
+    setReviewStep(step);
+    setFocus({ text, step, cells, nonce: Date.now() });
+  };
 
   return (
     <div className="space-y-5">
@@ -411,9 +442,35 @@ export default function PlanImportPage() {
               <Badge variant="info" className="h-7">
                 Строк плана: {s.resultJson.stats.items}
               </Badge>
-              <Badge variant={s.resultJson.warnings.length ? 'warning' : 'success'} className="h-7">
-                Замечаний: {s.resultJson.warnings.length}
-              </Badge>
+              {warnings.length === 0 ? (
+                <Badge variant="success" className="h-7">
+                  Замечаний: 0
+                </Badge>
+              ) : (
+                <Popover open={warningsOpen} onOpenChange={setWarningsOpen}>
+                  <PopoverTrigger asChild>
+                    <button type="button" title="Показать замечания" className="rounded-md focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:outline-none">
+                      <Badge variant="warning" className="h-7 cursor-pointer hover:brightness-95">
+                        Замечаний: {warnings.length}
+                      </Badge>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-96 max-w-[calc(100vw-2rem)] space-y-1 p-2">
+                    <div className="text-muted-foreground px-2 pt-1 pb-1 text-xs">Нажмите на замечание — откроется место, где оно найдено</div>
+                    {warnings.map((w) => (
+                      <button
+                        key={w}
+                        type="button"
+                        onClick={() => goToWarning(w)}
+                        className="hover:bg-amber-50 dark:hover:bg-amber-950/40 flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm"
+                      >
+                        <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                        <span>{w}</span>
+                      </button>
+                    ))}
+                  </PopoverContent>
+                </Popover>
+              )}
             </div>
           )}
           {s.resultJson?.stats && !s.resultJson.source && (
@@ -435,6 +492,20 @@ export default function PlanImportPage() {
               </Badge>
             </div>
           )}
+          {focus && focus.step === reviewStep && reviewStep !== 1 && (
+            <div ref={focusBanner} key={focus.nonce}>
+              <Alert variant="warning" className="ring-2 ring-amber-400 animate-in fade-in-0">
+                <TriangleAlert />
+                <AlertTitle>Замечание</AlertTitle>
+                <AlertDescription>
+                  <div>{focus.text}</div>
+                  <button type="button" className="mt-1 underline underline-offset-2" onClick={() => setFocus(null)}>
+                    Скрыть
+                  </button>
+                </AlertDescription>
+              </Alert>
+            </div>
+          )}
           {reviewStep === 0 && <ReviewGeneral draft={draft} onChange={setDraft} />}
           {reviewStep === 1 && (
             <ReviewCalendar
@@ -442,10 +513,12 @@ export default function PlanImportPage() {
               draft={draft}
               onCalendarChange={onCalendarChange}
               onSemestersChange={(semesters) => setDraft({ ...draft, semesters })}
+              focus={focus?.step === 1 ? focus : null}
+              onClearFocus={() => setFocus(null)}
             />
           )}
           {reviewStep === 2 && <ReviewItems draft={draft} onChange={setDraft} />}
-          {reviewStep === 3 && <ReviewFinish draft={draft} warnings={s.resultJson?.warnings ?? []} onChange={setDraft} />}
+          {reviewStep === 3 && <ReviewFinish draft={draft} warnings={warnings} onChange={setDraft} onWarningClick={goToWarning} />}
 
           {(errors.length > 0 || serverErrors.length > 0) && (
             <Alert variant="destructive">
