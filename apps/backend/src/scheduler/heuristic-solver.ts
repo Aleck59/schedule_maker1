@@ -1,4 +1,6 @@
 import { cumulativeTargetByDays, effectiveRate, pacingPhases, teacherLimits } from './pacing';
+import { rebalanceRooms } from './room-balance';
+import { roomPreferenceCost, taggedRoomsCache } from './room-preference';
 import {
   SolverDemand,
   SolverPlacement,
@@ -68,7 +70,22 @@ const DEFAULT_WEIGHTS: Record<string, number> = {
   maxPlacementOverflow: 40,
   /** Кабинет не того типа (запасной): тип аудитории — предпочтение, а не запрет */
   roomTypeMismatch: 20,
+  /** Не та аудитория, что указана в нагрузке как предпочтительная */
+  preferredRoomMiss: 30,
+  /** У дисциплины есть аудитории по меткам, а пара не в них */
+  taggedRoomMiss: 15,
+  /** Аудитория с метками другой дисциплины (английский кабинет — под английский) */
+  foreignTaggedRoom: 8,
+  /** Равномерная загрузка аудиторий: штраф за каждую уже поставленную в аудиторию пару недели */
+  roomBalance: 0.35,
+  /** Пар у группы в неделе больше равномерной нормы */
+  groupWeekOverload: 12,
 };
+
+/** Сколько пар сверх равномерной нормы группы в неделю допускается до ограничителя */
+const GROUP_WEEK_SLACK = 2;
+/** Отставание дисциплины догоняется не быстрее чем на столько пар в неделю сверх темпа */
+const CATCH_UP_PER_WEEK = 1;
 
 function gaps(set: Set<number> | undefined, extra?: number): number {
   if (!set || set.size === 0) {
@@ -103,6 +120,8 @@ class ScheduleState {
   readonly groupDayBuildings = new Map<string, Map<string, number>>();
   /** Занятых слотов (пар) группы в неделе: параллельные подгруппы — одна пара */
   readonly groupWeek = new Map<string, number>();
+  /** Пар в аудитории за неделю (для равномерной загрузки аудиторий) */
+  readonly roomWeek = new Map<string, number>();
   readonly slotIndex = new Map<string, Placed[]>();
   readonly placements: Placed[] = [];
   private seq = 0;
@@ -179,6 +198,8 @@ class ScheduleState {
     if (roomId) {
       const rk = `${roomId}#${slot}`;
       this.roomSlot.set(rk, (this.roomSlot.get(rk) ?? 0) + sign);
+      const rwk = `${roomId}#${day.week}`;
+      this.roomWeek.set(rwk, (this.roomWeek.get(rwk) ?? 0) + sign);
     }
     for (const dk of d.disciplineKeys) {
       const ddk = `${dk}#${day.key}`;
@@ -241,6 +262,8 @@ class ScheduleState {
     if (o.roomId) {
       const rk = `${o.roomId}#${slot}`;
       this.roomSlot.set(rk, (this.roomSlot.get(rk) ?? 0) + 1);
+      const rwk = `${o.roomId}#${o.week}`;
+      this.roomWeek.set(rwk, (this.roomWeek.get(rwk) ?? 0) + 1);
     }
     if (o.disciplineKey) {
       const ddk = `${o.disciplineKey}#${o.dayKey}`;
@@ -399,13 +422,17 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
 
   const makeState = () => new ScheduleState(problem, roomsById, subgroupsByGroup);
   /** Накопительная цель демандa к концу недели w (с учётом доступных дней) */
-  const paceProgress = new Map<DemandState, { days: number; weeks: number }>();
-  const targetThrough = (ds: DemandState, w: number) => {
-    const p = paceProgress.get(ds) ?? { days: 0, weeks: 0 };
+  const paceProgress = new Map<DemandState, { days: number; weeks: number; target: number }>();
+  /**
+   * Цель недели w: накопительная цель минус уже поставленное. Отставание догоняется постепенно —
+   * не больше CATCH_UP_PER_WEEK пар сверх темпа недели, иначе после «трудной» недели следующая
+   * оказывается перегруженной (1–2 пары в день, затем по 4 каждый день)
+   */
+  const weekTarget = (ds: DemandState, w: number) => {
+    const p = paceProgress.get(ds) ?? { days: 0, weeks: 0, target: 0 };
     p.days += ds.daysByWeek.get(w) ?? 0;
     p.weeks += 1;
-    paceProgress.set(ds, p);
-    return cumulativeTargetByDays(
+    const cumulative = cumulativeTargetByDays(
       ds.d.lessonsRequired,
       p.days,
       ds.totalDays,
@@ -413,6 +440,10 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
       ds.d.weeklyRate,
       ds.phase,
     );
+    const pace = Math.max(0, cumulative - p.target);
+    p.target = cumulative;
+    paceProgress.set(ds, p);
+    return Math.min(cumulative - ds.placed, pace + CATCH_UP_PER_WEEK);
   };
   const state = makeState();
   const dayRefByDate = new Map(
@@ -432,6 +463,39 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
       disciplineKey: o.disciplineKey,
     });
   }
+
+  // --- Равномерная норма пар группы в неделю: уже стоящие занятия + доля спроса по учебным дням недели
+  const groupWeekNorm = new Map<string, number>();
+  for (const [key, count] of state.groupWeek) groupWeekNorm.set(key, count);
+  for (const ds of demands) {
+    if (ds.totalDays <= 0) continue;
+    for (const g of ds.d.groupIds) {
+      const subs = subgroupsByGroup.get(g)?.length ?? 0;
+      const share = ds.d.subgroupNumber === null ? 1 : 1 / Math.max(1, subs);
+      for (const [w, days] of ds.daysByWeek) {
+        const key = `${g}#${w}`;
+        groupWeekNorm.set(
+          key,
+          (groupWeekNorm.get(key) ?? 0) + (share * ds.d.lessonsRequired * days) / ds.totalDays,
+        );
+      }
+    }
+  }
+  for (const [key, v] of groupWeekNorm) groupWeekNorm.set(key, Math.ceil(v - 1e-6));
+  /** Ограничитель: сколько пар сверх нормы недели группе можно поставить (null — без ограничителя) */
+  let groupWeekSlack: number | null = null;
+  /** Сколько пар сверх нормы недели будет у групп пары, если занять этот слот */
+  const groupWeekExcess = (st: ScheduleState, ds: DemandState, day: DayRef, lesson: number): number => {
+    let excess = 0;
+    for (const g of ds.d.groupIds) {
+      const norm = groupWeekNorm.get(`${g}#${day.week}`);
+      if (norm === undefined) continue;
+      const set = st.groupSlot.get(`${g}#${day.key}#${lesson}`);
+      if (set && set.size > 0) continue;
+      excess = Math.max(excess, (st.groupWeek.get(`${g}#${day.week}`) ?? 0) + 1 - norm);
+    }
+    return excess;
+  };
 
   // --- Проверки и штрафы
   const teacherFree = (st: ScheduleState, ds: DemandState, day: DayRef, lesson: number, weekLimit = true) => {
@@ -531,6 +595,8 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     }
     if (d.isDifficult && lesson >= Math.max(4, settings.lateLessonNumber - 1)) cost += weights.difficultLate;
     if (relaxed) cost += overflowCost(st, ds, day, lesson);
+    const weekExcess = groupWeekExcess(st, ds, day, lesson);
+    if (weekExcess > 0) cost += (weights.groupWeekOverload ?? 0) * weekExcess;
     for (const dk of d.disciplineKeys) {
       const wk = st.disciplineWeek.get(`${dk}#${day.week}`) ?? 0;
       if (wk >= settings.maxSameDisciplinePerWeek) cost += weights.disciplineWeekly;
@@ -561,23 +627,11 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     return over * weights.maxPlacementOverflow;
   };
 
-  /** Запасной кабинет (не того типа): идёт в roomIds после первых matchingRooms */
-  const fallbackRooms = new Map<SolverDemand, Set<string>>();
-  const isFallbackRoom = (ds: DemandState, roomId: string): boolean => {
-    const m = ds.d.matchingRooms;
-    if (m === undefined || m >= ds.d.roomIds.length) return false;
-    let set = fallbackRooms.get(ds.d);
-    if (!set) {
-      set = new Set(ds.d.roomIds.slice(m));
-      fallbackRooms.set(ds.d, set);
-    }
-    return set.has(roomId);
-  };
+  const taggedOf = taggedRoomsCache();
   const roomCost = (st: ScheduleState, ds: DemandState, room: SolverRoom, day: DayRef): number => {
-    let cost = 0;
-    if (ds.d.preferredRoomId === room.id) cost -= 3;
-    cost += Math.max(0, room.capacity - ds.d.size) / 100;
-    if (isFallbackRoom(ds, room.id)) cost += weights.roomTypeMismatch ?? 0;
+    let cost = roomPreferenceCost(ds.d, room, weights, taggedOf(ds.d));
+    if (!room.unlimited)
+      cost += (weights.roomBalance ?? 0) * (st.roomWeek.get(`${room.id}#${day.week}`) ?? 0);
     if (room.building) {
       for (const g of ds.d.groupIds) {
         const map = st.groupDayBuildings.get(`${g}#${day.key}`);
@@ -610,6 +664,7 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
         if (!teacherFree(st, ds, day, lesson, weekLimit)) continue;
         if (!groupFree(st, ds, day, lesson)) continue;
         if (!disciplineOk(st, ds, day, lesson)) continue;
+        if (groupWeekSlack !== null && groupWeekExcess(st, ds, day, lesson) > groupWeekSlack) continue;
         const base = slotCost(st, ds, day, lesson);
         if (best && base >= best.cost + 50) continue;
         for (const roomId of roomIdsFor(ds, day, lesson)) {
@@ -651,9 +706,7 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
           groupFree(st, ds, day, lesson) &&
           disciplineOk(st, ds, day, lesson);
         if (canPlace) {
-          const room = roomIdsFor(ds, day, lesson)
-            .map((r) => roomsById.get(r)!)
-            .find((r) => r && roomFree(st, r, day, lesson));
+          const room = roomForMove(st, ds, day, lesson, null);
           if (room) {
             const mine = st.apply({ demand: ds, day, lesson, roomId: room.id, fixed: false });
             const alt = bestCandidate(st, blocker.demand, days, { dayKey: day.key, lesson });
@@ -775,15 +828,19 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
       .map((id) => roomsById.get(id))
       .filter((r): r is SolverRoom => !!r && roomFree(st, r, day, lesson));
     const building = current ? roomsById.get(current)?.building : undefined;
-    const good = options.filter((r) => !isFallbackRoom(ds, r.id));
-    return (
-      options.find((r) => r.id === current) ??
-      good.find((r) => building && r.building === building) ??
-      good[0] ??
-      options.find((r) => building && r.building === building) ??
-      options[0] ??
-      null
-    );
+    let best: SolverRoom | null = null;
+    let bestCost = Infinity;
+    for (const r of options) {
+      const cost =
+        roomPreferenceCost(ds.d, r, weights, taggedOf(ds.d)) +
+        (r.id === current ? -1 : 0) +
+        (building && r.building !== building ? 3 : 0);
+      if (cost < bestCost) {
+        best = r;
+        bestCost = cost;
+      }
+    }
+    return best;
   };
   const compact = (st: ScheduleState, until: number): number => {
     let moved = 0;
@@ -1039,6 +1096,12 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
       })),
     ];
     placements.sort((a, b) => a.date.localeCompare(b.date) || a.lessonNumber - b.lessonNumber);
+    const balancedTemplate = rebalanceRooms(problem, placements);
+    placements.splice(0, placements.length, ...balancedTemplate.placements);
+    if (balancedTemplate.changed > 0)
+      log.push(
+        `Аудитории: ${balancedTemplate.changed} пар перенесены в другие аудитории для равномерной загрузки`,
+      );
     // Счёт в парах недели: пара через неделю — половина
     const weight = (ds: DemandState) => (biweekly.has(ds) ? 0.5 : 1);
     const unplacedBy = new Map<string, number>();
@@ -1207,6 +1270,7 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
       ? demands.filter((ds) => ds.d.allowedDates !== null)
       : demands;
   if (calendarDemands.length > 0) {
+    groupWeekSlack = GROUP_WEEK_SLACK;
     weeks.forEach((w, idx) => {
       if (Date.now() > deadline) {
         timeExceeded = true;
@@ -1216,20 +1280,30 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
       const targets = new Map<DemandState, number>();
       for (const ds of calendarDemands) {
         if (!ds.daysByWeek.has(w)) continue;
-        const target = targetThrough(ds, w) - ds.placed;
+        const target = weekTarget(ds, w);
         if (target > 0) targets.set(ds, target);
       }
       solveWeek(state, days, targets, repairLimit);
       options.onProgress?.((idx + 1) / (weeks.length + 1), `Неделя ${idx + 1} из ${weeks.length}`);
     });
+    groupWeekSlack = null;
   }
 
-  // --- Компенсация: сначала равномерно по оставшимся неделям, затем в любые свободные слоты
+  // --- Компенсация: сначала равномерно по оставшимся неделям (с мягким ограничителем недели группы),
+  // затем по одной паре в самые свободные недели групп и лишь в конце — в любые свободные слоты
+  const weekLoad = (w: number, groups: Set<string>) => {
+    let load = 0;
+    for (const g of groups) {
+      const key = `${g}#${w}`;
+      load += (state.groupWeek.get(key) ?? 0) - (groupWeekNorm.get(key) ?? 0);
+    }
+    return load;
+  };
   const catchUp = (spread: boolean, until = deadline) => {
     const leftovers = demands.filter((ds) => ds.placed < ds.d.lessonsRequired);
     if (leftovers.length === 0) return;
     if (spread) log.push(`Компенсационный проход: ${leftovers.length} дисциплин с недопоставленными парами`);
-    weeks.forEach((w, i) => {
+    const runWeek = (w: number, targetOf: (ds: DemandState) => number) => {
       if (timeExceeded || Date.now() > until) {
         timeExceeded = true;
         return;
@@ -1237,13 +1311,34 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
       const days = daysByWeek.get(w) ?? [];
       const targets = new Map<DemandState, number>();
       for (const ds of leftovers) {
-        const left = ds.d.lessonsRequired - ds.placed;
-        if (left <= 0 || !ds.daysByWeek.has(w)) continue;
-        const weeksLeft = weeks.slice(i).filter((x) => ds.daysByWeek.has(x)).length;
-        targets.set(ds, spread ? Math.ceil(left / Math.max(1, weeksLeft)) : left);
+        if (ds.d.lessonsRequired - ds.placed <= 0 || !ds.daysByWeek.has(w)) continue;
+        const t = targetOf(ds);
+        if (t > 0) targets.set(ds, t);
       }
       if (targets.size > 0) solveWeek(state, days, targets, Math.floor(repairLimit / 2));
-    });
+    };
+    if (spread) {
+      groupWeekSlack = GROUP_WEEK_SLACK + 2;
+      weeks.forEach((w, i) =>
+        runWeek(w, (ds) => {
+          const weeksLeft = weeks.slice(i).filter((x) => ds.daysByWeek.has(x)).length;
+          return Math.ceil((ds.d.lessonsRequired - ds.placed) / Math.max(1, weeksLeft));
+        }),
+      );
+      groupWeekSlack = null;
+      return;
+    }
+    const groups = new Set(leftovers.flatMap((ds) => ds.d.groupIds));
+    for (let round = 0; round < 3; round++) {
+      const before = state.placements.length;
+      const ordered = [...weeks].sort((a, b) => weekLoad(a, groups) - weekLoad(b, groups) || a - b);
+      for (const w of ordered) runWeek(w, () => 1);
+      if (leftovers.every((ds) => ds.placed >= ds.d.lessonsRequired)) return;
+      // Свободных слотов не осталось (по одной паре в неделю не встало ни одной) — дальше искать незачем
+      if (state.placements.length === before) return;
+    }
+    const ordered = [...weeks].sort((a, b) => weekLoad(a, groups) - weekLoad(b, groups) || a - b);
+    for (const w of ordered) runWeek(w, (ds) => ds.d.lessonsRequired - ds.placed);
   };
   if (!timeExceeded) {
     catchUp(true);
@@ -1284,12 +1379,18 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     }
   }
 
-  const placements: SolverPlacement[] = state.placements.map((p) => ({
-    demandId: p.demand.d.id,
-    date: p.day.key,
-    lessonNumber: p.lesson,
-    roomId: p.roomId,
-  }));
+  const balanced = rebalanceRooms(
+    problem,
+    state.placements.map((p) => ({
+      demandId: p.demand.d.id,
+      date: p.day.key,
+      lessonNumber: p.lesson,
+      roomId: p.roomId,
+    })),
+  );
+  if (balanced.changed > 0)
+    log.push(`Аудитории: ${balanced.changed} пар перенесены в другие аудитории для равномерной загрузки`);
+  const placements: SolverPlacement[] = balanced.placements;
   placements.sort((a, b) => a.date.localeCompare(b.date) || a.lessonNumber - b.lessonNumber);
   const unplaced = demands
     .filter((ds) => ds.placed < ds.d.lessonsRequired)

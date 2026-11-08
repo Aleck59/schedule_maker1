@@ -52,7 +52,34 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "maxPlacementOverflow": 40,
     # Кабинет не того типа (запасной): тип аудитории — предпочтение, а не запрет
     "roomTypeMismatch": 20,
+    # Не та аудитория, что указана в нагрузке; не по меткам дисциплины; с метками другой дисциплины
+    "preferredRoomMiss": 30,
+    "taggedRoomMiss": 15,
+    "foreignTaggedRoom": 8,
 }
+
+#: Отставание дисциплины догоняется не быстрее чем на столько пар в неделю сверх темпа
+CATCH_UP_PER_WEEK = 1
+
+
+def room_preference_cost(d: Demand, room: Room, w: dict[str, float], fallback: set[str]) -> float:
+    """Штраф за аудиторию (как в эвристике, scheduler/room-preference.ts)."""
+    if room.unlimited:
+        return 0.0
+    cost = max(0, room.capacity - d.size) / 100
+    preferred = d.preferred_room_id == room.id
+    if d.preferred_room_id and not preferred:
+        cost += w.get("preferredRoomMiss", 0)
+    if not preferred:
+        by_tag = room.id in d.tagged_room_ids
+        if d.tagged_room_ids and not by_tag:
+            cost += w.get("taggedRoomMiss", 0)
+        if room.tagged and not by_tag:
+            cost += w.get("foreignTaggedRoom", 0)
+    if room.id in fallback:
+        cost += w.get("roomTypeMismatch", 0)
+    return cost
+
 
 #: Масштаб штрафов (CP-SAT работает с целыми коэффициентами)
 COST_SCALE = 10
@@ -109,6 +136,14 @@ class DemandState:
     days_seen: int = 0
     weeks_seen: int = 0
     template_slots: list[tuple[int, int, str | None]] = field(default_factory=list)
+    last_target: int = 0
+
+    def week_target(self, week: int) -> int:
+        """Цель недели: отставание догоняется не быстрее CATCH_UP_PER_WEEK пар сверх темпа недели."""
+        cumulative = self.target_through(week)
+        pace = max(0, cumulative - self.last_target)
+        self.last_target = cumulative
+        return min(cumulative - self.placed, pace + CATCH_UP_PER_WEEK)
 
     def target_through(self, week: int) -> int:
         self.days_seen += self.days_by_week.get(week, 0)
@@ -428,12 +463,7 @@ class CpSatScheduler:
                             model.add_hint(var, 1)
                         x[(i, day.key, lesson, room_id)] = var
                         y[(i, day.key, lesson)].append(var)
-                        room = self.rooms[room_id]
-                        room_cost = max(0, room.capacity - ds.d.size) / 100
-                        if ds.d.preferred_room_id == room_id:
-                            room_cost -= 3
-                        if room_id in fallback:
-                            room_cost += w.get("roomTypeMismatch", 0)
+                        room_cost = room_preference_cost(ds.d, self.rooms[room_id], w, fallback)
                         coef = reward - int(round((base_cost + room_cost) * COST_SCALE))
                         objective.append((coef, var))
         if not x and not y:
@@ -791,7 +821,7 @@ class CpSatScheduler:
                 for ds in calendar_states:
                     if w not in ds.days_by_week:
                         continue
-                    t = ds.target_through(w) - ds.placed
+                    t = ds.week_target(w)
                     if t > 0:
                         targets[ds] = t
                 if out_of_time:

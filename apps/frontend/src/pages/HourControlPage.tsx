@@ -55,7 +55,9 @@ export default function HourControlPage() {
   const groups = useGroups();
   const teachers = useTeachers();
   const programId = params.get('programId');
-  const semesterId = params.get('semesterId');
+  // По умолчанию — текущий семестр каждой группы (учебного плана); «Все семестры» — явный выбор
+  const semesterParam = params.get('semesterId') ?? 'current';
+  const semesterId = semesterParam === 'all' ? null : semesterParam;
   const groupId = params.get('groupId');
   const teacherId = params.get('teacherId');
   const [status, setStatus] = useState<string | null>(params.get('status'));
@@ -126,10 +128,13 @@ export default function HourControlPage() {
           />
           <SimpleSelect
             value={semesterId}
-            onChange={(v) => set('semesterId', v)}
+            onChange={(v) => set('semesterId', v === 'current' ? null : (v ?? 'all'))}
             allowEmpty
             emptyLabel="Все семестры"
-            options={programSemesters.map((s) => ({ value: s.id, label: `${s.program?.title ?? ''} · ${s.number} семестр` }))}
+            options={[
+              { value: 'current', label: 'Текущий семестр', hint: 'У каждой группы — свой текущий семестр' },
+              ...programSemesters.map((s) => ({ value: s.id, label: `${s.program?.title ?? ''} · ${s.number} семестр` })),
+            ]}
           />
           <SimpleSelect
             value={groupId}

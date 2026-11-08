@@ -420,6 +420,8 @@ export interface Classroom {
   capacity: number;
   classroomType: ClassroomType;
   equipmentJson: Record<string, unknown> | null;
+  /** Метки: что предпочтительно проводить в аудитории */
+  tags?: string[];
   isActive: boolean;
   availability?: AvailabilitySlot[];
   /** Пар в неделю, когда аудитория недоступна (в списке аудиторий) */

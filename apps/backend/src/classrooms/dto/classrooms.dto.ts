@@ -1,6 +1,9 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { ClassroomType } from '@prisma/client';
+import { Transform } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -49,6 +52,24 @@ export class CreateClassroomDto {
   @IsOptional()
   @IsObject()
   equipmentJson?: Record<string, unknown>;
+
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['Иностранный язык', 'английский'],
+    description:
+      'Метки: что предпочтительно проводить в аудитории — название дисциплины, его часть или код (ОП.01, МДК). ' +
+      'Мягкое ограничение: решатель и «Сформировать по плану» ставят такие занятия сюда в первую очередь',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(30)
+  @IsString({ each: true })
+  @Transform(({ value }) =>
+    Array.isArray(value)
+      ? [...new Set(value.map((v: unknown) => String(v).trim()).filter((v: string) => v.length > 0))]
+      : value,
+  )
+  tags?: string[];
 
   @ApiPropertyOptional({ default: true })
   @IsOptional()

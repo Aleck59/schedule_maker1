@@ -769,6 +769,8 @@ model Classroom {
   capacity       Int
   classroomType  ClassroomType
   equipmentJson  Json?
+  /// Метки: что предпочтительно проводить в аудитории (дисциплины, коды, слова) — мягкое ограничение
+  tags           String[]      @default([])
   isActive       Boolean       @default(true)
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt

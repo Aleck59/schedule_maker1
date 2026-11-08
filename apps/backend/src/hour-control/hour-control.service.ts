@@ -696,6 +696,40 @@ export class HourControlService {
     return semesters.map((s) => s.id);
   }
 
+  /**
+   * Текущий семестр каждого учебного плана: тот, в который попадает сегодняшний день; между
+   * семестрами (каникулы, сессия) — последний начавшийся, до начала обучения — ближайший.
+   */
+  async activeSemesterIds(organizationId: string): Promise<string[]> {
+    const settings = await this.settings.getEffective(organizationId);
+    const today = parseDate(todayInTimezone(settings.timezone));
+    const semesters = await this.prisma.semester.findMany({
+      where: { program: { organizationId } },
+      select: { id: true, educationalProgramId: true, startDate: true, endDate: true },
+      orderBy: { startDate: 'asc' },
+    });
+    const byProgram = new Map<string, typeof semesters>();
+    for (const s of semesters) {
+      byProgram.set(s.educationalProgramId, [...(byProgram.get(s.educationalProgramId) ?? []), s]);
+    }
+    const ids: string[] = [];
+    for (const list of byProgram.values()) {
+      const current =
+        list.find((s) => s.startDate <= today && s.endDate >= today) ??
+        [...list].reverse().find((s) => s.startDate <= today) ??
+        list[0];
+      if (current) ids.push(current.id);
+    }
+    return ids;
+  }
+
+  /** Фильтр семестра из запроса: id, «current» — текущие семестры всех планов, пусто — все семестры */
+  async resolveSemesterFilter(organizationId: string, semesterId?: string): Promise<string[] | undefined> {
+    if (!semesterId || semesterId === 'all') return undefined;
+    if (semesterId === 'current') return this.activeSemesterIds(organizationId);
+    return [semesterId];
+  }
+
   /** Сводные данные для дашборда: процент выполнения по текущим семестрам */
   async currentSemestersProgress(organizationId: string) {
     const semesterIds = await this.currentSemesterIds(organizationId);

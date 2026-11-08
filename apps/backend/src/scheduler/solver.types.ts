@@ -63,6 +63,8 @@ export interface SolverRoom {
   unavailable: Array<[number, number]>;
   /** Онлайн-аудитория: без ограничения одновременных занятий */
   unlimited: boolean;
+  /** У аудитории есть метки (что в ней предпочтительно проводить) */
+  tagged?: boolean;
 }
 
 export interface SolverDemand {
@@ -89,6 +91,8 @@ export interface SolverDemand {
    */
   matchingRooms?: number;
   preferredRoomId: string | null;
+  /** Аудитории, метки которых подходят к дисциплине (мягкое предпочтение) */
+  taggedRoomIds?: string[];
   /**
    * Разрешённые даты (практика — дни периода практики, консультации — последние недели).
    * Если заданы, заменяют даты обычных занятий группы; null — даты группы.

@@ -24,11 +24,15 @@ export class HourControlController {
   @Roles(...STAFF_ROLES)
   @ApiOperation({ summary: 'Выполнение часов по всей организации (с фильтрами)' })
   @ApiQuery({ name: 'programId', required: false })
-  @ApiQuery({ name: 'semesterId', required: false })
+  @ApiQuery({
+    name: 'semesterId',
+    required: false,
+    description: 'id семестра; current — текущий семестр каждого плана',
+  })
   @ApiQuery({ name: 'groupId', required: false })
   @ApiQuery({ name: 'teacherId', required: false })
   @ApiQuery({ name: 'semesterItemId', required: false })
-  list(
+  async list(
     @CurrentUser() user: AuthUser,
     @Query('programId') programId?: string,
     @Query('semesterId') semesterId?: string,
@@ -39,7 +43,7 @@ export class HourControlController {
     return this.hours.rows({
       organizationId: user.organizationId,
       programId,
-      semesterIds: semesterId ? [semesterId] : undefined,
+      semesterIds: await this.hours.resolveSemesterFilter(user.organizationId, semesterId),
       groupIds: groupId ? [groupId] : undefined,
       // Преподаватель видит только свои дисциплины
       teacherId: user.role === UserRole.TEACHER ? this.ownTeacherId(user) : teacherId,
@@ -59,8 +63,12 @@ export class HourControlController {
     enum: ['group', 'discipline', 'teacher', 'semester', 'program', 'level', 'college'],
   })
   @ApiQuery({ name: 'programId', required: false })
-  @ApiQuery({ name: 'semesterId', required: false })
-  summary(
+  @ApiQuery({
+    name: 'semesterId',
+    required: false,
+    description: 'id семестра; current — текущий семестр каждого плана',
+  })
+  async summary(
     @CurrentUser() user: AuthUser,
     @Query('by') by: AggregateBy = 'group',
     @Query('programId') programId?: string,
@@ -70,7 +78,7 @@ export class HourControlController {
       {
         organizationId: user.organizationId,
         programId,
-        semesterIds: semesterId ? [semesterId] : undefined,
+        semesterIds: await this.hours.resolveSemesterFilter(user.organizationId, semesterId),
         teacherId: user.role === UserRole.TEACHER ? this.ownTeacherId(user) : undefined,
       },
       by,
@@ -81,8 +89,12 @@ export class HourControlController {
   @CacheResponse(120)
   @Roles(...STAFF_ROLES)
   @ApiOperation({ summary: 'Выполнение часов по образовательной программе' })
-  @ApiQuery({ name: 'semesterId', required: false })
-  program(
+  @ApiQuery({
+    name: 'semesterId',
+    required: false,
+    description: 'id семестра; current — текущий семестр каждого плана',
+  })
+  async program(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
     @Query('semesterId') semesterId?: string,
@@ -90,7 +102,7 @@ export class HourControlController {
     return this.hours.rows({
       organizationId: user.organizationId,
       programId: id,
-      semesterIds: semesterId ? [semesterId] : undefined,
+      semesterIds: await this.hours.resolveSemesterFilter(user.organizationId, semesterId),
       teacherId: user.role === UserRole.TEACHER ? this.ownTeacherId(user) : undefined,
     });
   }
@@ -99,8 +111,12 @@ export class HourControlController {
   @CacheResponse(120)
   @Roles(...ALL_ROLES)
   @ApiOperation({ summary: 'Выполнение часов группы: план / в расписании / проведено / остаток' })
-  @ApiQuery({ name: 'semesterId', required: false })
-  group(
+  @ApiQuery({
+    name: 'semesterId',
+    required: false,
+    description: 'id семестра; current — текущий семестр каждого плана',
+  })
+  async group(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
     @Query('semesterId') semesterId?: string,
@@ -109,7 +125,7 @@ export class HourControlController {
     return this.hours.rows({
       organizationId: user.organizationId,
       groupIds: [id],
-      semesterIds: semesterId ? [semesterId] : undefined,
+      semesterIds: await this.hours.resolveSemesterFilter(user.organizationId, semesterId),
       includeInactiveGroups: true,
     });
   }
@@ -118,7 +134,11 @@ export class HourControlController {
   @CacheResponse(120)
   @Roles(...STAFF_ROLES)
   @ApiOperation({ summary: 'Нагрузка преподавателя: плановая, в расписании, фактическая' })
-  @ApiQuery({ name: 'semesterId', required: false })
+  @ApiQuery({
+    name: 'semesterId',
+    required: false,
+    description: 'id семестра; current — текущий семестр каждого плана',
+  })
   workload(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
@@ -132,7 +152,11 @@ export class HourControlController {
   @CacheResponse(120)
   @Roles(...STAFF_ROLES)
   @ApiOperation({ summary: 'Контроль нагрузки преподавателя по группам и дисциплинам' })
-  @ApiQuery({ name: 'semesterId', required: false })
+  @ApiQuery({
+    name: 'semesterId',
+    required: false,
+    description: 'id семестра; current — текущий семестр каждого плана',
+  })
   workloadControl(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
@@ -146,7 +170,11 @@ export class HourControlController {
   @CacheResponse(300)
   @Roles(UserRole.ADMIN, UserRole.DISPATCHER, UserRole.MANAGER)
   @ApiOperation({ summary: 'Сводная нагрузка всех преподавателей' })
-  @ApiQuery({ name: 'semesterId', required: false })
+  @ApiQuery({
+    name: 'semesterId',
+    required: false,
+    description: 'id семестра; current — текущий семестр каждого плана',
+  })
   @ApiQuery({
     name: 'current',
     required: false,
