@@ -2,6 +2,12 @@
 
 Формируется автоматически по сообщениям коммитов (Conventional Commits).
 
+## [1.6.6](https://github.com/Aleck59/schedule_maker1/compare/v1.6.5...v1.6.6) (2026-11-08)
+
+### Исправления
+
+* равномерная расстановка по аудиториям и неделям, метки аудиторий, текущий семестр, страница 404 1.6.6 ([#56](https://github.com/Aleck59/schedule_maker1/issues/56)) ([cf35b97](https://github.com/Aleck59/schedule_maker1/commit/cf35b970a6f56388a673739f7d100a9f9bfa303d))
+
 ## [1.6.5](https://github.com/Aleck59/schedule_maker1/compare/v1.6.4...v1.6.5) (2026-11-07)
 
 ### Исправления
