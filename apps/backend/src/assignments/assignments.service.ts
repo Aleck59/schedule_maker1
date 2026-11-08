@@ -4,6 +4,7 @@ import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types/auth-user';
 import { formatDateRu, parseDate, toDateStr } from '../common/utils/dates';
 import { hoursForType } from '../common/utils/hours';
+import { roomsForDiscipline } from '../common/utils/rooms';
 import { levelRestriction } from '../common/utils/teacher-levels';
 import { ACTIVE_STATUSES } from '../planning/hours-calculator';
 import { PrismaService } from '../prisma/prisma.service';
@@ -297,8 +298,67 @@ export class AssignmentsService {
       });
       created++;
     }
-    await this.audit.log(actor.id, 'GENERATE', 'GroupCurriculumAssignment', group.id, null, { created });
-    return { created };
+    const roomsAssigned = await this.assignRoomsByTags(group, semester.id, actor.organizationId);
+    await this.audit.log(actor.id, 'GENERATE', 'GroupCurriculumAssignment', group.id, null, {
+      created,
+      roomsAssigned,
+    });
+    return { created, roomsAssigned };
+  }
+
+  /**
+   * Предпочтительные аудитории по меткам: назначениям группы в семестре без предпочтительной аудитории
+   * ставится аудитория, метки которой подходят к дисциплине (физкультура — спортзал, иностранный язык —
+   * кабинет иностранного языка). Из нескольких подходящих — вмещающая группу и наименее занятая
+   * другими назначениями. Это мягкое ограничение: решатель ставит пары туда в первую очередь.
+   */
+  private async assignRoomsByTags(
+    group: { id: string; studentCount: number; subgroupCount: number },
+    semesterId: string,
+    organizationId: string,
+  ): Promise<number> {
+    const rooms = await this.prisma.classroom.findMany({
+      where: { organizationId, isActive: true },
+      select: { id: true, code: true, capacity: true, classroomType: true, tags: true },
+      orderBy: { code: 'asc' },
+    });
+    if (rooms.length === 0) return 0;
+    const list = await this.prisma.groupCurriculumAssignment.findMany({
+      where: { studentGroupId: group.id, preferredClassroomId: null, semesterItem: { semesterId } },
+      include: { semesterItem: { include: { curriculumItem: { select: { code: true, name: true } } } } },
+    });
+    if (list.length === 0) return 0;
+    const usage = new Map<string, number>();
+    for (const row of await this.prisma.groupCurriculumAssignment.groupBy({
+      by: ['preferredClassroomId'],
+      where: { preferredClassroomId: { in: rooms.map((r) => r.id) }, semesterItem: { semesterId } },
+      _count: { _all: true },
+    })) {
+      if (row.preferredClassroomId) usage.set(row.preferredClassroomId, row._count._all);
+    }
+    let assigned = 0;
+    for (const a of list) {
+      const item = a.semesterItem.curriculumItem;
+      const candidates = roomsForDiscipline(rooms, item.name, item.code);
+      if (candidates.length === 0) continue;
+      const size =
+        a.subgroupNumber !== null
+          ? Math.ceil(group.studentCount / Math.max(1, group.subgroupCount))
+          : group.studentCount;
+      const best = [...candidates].sort(
+        (x, y) =>
+          Number(y.capacity >= size) - Number(x.capacity >= size) ||
+          (usage.get(x.id) ?? 0) - (usage.get(y.id) ?? 0) ||
+          x.code.localeCompare(y.code),
+      )[0];
+      await this.prisma.groupCurriculumAssignment.update({
+        where: { id: a.id },
+        data: { preferredClassroomId: best.id },
+      });
+      usage.set(best.id, (usage.get(best.id) ?? 0) + 1);
+      assigned++;
+    }
+    return assigned;
   }
 
   // ---------------------------------------------------------------- потоки

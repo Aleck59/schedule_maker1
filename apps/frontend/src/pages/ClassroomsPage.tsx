@@ -25,6 +25,24 @@ import { useApiMutation } from '@/lib/query';
 import type { Classroom } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
+function splitTags(value: string | undefined): string[] {
+  return [...new Set((value ?? '').split(/[,;\n]/).map((t) => t.trim()).filter(Boolean))];
+}
+
+function TagPreview({ value }: { value: string | undefined }) {
+  const tags = splitTags(value);
+  if (tags.length === 0) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1">
+      {tags.map((t) => (
+        <Badge key={t} variant="secondary" className="font-normal">
+          {t}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
 function equipmentText(e: Record<string, unknown> | null): string {
   if (!e) return '';
   return Object.entries(e)
@@ -60,6 +78,22 @@ export default function ClassroomsPage() {
       ),
     },
     { accessorKey: 'classroomType', header: 'Тип', cell: ({ getValue }) => <Badge variant="secondary">{CLASSROOM_TYPE_LABELS[getValue<string>()]}</Badge> },
+    {
+      id: 'tags',
+      header: 'Метки',
+      cell: ({ row }) =>
+        row.original.tags?.length ? (
+          <div className="flex max-w-56 flex-wrap gap-1">
+            {row.original.tags.map((t) => (
+              <Badge key={t} variant="outline" className="font-normal">
+                {t}
+              </Badge>
+            ))}
+          </div>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
     { accessorKey: 'capacity', header: 'Мест' },
     {
       id: 'location',
@@ -164,6 +198,7 @@ const classroomSchema = z.object({
   capacity: z.number({ invalid_type_error: 'Введите число' }).int().min(1, 'Не менее 1 места').max(500, 'Не более 500'),
   classroomType: z.string().min(1, 'Выберите тип'),
   equipment: z.string().optional(),
+  tags: z.string().optional(),
   isActive: z.boolean(),
 });
 type ClassroomForm = z.infer<typeof classroomSchema>;
@@ -190,9 +225,10 @@ export function ClassroomDialog({
           capacity: classroom.capacity,
           classroomType: classroom.classroomType,
           equipment: equipmentText(classroom.equipmentJson),
+          tags: (classroom.tags ?? []).join(', '),
           isActive: classroom.isActive,
         }
-      : { code: '', name: '', building: 'Главный корпус', capacity: 30, classroomType: 'GENERAL', equipment: '', isActive: true },
+      : { code: '', name: '', building: 'Главный корпус', capacity: 30, classroomType: 'GENERAL', equipment: '', tags: '', isActive: true },
   });
   const save = useApiMutation(
     (v: ClassroomForm) => {
@@ -216,6 +252,7 @@ export function ClassroomDialog({
         capacity: v.capacity,
         classroomType: v.classroomType,
         equipmentJson,
+        tags: splitTags(v.tags),
         isActive: v.isActive,
       };
       return classroom ? api.patch<Classroom>(`/classrooms/${classroom.id}`, body) : api.post<Classroom>('/classrooms', body);
@@ -269,6 +306,14 @@ export function ClassroomDialog({
           </div>
           <Field label="Оборудование" hint="Через запятую, например: компьютеры: 25, проектор" className="sm:col-span-2">
             <Textarea rows={2} {...form.register('equipment')} />
+          </Field>
+          <Field
+            label="Метки: что предпочтительно проводить"
+            hint="Через запятую: дисциплина, часть названия или код — «Иностранный язык», «право», «ОП.05». Пары этих дисциплин ставятся сюда в первую очередь (мягкое ограничение), «Сформировать по плану» подставляет аудиторию в нагрузку. Спортзал без меток — для физической культуры"
+            className="sm:col-span-2"
+          >
+            <Input placeholder="Например: Иностранный язык, английский" {...form.register('tags')} />
+            <TagPreview value={form.watch('tags')} />
           </Field>
           <label className="flex items-center justify-between gap-3 text-sm sm:col-span-2">
             Используется для занятий

@@ -61,7 +61,7 @@ export default function ClassroomDetailsPage() {
       </Button>
       <PageHeader
         title={`Аудитория ${c.code}`}
-        description={`${c.name} · ${CLASSROOM_TYPE_LABELS[c.classroomType]} · ${c.capacity} мест${c.building ? ` · ${c.building}` : ''}`}
+        description={`${c.name} · ${CLASSROOM_TYPE_LABELS[c.classroomType]} · ${c.capacity} мест${c.building ? ` · ${c.building}` : ''}${c.tags?.length ? ` · метки: ${c.tags.join(', ')}` : ''}`}
         actions={
           <>
             {!c.isActive && <Badge variant="muted">Не используется</Badge>}

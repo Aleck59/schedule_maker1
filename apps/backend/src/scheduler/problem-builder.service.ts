@@ -12,7 +12,7 @@ import {
 } from '../common/utils/dates';
 import { groupDailyLimit, groupLessonNumbers } from '../common/utils/groups';
 import { fullTimeLimitOnExtramural, weeklyLessonLimit } from '../common/utils/weekly-limits';
-import { rankRooms } from '../common/utils/rooms';
+import { rankRooms, roomsForDiscipline, roomTags } from '../common/utils/rooms';
 import { LESSON_TYPE_SHORT } from '../common/utils/labels';
 import { TeacherRules } from '../planning/availability-rules';
 import { streamKeyOf } from '../planning/planning.service';
@@ -293,6 +293,7 @@ export class ProblemBuilderService {
       type: r.classroomType,
       unavailable: r.availability.map((a) => [a.weekday, a.lessonNumber] as [number, number]),
       unlimited: r.classroomType === ClassroomType.ONLINE,
+      tagged: roomTags(r).length > 0,
     }));
     const teacherIds = Array.from(new Set(streams.map((s) => s.teacherId).filter((x): x is string => !!x)));
     const teachersDb = await this.prisma.teacher.findMany({
@@ -473,15 +474,32 @@ export class ProblemBuilderService {
       pending.push({ stream: s, lessonsRequired, partialHours, remainingHours, allowedDates, weeklyRate });
     }
 
-    const roomIdsFor = (types: ClassroomType[], size: number, preferred: string | null) => {
-      const ranked = rankRooms(roomsDb, types, size, preferred);
+    // Метки аудиторий: дисциплина → аудитории, где её предпочтительно проводить
+    const taggedByItem = new Map<string, string[]>();
+    const taggedRoomsOf = (s: DemandStream): string[] => {
+      const key = `${s.itemCode}|${s.itemName}`;
+      let ids = taggedByItem.get(key);
+      if (!ids) {
+        ids = roomsForDiscipline(roomsDb, s.itemName, s.itemCode).map((r) => r.id);
+        taggedByItem.set(key, ids);
+      }
+      return ids;
+    };
+    const roomIdsFor = (types: ClassroomType[], size: number, preferred: string | null, tagged: string[]) => {
+      const ranked = rankRooms(roomsDb, types, size, preferred, tagged.length ? new Set(tagged) : null);
       return { ids: ranked.rooms.map((r) => r.id), matching: ranked.matching };
     };
 
     const toDemand = (id: string, group: Pending[], lessons: number): SolverDemand | null => {
       const s = group[0].stream;
       const size = group.reduce((a, p) => a + p.stream.size, 0);
-      const { ids: roomIds, matching: matchingRooms } = roomIdsFor(s.roomTypes, size, s.preferredClassroomId);
+      const taggedRoomIds = taggedRoomsOf(s);
+      const { ids: roomIds, matching: matchingRooms } = roomIdsFor(
+        s.roomTypes,
+        size,
+        s.preferredClassroomId,
+        taggedRoomIds,
+      );
       const title = `${group.map((p) => p.stream.groupCode).join(', ')}${
         s.subgroupNumber ? ` (п/г ${s.subgroupNumber})` : ''
       } · ${s.itemCode} ${s.itemName} · ${LESSON_TYPE_SHORT[s.lessonType] ?? s.lessonType}`;
@@ -551,6 +569,7 @@ export class ProblemBuilderService {
         roomIds,
         matchingRooms,
         preferredRoomId: s.preferredClassroomId,
+        taggedRoomIds: taggedRoomIds.filter((id) => roomIds.includes(id)),
         allowedDates,
         isDifficult: s.isDifficult,
       };

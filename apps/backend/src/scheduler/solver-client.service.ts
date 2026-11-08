@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { loadConfig } from '../config/configuration';
 import { EngineService } from '../engine/engine.service';
 import { solveHeuristicInThread } from './heuristic-thread';
+import { rebalanceRooms } from './room-balance';
 import { describeQuality, qualityOf } from './quality';
 import { SolverProblem, SolverResult } from './solver.types';
 
@@ -47,11 +48,16 @@ export class SolverClientService {
       try {
         onProgress?.(0.05, 'Решение модели CP-SAT');
         const timeoutMs = Math.min(this.config.timeoutMs, (problem.timeLimitSeconds + 120) * 1000);
-        const exact = await this.engine.run<SolverResult>(['solve'], {
+        const raw = await this.engine.run<SolverResult>(['solve'], {
           input: JSON.stringify({ ...problem, hints: quick.placements }),
           timeoutMs,
           onProgress: (fraction, message) => onProgress?.(0.05 + fraction * 0.95, message),
         });
+        // Аудитории решения CP-SAT — с учётом меток и равномерной загрузки (время пар не меняется)
+        const exact: SolverResult = {
+          ...raw,
+          placements: rebalanceRooms(problem, raw.placements).placements,
+        };
         // Доработка решения CP-SAT: недопоставленные пары по оставшимся неделям и доводка окон
         onProgress?.(0.97, 'Доводка расписания: окна и недопоставленные пары');
         const polished = await solveHeuristicInThread(problem, { initial: exact.placements });

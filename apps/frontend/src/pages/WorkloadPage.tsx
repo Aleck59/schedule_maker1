@@ -110,10 +110,16 @@ function GroupAssignments() {
     groupId: group?.id,
     semesterId: semester?.id,
   });
-  const generate = useApiMutation(() => api.post<{ created: number }>('/assignments/generate', { studentGroupId: group!.id, semesterId: semester!.id }), {
-    success: (r) => (r.created ? `Создано назначений: ${r.created}. Укажите преподавателей` : 'Все дисциплины уже имеют назначения'),
-    invalidate: [['assignments']],
-  });
+  const generate = useApiMutation(
+    () => api.post<{ created: number; roomsAssigned?: number }>('/assignments/generate', { studentGroupId: group!.id, semesterId: semester!.id }),
+    {
+      success: (r) => {
+        const rooms = r.roomsAssigned ? ` Аудитории по меткам: ${r.roomsAssigned}.` : '';
+        return r.created ? `Создано назначений: ${r.created}. Укажите преподавателей.${rooms}` : `Все дисциплины уже имеют назначения.${rooms}`;
+      },
+      invalidate: [['assignments']],
+    },
+  );
   const remove = useApiMutation((id: string) => api.delete(`/assignments/${id}`), { success: 'Назначение удалено', invalidate: [['assignments']] });
   const setTeacher = useApiMutation((v: { id: string; teacherId: string | null }) => api.patch(`/assignments/${v.id}`, { teacherId: v.teacherId }), {
     success: 'Преподаватель назначен',

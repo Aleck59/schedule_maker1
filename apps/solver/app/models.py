@@ -76,6 +76,8 @@ class Room(CamelModel):
     type: str
     unavailable: list[tuple[int, int]] = Field(default_factory=list)
     unlimited: bool = False
+    # У аудитории есть метки (что в ней предпочтительно проводить)
+    tagged: bool = False
 
 
 class Demand(CamelModel):
@@ -95,6 +97,8 @@ class Demand(CamelModel):
     # Сколько первых room_ids подходят по типу; остальные — запасные кабинеты (со штрафом)
     matching_rooms: int | None = None
     preferred_room_id: str | None = None
+    # Аудитории, метки которых подходят к дисциплине (мягкое предпочтение)
+    tagged_room_ids: list[str] = Field(default_factory=list)
     # Если заданы — заменяют даты обычных занятий группы (практика, консультации)
     allowed_dates: list[str] | None = None
     is_difficult: bool = False

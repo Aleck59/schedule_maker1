@@ -247,7 +247,7 @@ export class ExportController {
     const { rows } = await this.hours.rows({
       organizationId: user.organizationId,
       programId: id,
-      semesterIds: semesterId ? [semesterId] : undefined,
+      semesterIds: await this.hours.resolveSemesterFilter(user.organizationId, semesterId),
     });
     const buffer = await this.excel.hourControl(`Выполнение часов: ${program.title}`, rows);
     sendFile(res, buffer, `Выполнение_часов_${program.title}.xlsx`, XLSX);
