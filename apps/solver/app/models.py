@@ -44,8 +44,6 @@ class Teacher(CamelModel):
     name: str
     max_daily_lessons: int = 4
     max_weekly_lessons: int = 18
-    preferred_start_lesson: int = 1
-    preferred_end_lesson: int = 6
     unavailable: list[tuple[int, int]] = Field(default_factory=list)
     preferences: list[tuple[int, int, int]] = Field(default_factory=list)
     blocked_dates: list[str] = Field(default_factory=list)
@@ -114,6 +112,8 @@ class Settings(CamelModel):
     max_same_discipline_per_day: int = 2
     max_same_discipline_per_week: int = 2
     late_lesson_number: int = 5
+    # Сложные дисциплины штрафуются начиная с этой пары
+    difficult_lesson_number: int = 4
     forbid_late_lessons: bool = False
     avoid_windows: bool = True
     respect_teacher_preferences: bool = True

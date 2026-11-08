@@ -24,6 +24,7 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 from typing import Any
 
+from . import academic
 from .ocr.normalize import CYCLE_NAMES, index_prefix, is_vo_index, main_control
 from .ocr.structure import (
     PROFESSIONAL_KINDS,
@@ -354,7 +355,9 @@ class PlanBuilder:
         last = max([*used, -(-int(months) // 6) if months else 0, 0])
         numbers = list(range(1, last + 1))
         if not title.get("admissionYear"):
-            title["admissionYear"] = self.calendar[0]["startYear"] if self.calendar else dt.date.today().year
+            title["admissionYear"] = (
+                self.calendar[0]["startYear"] if self.calendar else academic.academic_year_of(dt.date.today())
+            )
             self.warnings.append("В файле не указан год начала подготовки — проверьте год набора")
         semesters, periods = self._semesters(numbers, int(title["admissionYear"]))
         cycles = []
@@ -512,10 +515,7 @@ class PlanBuilder:
                 periods.extend(p for p in graph_periods(course, days) if p["type"] != "HOLIDAY")
             else:
                 year = admission + course - 1
-                ranges = [
-                    (dt.date(year, 9, 1), dt.date(year + 1, 1, 31)),
-                    (dt.date(year + 1, 2, 1), dt.date(year + 1, 6, 30)),
-                ]
+                ranges = academic.default_semesters(year)
                 days = []
                 missing.append(course)
             for k, (start, end) in enumerate(ranges):
@@ -720,14 +720,14 @@ def parse_plx(root: ET.Element, builder: PlanBuilder) -> None:
     per_course_sessions = int(num(get(plan, "ЧислоСессий"))) or int(num(root.get("СессийНаКурсе", "")))
 
     def session_semester(course: int, session: int) -> int | None:
-        """Семестр сессии: осенние (сентябрь–январь) — нечётный, весенние и летние — чётный.
+        """Семестр сессии: до начала II семестра (по настройкам, обычно сентябрь – начало января) — нечётный,
+        позже — чётный.
         Без даты: при трёх сессиях на курсе (установочная, зимняя, летняя) первые две — нечётный."""
         if course <= 0:
             return None
         dates = sessions.get((course, session))
         if dates:
-            month = dates[0].month
-            return 2 * course - 1 if month >= 9 or month == 1 else 2 * course
+            return 2 * course - 1 if academic.is_first_semester(dates[0]) else 2 * course
         if per_course_sessions >= 3:
             return 2 * course - 1 if session < per_course_sessions else 2 * course
         return semester_of(course, 0, session)

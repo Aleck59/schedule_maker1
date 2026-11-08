@@ -338,7 +338,7 @@ function AssignmentDialog({ groupId, item, assignment, onClose }: { groupId: str
   const [weekly, setWeekly] = useState(assignment?.weeklyLessonTarget ? String(assignment.weeklyLessonTarget) : '');
   const [roomId, setRoomId] = useState<string | null>(assignment?.preferredClassroomId ?? null);
   const [streamKey, setStreamKey] = useState(assignment?.streamKey ?? '');
-  const [priority, setPriority] = useState(String(assignment?.priority ?? 0));
+  const [priority, setPriority] = useState(String(assignment?.priority ?? 5));
   const [allowExcess, setAllowExcess] = useState(assignment?.allowHoursExcess ?? false);
 
   const body = {
@@ -350,7 +350,7 @@ function AssignmentDialog({ groupId, item, assignment, onClose }: { groupId: str
     weeklyLessonTarget: weekly ? Number(weekly) : null,
     preferredClassroomId: roomId,
     streamKey: streamKey || null,
-    priority: Number(priority) || 0,
+    priority: Number(priority) || 5,
     allowHoursExcess: allowExcess,
   };
   const save = useApiMutation(() => (assignment ? api.patch(`/assignments/${assignment.id}`, body) : api.post('/assignments', body)), {

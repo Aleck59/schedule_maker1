@@ -107,14 +107,17 @@ export interface LessonTime {
 }
 
 export interface Settings {
-  academicHoursPerLesson: number;
-  academicHourMinutes: number;
-  lessonDurationMinutes: number;
   lessonsPerDay: number;
   maxGroupLessonsPerDay: number;
   maxSameDisciplinePerDay: number;
   maxSameDisciplinePerWeek: number;
   lateLessonNumber: number;
+  difficultLessonNumber: number;
+  /** Начало учебного года и типовые границы семестров, «ММ-ДД» */
+  academicYearStart: string;
+  firstSemesterEnd: string;
+  secondSemesterStart: string;
+  secondSemesterEnd: string;
   workingDays: number[];
   maxGroupWindowsPerWeek: number;
   /** Максимум пар группы в неделю по формам обучения; null — без ограничения */

@@ -4,7 +4,7 @@ import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types/auth-user';
 import { computePlannedLessons } from '../common/utils/hours';
 import { PrismaService } from '../prisma/prisma.service';
-import { SettingsService } from '../settings/settings.service';
+import { ACADEMIC_HOURS_PER_LESSON, SettingsService } from '../settings/settings.service';
 import {
   CreateCurriculumItemDto,
   CreateCycleDto,
@@ -225,7 +225,7 @@ export class CurriculumService {
           created.id,
           dto.itemType,
           sem,
-          settings.academicHoursPerLesson,
+          ACADEMIC_HOURS_PER_LESSON,
         );
       }
       return created;
@@ -273,7 +273,7 @@ export class CurriculumService {
             id,
             dto.itemType ?? before.itemType,
             sem,
-            settings.academicHoursPerLesson,
+            ACADEMIC_HOURS_PER_LESSON,
           );
           keep.push(saved.semesterId);
         }
@@ -341,7 +341,7 @@ export class CurriculumService {
         item.id,
         item.itemType,
         dto,
-        settings.academicHoursPerLesson,
+        ACADEMIC_HOURS_PER_LESSON,
       ),
     );
     await this.audit.log(actor.id, 'UPSERT', 'SemesterCurriculumItem', saved.id, null, saved);
@@ -362,7 +362,7 @@ export class CurriculumService {
         before.curriculumItemId,
         before.curriculumItem.itemType,
         { ...dto, semesterId: before.semesterId },
-        settings.academicHoursPerLesson,
+        ACADEMIC_HOURS_PER_LESSON,
         before,
       ),
     );
@@ -393,7 +393,7 @@ export class CurriculumService {
     for (const item of items) {
       await this.prisma.semesterCurriculumItem.update({
         where: { id: item.id },
-        data: computePlannedLessons(item, settings.academicHoursPerLesson),
+        data: computePlannedLessons(item, ACADEMIC_HOURS_PER_LESSON),
       });
     }
     return { updated: items.length };

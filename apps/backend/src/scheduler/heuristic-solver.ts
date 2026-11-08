@@ -523,13 +523,12 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
       cost += weights.lateLessons * (lesson - settings.lateLessonNumber + 1);
     if (settings.respectTeacherPreferences) {
       const t = ds.teacher;
-      if (lesson < t.preferredStartLesson || lesson > t.preferredEndLesson) cost += weights.teacherPreference;
       const pref =
         (preferenceTeacher.get(t.id)?.get(`${day.weekday}#${lesson}`) ?? 0) +
         (slotPrefTeacher.get(t.id)?.get(`${day.key}#${lesson}`) ?? 0);
       cost -= pref * (weights.teacherPreference / 5);
     }
-    if (d.isDifficult && lesson >= Math.max(4, settings.lateLessonNumber - 1)) cost += weights.difficultLate;
+    if (d.isDifficult && lesson >= (settings.difficultLessonNumber ?? 4)) cost += weights.difficultLate;
     if (relaxed) cost += overflowCost(st, ds, day, lesson);
     for (const dk of d.disciplineKeys) {
       const wk = st.disciplineWeek.get(`${dk}#${day.week}`) ?? 0;
@@ -753,14 +752,12 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
       cost += weights.lateLessons * (lesson - settings.lateLessonNumber + 1);
     if (settings.respectTeacherPreferences) {
       const t = ds.teacher;
-      if (lesson < t.preferredStartLesson || lesson > t.preferredEndLesson) cost += weights.teacherPreference;
       const pref =
         (preferenceTeacher.get(t.id)?.get(`${day.weekday}#${lesson}`) ?? 0) +
         (slotPrefTeacher.get(t.id)?.get(`${day.key}#${lesson}`) ?? 0);
       cost -= pref * (weights.teacherPreference / 5);
     }
-    if (ds.d.isDifficult && lesson >= Math.max(4, settings.lateLessonNumber - 1))
-      cost += weights.difficultLate;
+    if (ds.d.isDifficult && lesson >= (settings.difficultLessonNumber ?? 4)) cost += weights.difficultLate;
     return cost;
   };
   /** Свободная аудитория для пары: та же, затем в том же корпусе, затем любая подходящая */

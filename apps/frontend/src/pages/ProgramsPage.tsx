@@ -21,7 +21,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { usePrograms } from "@/hooks/use-reference";
+import { usePrograms, useSettings } from "@/hooks/use-reference";
+import { academicYearOf, monthDayShort } from "@/lib/academic-year";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { pluralize } from "@/lib/format";
@@ -287,12 +288,14 @@ function CreateProgramDialog({
     ["specialties"],
     open ? "/specialties" : null,
   );
+  const settings = useSettings();
+  const yearDates = settings.data?.settings;
   const form = useForm<ProgramForm>({
     resolver: zodResolver(programSchema),
     defaultValues: {
       specialtyId: "",
       title: "",
-      admissionYear: new Date().getFullYear(),
+      admissionYear: academicYearOf(),
       studyForm: "FULL_TIME",
       educationBase: null,
       durationMonths: 46,
@@ -432,8 +435,16 @@ function CreateProgramDialog({
             name="generateStructure"
             render={({ field }) => (
               <label className="flex items-center justify-between gap-3 text-sm sm:col-span-2">
-                Создать учебные годы и семестры автоматически (сентябрь–декабрь,
-                январь–июнь)
+                <span>
+                  Создать учебные годы и семестры автоматически
+                  {yearDates && (
+                    <span className="text-muted-foreground block text-xs">
+                      {monthDayShort(yearDates.academicYearStart)}–{monthDayShort(yearDates.firstSemesterEnd)} и{" "}
+                      {monthDayShort(yearDates.secondSemesterStart)}–{monthDayShort(yearDates.secondSemesterEnd)}, начало — на
+                      ближайший учебный день (меняется в настройках)
+                    </span>
+                  )}
+                </span>
                 <Switch
                   checked={field.value}
                   onCheckedChange={field.onChange}

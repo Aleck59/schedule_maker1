@@ -35,8 +35,6 @@ export interface SolverTeacher {
   name: string;
   maxDailyLessons: number;
   maxWeeklyLessons: number;
-  preferredStartLesson: number;
-  preferredEndLesson: number;
   /** [день недели, номер пары] — недоступные слоты */
   unavailable: Array<[number, number]>;
   /** [день недели, номер пары, вес] — предпочтения (< 0 нежелательно) */
@@ -111,6 +109,8 @@ export interface SolverSettings {
   maxSameDisciplinePerDay: number;
   maxSameDisciplinePerWeek: number;
   lateLessonNumber: number;
+  /** Сложные дисциплины штрафуются начиная с этой пары; нет — с 4-й */
+  difficultLessonNumber?: number;
   /** Запретить пары начиная с lateLessonNumber (жёстко) */
   forbidLateLessons: boolean;
   avoidWindows: boolean;

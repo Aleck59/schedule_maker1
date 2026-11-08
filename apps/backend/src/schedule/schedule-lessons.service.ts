@@ -28,7 +28,7 @@ import {
 import { CANCELLATION_REASON_LABELS, LESSON_TYPE_LABELS } from '../common/utils/labels';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { SettingsService } from '../settings/settings.service';
+import { ACADEMIC_HOURS_PER_LESSON, SettingsService } from '../settings/settings.service';
 import {
   LessonCandidate,
   LessonCheckerService,
@@ -416,7 +416,7 @@ export class ScheduleLessonsService {
       });
       if (!makeupTask) throw new BadRequestException('Задача отработки не найдена');
     }
-    const academicHours = dto.academicHours ?? makeupTask?.academicHours ?? settings.academicHoursPerLesson;
+    const academicHours = dto.academicHours ?? makeupTask?.academicHours ?? ACADEMIC_HOURS_PER_LESSON;
     const issues = await this.ensureNoConflicts(
       {
         organizationId: actor.organizationId,

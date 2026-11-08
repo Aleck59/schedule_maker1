@@ -118,7 +118,7 @@ export class AvailabilityRulesService {
       weight: dto.weight ?? 5,
       note: dto.note ?? null,
     };
-    const rules = new TeacherRules([rule], settings.lessonTimes);
+    const rules = new TeacherRules([rule], settings.lessonTimes, settings.academicYearStart);
     const start = from ?? toDateStr(new Date());
     const dates: Array<{ date: string; lessons: number[] }> = [];
     for (let i = 0; i < 400 && dates.length < 12; i++) {

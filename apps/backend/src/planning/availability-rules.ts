@@ -1,4 +1,5 @@
 import { AvailabilityRuleKind, WeekParity } from '@prisma/client';
+import { academicYearOf, DEFAULT_ACADEMIC_CALENDAR } from '../common/utils/academic-year';
 import { isoWeekday, parseDate, toDateStr } from '../common/utils/dates';
 
 /**
@@ -57,12 +58,17 @@ function minutes(time: string): number {
   return h * 60 + (m || 0);
 }
 
-/** Номер недели учебного года: неделя 1 содержит 1 сентября (недели с понедельника) */
-export function academicWeekNumber(date: string): number {
+/**
+ * Номер недели учебного года: неделя 1 содержит начало учебного года (по умолчанию 1 сентября,
+ * задаётся в настройках), недели с понедельника
+ */
+export function academicWeekNumber(
+  date: string,
+  yearStart = DEFAULT_ACADEMIC_CALENDAR.academicYearStart,
+): number {
   const d = parseDate(date);
-  const year = d.getUTCMonth() >= 8 ? d.getUTCFullYear() : d.getUTCFullYear() - 1;
-  const sep1 = parseDate(`${year}-09-01`);
-  const firstMonday = sep1.getTime() - (isoWeekday(sep1) - 1) * 86_400_000;
+  const first = parseDate(`${academicYearOf(date, yearStart)}-${yearStart}`);
+  const firstMonday = first.getTime() - (isoWeekday(first) - 1) * 86_400_000;
   return Math.floor((d.getTime() - firstMonday) / (7 * 86_400_000)) + 1;
 }
 
@@ -74,12 +80,12 @@ export function weekdayOccurrence(date: string): { index: number; last: boolean 
   return { index: Math.ceil(day / 7), last: day + 7 > daysInMonth };
 }
 
-export function ruleMatchesDate(rule: AvailabilityRuleLike, date: string): boolean {
+export function ruleMatchesDate(rule: AvailabilityRuleLike, date: string, yearStart?: string): boolean {
   if (rule.validFrom && date < toDateStr(rule.validFrom)) return false;
   if (rule.validTo && date > toDateStr(rule.validTo)) return false;
   if (rule.weekdays.length && !rule.weekdays.includes(isoWeekday(date))) return false;
   if (rule.parity !== WeekParity.ANY) {
-    const odd = academicWeekNumber(date) % 2 === 1;
+    const odd = academicWeekNumber(date, yearStart) % 2 === 1;
     if ((rule.parity === WeekParity.ODD) !== odd) return false;
   }
   if (rule.monthWeeks.length) {
@@ -119,6 +125,8 @@ export class TeacherRules {
   constructor(
     readonly rules: AvailabilityRuleLike[],
     lessonTimes: LessonTimeLike[],
+    /** Начало учебного года «ММ-ДД» — для чётности недель */
+    private readonly yearStart?: string,
   ) {
     this.times = new Map(lessonTimes.map((t) => [t.lessonNumber, t]));
   }
@@ -145,11 +153,12 @@ export class TeacherRules {
           (!rule.validTo || date <= toDateStr(rule.validTo));
         if (!inPeriod) continue;
         onlyRules++;
-        if (ruleMatchesDate(rule, date) && ruleMatchesLesson(rule, lessonNumber, this.times))
+        if (ruleMatchesDate(rule, date, this.yearStart) && ruleMatchesLesson(rule, lessonNumber, this.times))
           onlyMatched = true;
         continue;
       }
-      if (!ruleMatchesDate(rule, date) || !ruleMatchesLesson(rule, lessonNumber, this.times)) continue;
+      if (!ruleMatchesDate(rule, date, this.yearStart) || !ruleMatchesLesson(rule, lessonNumber, this.times))
+        continue;
       switch (rule.kind) {
         case AvailabilityRuleKind.UNAVAILABLE:
           verdict.blocked = true;

@@ -57,7 +57,7 @@ erDiagram
 | Модель | Назначение | Ключевые поля |
 | --- | --- | --- |
 | `Organization` | Образовательная организация (колледж, вуз, филиал — СПО и ВО вместе) | `name`, `shortName`, `timezone` |
-| `OrganizationSettings` | Правила расписания | `academicHoursPerLesson` (2), `lessonsPerDay`, `maxGroupLessonsPerDay`, `maxSameDisciplinePerDay/Week`, `lateLessonNumber`, `workingDays`, лимиты окон и экзаменов, `scheduleConsultations`, `solverTimeLimitSeconds`, `solverWeightsJson` |
+| `OrganizationSettings` | Правила расписания | `lessonsPerDay`, `maxGroupLessonsPerDay`, `maxSameDisciplinePerDay/Week`, `lateLessonNumber`, `workingDays`, лимиты окон и экзаменов, `scheduleConsultations`, `solverTimeLimitSeconds`, `solverWeightsJson` |
 | `LessonTime` | Расписание звонков | `lessonNumber`, `startTime`, `endTime` |
 | `User` | Учётная запись | `email`, `passwordHash`, `role`, `teacherId` (для преподавателя), `studentGroupId` (для студента), `refreshTokenHash` |
 | `AuditLog` | Журнал изменений | `action`, `entityType`, `entityId`, `oldDataJson`, `newDataJson` |

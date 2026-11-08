@@ -141,7 +141,11 @@ export class SlotFinderService {
         groupDayCount.set(d, (groupDayCount.get(d) ?? 0) + 1);
       }
     }
-    const rules = new TeacherRules(teacher?.availabilityRules ?? [], settings.lessonTimes);
+    const rules = new TeacherRules(
+      teacher?.availabilityRules ?? [],
+      settings.lessonTimes,
+      settings.academicYearStart,
+    );
     const onlineRoom = rooms.find((r) => r.classroomType === ClassroomType.ONLINE);
     const teacherUnavailable = new Set(
       (teacher?.availability ?? [])
