@@ -10,7 +10,7 @@ import { ACTIVE_STATUSES, computeStreamHours, matchLessonsToStreams } from '../p
 import { PlanningService, streamKeyOf } from '../planning/planning.service';
 import { employmentRestriction, levelRestriction } from '../common/utils/teacher-levels';
 import { PrismaService } from '../prisma/prisma.service';
-import { SettingsService } from '../settings/settings.service';
+import { ACADEMIC_HOURS_PER_LESSON, SettingsService } from '../settings/settings.service';
 import { ValidationIssue } from './validation.types';
 
 export interface LessonCandidate {
@@ -282,10 +282,11 @@ export class LessonCheckerService {
           ),
         );
       }
-      verdict = new TeacherRules(teacher.availabilityRules, settings.lessonTimes).evaluate(
-        date,
-        c.lessonNumber,
-      );
+      verdict = new TeacherRules(
+        teacher.availabilityRules,
+        settings.lessonTimes,
+        settings.academicYearStart,
+      ).evaluate(date, c.lessonNumber);
       if (verdict.blocked && verdict.blockedBy) {
         issues.push(
           issue(
@@ -455,7 +456,7 @@ export class LessonCheckerService {
       );
     }
 
-    if (c.academicHours < settings.academicHoursPerLesson && settings.warnOnPartialLessons) {
+    if (c.academicHours < ACADEMIC_HOURS_PER_LESSON && settings.warnOnPartialLessons) {
       issues.push(issue(Severity.WARNING, 'PARTIAL_LESSON', `Неполная пара: ${c.academicHours} ак. ч.`));
     }
 

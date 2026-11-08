@@ -2,8 +2,11 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma, ProgramStatus } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types/auth-user';
-import { diffDays, parseDate, toDateStr } from '../common/utils/dates';
+import { academicYearRange, semesterTemplates } from '../common/utils/academic-year';
+import { diffDays, isoWeekday, parseDate, toDateStr } from '../common/utils/dates';
+import { HolidaysService } from '../holidays/holidays.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { SettingsService } from '../settings/settings.service';
 import {
   CreateAcademicYearDto,
   CreateProgramDto,
@@ -18,6 +21,8 @@ export class ProgramsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly settings: SettingsService,
+    private readonly holidays: HolidaysService,
   ) {}
 
   async list(actor: AuthUser, status?: ProgramStatus) {
@@ -69,6 +74,10 @@ export class ProgramsService {
   async create(dto: CreateProgramDto, actor: AuthUser) {
     const specialty = await this.prisma.specialty.findUnique({ where: { id: dto.specialtyId } });
     if (!specialty) throw new BadRequestException('Специальность не найдена');
+    const structure =
+      dto.generateStructure !== false
+        ? await this.structureTemplate(actor.organizationId, dto.admissionYear, dto.totalSemesters)
+        : [];
     const program = await this.prisma.$transaction(async (tx) => {
       const created = await tx.educationalProgram.create({
         data: {
@@ -84,7 +93,7 @@ export class ProgramsService {
         },
       });
       if (dto.generateStructure !== false) {
-        await this.generateStructure(tx, created.id, dto.admissionYear, dto.totalSemesters);
+        await this.generateStructure(tx, created.id, structure);
       }
       return created;
     });
@@ -92,54 +101,58 @@ export class ProgramsService {
     return this.get(program.id, actor);
   }
 
-  /** Типовая структура: учебный год 1 сентября – 31 августа, 2 семестра в году */
+  /**
+   * Типовая структура по настройкам учебного года организации: 2 семестра в году,
+   * начало семестра переносится на ближайший учебный день (выходные и праздники)
+   */
+  private async structureTemplate(organizationId: string, admissionYear: number, totalSemesters: number) {
+    const settings = await this.settings.getEffective(organizationId);
+    const years = Math.ceil(totalSemesters / 2);
+    const daysOff = new Set<string>();
+    for (let y = admissionYear; y <= admissionYear + years; y++) {
+      for (const d of (await this.holidays.compute(organizationId, y)).daysOff) daysOff.add(d);
+    }
+    const isDayOff = (d: string) => !settings.workingDays.includes(isoWeekday(d)) || daysOff.has(d);
+    return Array.from({ length: years }, (_, i) => {
+      const y = admissionYear + i;
+      return {
+        course: i + 1,
+        title: `${y}–${y + 1}`,
+        year: academicYearRange(y, settings.academicYearStart),
+        semesters: semesterTemplates(y, settings, isDayOff)
+          .map((t, k) => ({ ...t, number: i * 2 + k + 1 }))
+          .filter((t) => t.number <= totalSemesters),
+      };
+    });
+  }
+
   private async generateStructure(
     tx: Prisma.TransactionClient,
     programId: string,
-    admissionYear: number,
-    totalSemesters: number,
+    structure: Awaited<ReturnType<ProgramsService['structureTemplate']>>,
   ) {
-    const years = Math.ceil(totalSemesters / 2);
-    for (let i = 0; i < years; i++) {
-      const y = admissionYear + i;
+    for (const item of structure) {
       const year = await tx.academicYear.create({
         data: {
           educationalProgramId: programId,
-          title: `${y}–${y + 1}`,
-          courseNumber: i + 1,
-          startDate: parseDate(`${y}-09-01`),
-          endDate: parseDate(`${y + 1}-08-31`),
+          title: item.title,
+          courseNumber: item.course,
+          startDate: parseDate(item.year.start),
+          endDate: parseDate(item.year.end),
         },
       });
-      const autumn = i * 2 + 1;
-      const spring = i * 2 + 2;
-      if (autumn <= totalSemesters) {
+      for (const sem of item.semesters) {
         await tx.semester.create({
           data: {
             educationalProgramId: programId,
             academicYearId: year.id,
-            number: autumn,
-            courseNumber: i + 1,
-            startDate: parseDate(`${y}-09-01`),
-            endDate: parseDate(`${y}-12-31`),
-            theoreticalWeeks: 16,
-            examWeeks: 1,
-            vacationWeeks: 2,
-          },
-        });
-      }
-      if (spring <= totalSemesters) {
-        await tx.semester.create({
-          data: {
-            educationalProgramId: programId,
-            academicYearId: year.id,
-            number: spring,
-            courseNumber: i + 1,
-            startDate: parseDate(`${y + 1}-01-12`),
-            endDate: parseDate(`${y + 1}-06-30`),
-            theoreticalWeeks: 21,
-            examWeeks: 2,
-            vacationWeeks: 9,
+            number: sem.number,
+            courseNumber: item.course,
+            startDate: parseDate(sem.start),
+            endDate: parseDate(sem.end),
+            theoreticalWeeks: sem.theoreticalWeeks,
+            examWeeks: sem.examWeeks,
+            vacationWeeks: sem.vacationWeeks,
           },
         });
       }

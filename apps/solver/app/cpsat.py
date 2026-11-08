@@ -347,12 +347,10 @@ class CpSatScheduler:
             cost += w["lateLessons"] * (lesson - s.late_lesson_number + 1)
         if s.respect_teacher_preferences:
             t = ds.teacher
-            if lesson < t.preferred_start_lesson or lesson > t.preferred_end_lesson:
-                cost += w["teacherPreference"]
             pref = self.teacher_pref.get(t.id, {}).get((day.weekday, lesson), 0)
             pref += self.teacher_slot_pref.get(t.id, {}).get((day.key, lesson), 0)
             cost -= pref * (w["teacherPreference"] / 5)
-        if ds.d.is_difficult and lesson >= max(4, s.late_lesson_number - 1):
+        if ds.d.is_difficult and lesson >= s.difficult_lesson_number:
             cost += w["difficultLate"]
         if self.relaxed and s.forbid_late_lessons and lesson >= s.late_lesson_number:
             cost += w["maxPlacementOverflow"]

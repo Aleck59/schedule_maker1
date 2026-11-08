@@ -20,7 +20,7 @@ import { PlanningService } from '../planning/planning.service';
 import { DemandStream } from '../planning/planning.types';
 import { employmentText, isEmployedOn, levelRestriction } from '../common/utils/teacher-levels';
 import { PrismaService } from '../prisma/prisma.service';
-import { EffectiveSettings, SettingsService } from '../settings/settings.service';
+import { ACADEMIC_HOURS_PER_LESSON, EffectiveSettings, SettingsService } from '../settings/settings.service';
 import { DemandMeta, GenerationParams } from './generation.types';
 import { SUGGESTIONS } from './diagnostics';
 import {
@@ -122,7 +122,7 @@ export class ProblemBuilderService {
       throw new NotFoundException('Период расписания не найден');
     const joint = periodsDb.length > 1;
     const settings = await this.settingsService.getEffective(organizationId);
-    const h = settings.academicHoursPerLesson;
+    const h = ACADEMIC_HOURS_PER_LESSON;
     const warnings: string[] = [];
 
     // Интервал генерации каждого периода: пересечение дат периода, семестра и параметров
@@ -632,8 +632,6 @@ export class ProblemBuilderService {
               name: t.fullName,
               maxDailyLessons: lessonsPerDay,
               maxWeeklyLessons: lessonsPerDay * 7,
-              preferredStartLesson: 1,
-              preferredEndLesson: lessonsPerDay,
               unavailable: [],
               preferences: [],
               blockedDates: [],
@@ -643,8 +641,6 @@ export class ProblemBuilderService {
               name: t.fullName,
               maxDailyLessons: t.maxDailyLessons,
               maxWeeklyLessons: t.maxWeeklyLessons,
-              preferredStartLesson: t.preferredStartLesson,
-              preferredEndLesson: t.preferredEndLesson,
               unavailable: t.availability
                 .filter((a) => !a.isAvailable)
                 .map((a) => [a.weekday, a.lessonNumber] as [number, number]),
@@ -655,7 +651,7 @@ export class ProblemBuilderService {
                 .filter((d) => !isEmployedOn(t, d.date) || ctx.teacherBlocks(t.id, d.date).length > 0)
                 .map((d) => d.date),
               ...this.ruleSlots(
-                new TeacherRules(t.availabilityRules, settings.lessonTimes),
+                new TeacherRules(t.availabilityRules, settings.lessonTimes, settings.academicYearStart),
                 days,
                 lessonsPerDay,
               ),
@@ -737,6 +733,7 @@ export class ProblemBuilderService {
         maxSameDisciplinePerDay: params.maxSameDisciplinePerDay ?? settings.maxSameDisciplinePerDay,
         maxSameDisciplinePerWeek: params.maxSameDisciplinePerWeek ?? settings.maxSameDisciplinePerWeek,
         lateLessonNumber: settings.lateLessonNumber,
+        difficultLessonNumber: settings.difficultLessonNumber,
         forbidLateLessons: params.allowLateLessons === false,
         avoidWindows: params.avoidWindows !== false,
         respectTeacherPreferences: params.respectTeacherPreferences !== false,

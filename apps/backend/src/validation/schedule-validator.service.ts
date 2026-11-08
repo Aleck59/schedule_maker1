@@ -22,7 +22,7 @@ import {
 import { PlanningService } from '../planning/planning.service';
 import { employmentRestriction, levelRestriction } from '../common/utils/teacher-levels';
 import { PrismaService } from '../prisma/prisma.service';
-import { SettingsService } from '../settings/settings.service';
+import { ACADEMIC_HOURS_PER_LESSON, SettingsService } from '../settings/settings.service';
 import { STUDY_FORM_LABELS } from '../common/utils/labels';
 import { weeklyLessonLimit } from '../common/utils/weekly-limits';
 import { BLOCKING_TYPES, ValidationIssue, ValidationSummary } from './validation.types';
@@ -92,7 +92,7 @@ export class ScheduleValidatorService {
     const rulesOf = (t: { id: string; availabilityRules: ConstructorParameters<typeof TeacherRules>[0] }) => {
       let rules = teacherRules.get(t.id);
       if (!rules) {
-        rules = new TeacherRules(t.availabilityRules, settings.lessonTimes);
+        rules = new TeacherRules(t.availabilityRules, settings.lessonTimes, settings.academicYearStart);
         teacherRules.set(t.id, rules);
       }
       return rules;
@@ -284,7 +284,7 @@ export class ScheduleValidatorService {
           });
         }
       }
-      if (l.academicHours < settings.academicHoursPerLesson) {
+      if (l.academicHours < ACADEMIC_HOURS_PER_LESSON) {
         add({
           ...base,
           severity: settings.warnOnPartialLessons ? Severity.WARNING : Severity.INFO,
@@ -704,7 +704,7 @@ export class ScheduleValidatorService {
           ctx.groups.has(s.groupId) ? ctx.isRegularAllowed(s.groupId, d) : true,
         );
         const weeksLeft = new Set(days.map((d) => weekStart(d))).size;
-        const lessonsLeft = Math.ceil(h.remaining / settings.academicHoursPerLesson);
+        const lessonsLeft = Math.ceil(h.remaining / ACADEMIC_HOURS_PER_LESSON);
         if (weeksLeft === 0 || lessonsLeft / weeksLeft > settings.maxSameDisciplinePerWeek * 1.5) {
           add({
             ...base,

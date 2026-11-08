@@ -12,6 +12,7 @@ from typing import Any
 
 import numpy as np
 
+from .. import academic
 from .calendar import CalendarTable, _monday_of_first_week, _week_row, cluster_rows, parse_calendar_page
 from .checks import Num, build_equations, make_num, resolve
 from .image import count_pages, is_blank, iter_pages, prepare
@@ -201,9 +202,7 @@ class Recognizer:
         """Заочная форма: занятия — только в даты сессий, остальное время — межсессионный период «С»
         (практики, каникулы и праздники из графика сохраняются)."""
         by_course = {c["course"]: c for c in result}
-        first_year = admission or (
-            self.sessions[0].start.year - (1 if self.sessions[0].start.month < 9 else 0)
-        )
+        first_year = admission or academic.academic_year_of(self.sessions[0].start)
         for course in sorted({s.course for s in self.sessions}):
             table = by_course.get(course)
             if table is None:
@@ -375,7 +374,7 @@ class Recognizer:
         periods: list[dict[str, Any]] = []
         by_course = {c["course"]: c for c in calendar}
         admission = self.title.get("admissionYear") or (
-            calendar[0]["startYear"] if calendar else dt.date.today().year
+            calendar[0]["startYear"] if calendar else academic.academic_year_of(dt.date.today())
         )
         for course in sorted({(n + 1) // 2 for n in numbers}):
             table = by_course.get(course)
@@ -386,10 +385,7 @@ class Recognizer:
                 periods.extend(self._periods(course, days))
             else:
                 year = admission + course - 1
-                ranges = [
-                    (dt.date(year, 9, 1), dt.date(year + 1, 1, 31)),
-                    (dt.date(year + 1, 2, 1), dt.date(year + 1, 6, 30)),
-                ]
+                ranges = academic.default_semesters(year)
                 days = []
             for k, (start, end) in enumerate(ranges):
                 number = 2 * course - 1 + k

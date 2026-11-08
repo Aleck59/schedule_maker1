@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { GenerationJobStatus, Prisma } from '@prisma/client';
 import { isoWeekday } from '../common/utils/dates';
 import { PrismaService } from '../prisma/prisma.service';
-import { SettingsService } from '../settings/settings.service';
+import { ACADEMIC_HOURS_PER_LESSON, SettingsService } from '../settings/settings.service';
 import { diagnoseDemand, suggestionsFor } from './diagnostics';
 import { GenerationParams, GenerationResultJson, PreviewLesson } from './generation.types';
 import { BuiltProblem, ProblemBuilderService } from './problem-builder.service';
@@ -95,7 +95,7 @@ export class GenerationRunnerService {
     params: GenerationParams,
   ): Promise<GenerationResultJson> {
     const settings = built.settings;
-    const h = settings.academicHoursPerLesson;
+    const h = ACADEMIC_HOURS_PER_LESSON;
     const rooms = new Map(built.problem.rooms.map((r) => [r.id, r]));
     const demandById = new Map(built.problem.demands.map((d) => [d.id, d]));
 

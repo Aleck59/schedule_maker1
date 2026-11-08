@@ -10,7 +10,7 @@ import { toDateStr } from '../common/utils/dates';
 import { hoursForType, hoursToLessons } from '../common/utils/hours';
 import { effectiveRoomTypes } from '../common/utils/rooms';
 import { PrismaService } from '../prisma/prisma.service';
-import { SettingsService } from '../settings/settings.service';
+import { ACADEMIC_HOURS_PER_LESSON, SettingsService } from '../settings/settings.service';
 import { CalendarContext, ContextGroup, normalizeEvent } from './calendar-context';
 import { DemandStream, StreamFilter } from './planning.types';
 
@@ -201,7 +201,7 @@ export class PlanningService {
                 : Math.ceil(group.studentCount / Math.max(1, group.subgroupCount))
               : group.studentCount;
             const planned = a?.plannedHours ?? hours;
-            const split = hoursToLessons(planned, settings.academicHoursPerLesson);
+            const split = hoursToLessons(planned, ACADEMIC_HOURS_PER_LESSON);
             const stream: DemandStream = {
               key: streamKeyOf(group.id, item.id, type, subgroup),
               groupId: group.id,

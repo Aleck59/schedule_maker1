@@ -17,6 +17,8 @@ export interface EngineRunOptions {
   timeoutMs: number;
   /** Ход выполнения из строк «PROGRESS {...}» в stderr */
   onProgress?: (fraction: number, message: string) => void;
+  /** Дополнительные переменные окружения процесса */
+  env?: Record<string, string>;
 }
 
 /**
@@ -50,7 +52,7 @@ export class EngineService {
       try {
         child = spawn(python, ['-m', 'app', ...args], {
           cwd: dir,
-          env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONDONTWRITEBYTECODE: '1' },
+          env: { ...process.env, ...options.env, PYTHONUNBUFFERED: '1', PYTHONDONTWRITEBYTECODE: '1' },
           stdio: ['pipe', 'pipe', 'pipe'],
         });
       } catch (e) {

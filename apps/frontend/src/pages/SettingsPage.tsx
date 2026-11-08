@@ -21,14 +21,16 @@ import { formatDateTime } from '@/lib/format';
 import { WEEKDAYS } from '@/lib/labels';
 import { useApi, useApiMutation } from '@/lib/query';
 import { AppLogo, DEFAULT_APP_NAME } from '@/lib/branding';
+import { monthDayShort, parseMonthDay } from '@/lib/academic-year';
 import type { LessonTime, Settings, SettingsResponse } from '@/lib/types';
 
 const NUMERIC: Array<[keyof Settings, string, string?]> = [
-  ['academicHourMinutes', 'Длительность академического часа, мин'],
   ['lessonsPerDay', 'Пар в день (сетка звонков)'],
+  ['maxGroupLessonsPerDay', 'Макс. пар у группы в день', 'Для групп без своих пар «с–по»; на «Составлении» можно изменить разово'],
   ['maxSameDisciplinePerDay', 'Макс. пар одной дисциплины в день'],
   ['maxSameDisciplinePerWeek', 'Макс. пар одной дисциплины в неделю'],
   ['lateLessonNumber', 'Поздняя пара начинается с №', 'Пары с этим номером и позже считаются поздними'],
+  ['difficultLessonNumber', 'Сложные дисциплины нежелательны с пары №', 'Начиная с этой пары сложные дисциплины ставятся только при необходимости'],
   ['maxGroupWindowsPerWeek', 'Допустимо окон у группы в неделю'],
   ['maxTeacherWindowsPerWeek', 'Допустимо окон у преподавателя в неделю'],
   ['maxExamsPerWeek', 'Макс. экзаменов у группы в неделю'],
@@ -196,6 +198,7 @@ function RulesForm({ settings, editable }: { settings: Settings; editable: boole
         </CardContent>
       </Card>
       <div className="space-y-4">
+        <AcademicYearCard draft={draft} setDraft={setDraft} editable={editable} />
         <WeeklyLimitsCard draft={draft} setDraft={setDraft} editable={editable} />
         <Card>
           <CardHeader>
@@ -226,6 +229,64 @@ function RulesForm({ settings, editable }: { settings: Settings; editable: boole
         </div>
       )}
     </div>
+  );
+}
+
+const YEAR_DATES: Array<[keyof Settings, string, string]> = [
+  ['academicYearStart', 'Начало учебного года', 'От этой даты считаются учебный год и недели (числитель/знаменатель)'],
+  ['firstSemesterEnd', 'Конец I семестра', 'Для новых планов, созданных вручную'],
+  ['secondSemesterStart', 'Начало II семестра', 'Переносится на ближайший учебный день'],
+  ['secondSemesterEnd', 'Конец II семестра', 'Для новых планов, созданных вручную'],
+];
+
+function AcademicYearCard({
+  draft,
+  setDraft,
+  editable,
+}: {
+  draft: Settings;
+  setDraft: (s: Settings) => void;
+  editable: boolean;
+}) {
+  const [text, setText] = useState<Record<string, string>>({});
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Учебный год</CardTitle>
+        <CardDescription>
+          Даты в виде ДД.ММ. Типовые семестры используются при создании плана вручную и при импорте без своих дат; уже созданные
+          планы не меняются.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {YEAR_DATES.map(([k, label, hint]) => {
+            const value = text[k] ?? monthDayShort(draft[k] as string);
+            const parsed = parseMonthDay(value);
+            return (
+              <Field key={k} label={label} hint={parsed === '02-29' ? '29 февраля выбрать нельзя' : parsed ? hint : 'Введите дату в виде ДД.ММ'}>
+                <Input
+                  value={value}
+                  placeholder="ДД.ММ"
+                  inputMode="numeric"
+                  disabled={!editable}
+                  aria-invalid={!parsed || parsed === '02-29'}
+                  onChange={(e) => {
+                    setText({ ...text, [k]: e.target.value });
+                    const v = parseMonthDay(e.target.value);
+                    if (v && v !== '02-29') setDraft({ ...draft, [k]: v });
+                  }}
+                  onBlur={() => {
+                    const { [k]: _, ...rest } = text;
+                    setText(rest);
+                  }}
+                />
+              </Field>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

@@ -17,27 +17,6 @@ import {
 } from 'class-validator';
 
 export class UpdateSettingsDto {
-  @ApiPropertyOptional({ example: 2, description: 'Академических часов в паре' })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(4)
-  academicHoursPerLesson?: number;
-
-  @ApiPropertyOptional({ example: 45 })
-  @IsOptional()
-  @IsInt()
-  @Min(20)
-  @Max(90)
-  academicHourMinutes?: number;
-
-  @ApiPropertyOptional({ example: 90 })
-  @IsOptional()
-  @IsInt()
-  @Min(20)
-  @Max(240)
-  lessonDurationMinutes?: number;
-
   @ApiPropertyOptional({ example: 6, description: 'Количество пар в день' })
   @IsOptional()
   @IsInt()
@@ -73,6 +52,16 @@ export class UpdateSettingsDto {
   @Max(11)
   lateLessonNumber?: number;
 
+  @ApiPropertyOptional({
+    example: 4,
+    description: 'Сложные дисциплины не ставить начиная с этой пары (мягко)',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(11)
+  difficultLessonNumber?: number;
+
   @ApiPropertyOptional({ example: [1, 2, 3, 4, 5, 6], type: [Number] })
   @IsOptional()
   @IsArray()
@@ -81,6 +70,32 @@ export class UpdateSettingsDto {
   @Min(1, { each: true })
   @Max(7, { each: true })
   workingDays?: number[];
+
+  @ApiPropertyOptional({ example: '09-01', description: 'Начало учебного года, «ММ-ДД»' })
+  @IsOptional()
+  @Matches(/^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/, {
+    message: 'Начало учебного года: дата в виде «ММ-ДД»',
+  })
+  academicYearStart?: string;
+
+  @ApiPropertyOptional({ example: '12-31', description: 'Конец I семестра, «ММ-ДД»' })
+  @IsOptional()
+  @Matches(/^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/, { message: 'Конец I семестра: дата в виде «ММ-ДД»' })
+  firstSemesterEnd?: string;
+
+  @ApiPropertyOptional({ example: '01-12', description: 'Начало II семестра, «ММ-ДД»' })
+  @IsOptional()
+  @Matches(/^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/, {
+    message: 'Начало II семестра: дата в виде «ММ-ДД»',
+  })
+  secondSemesterStart?: string;
+
+  @ApiPropertyOptional({ example: '06-30', description: 'Конец II семестра, «ММ-ДД»' })
+  @IsOptional()
+  @Matches(/^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$/, {
+    message: 'Конец II семестра: дата в виде «ММ-ДД»',
+  })
+  secondSemesterEnd?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

@@ -5,7 +5,7 @@ import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types/auth-user';
 import { computePlannedLessons } from '../common/utils/hours';
 import { PrismaService } from '../prisma/prisma.service';
-import { SettingsService } from '../settings/settings.service';
+import { ACADEMIC_HOURS_PER_LESSON, SettingsService } from '../settings/settings.service';
 import { ProgramsService } from './programs.service';
 
 const COLUMNS = [
@@ -321,7 +321,7 @@ export class CurriculumImportService {
             totalHours: total,
             controlForm,
             practiceAtCollege: isPractice && hours.practiceHours > 0,
-            ...computePlannedLessons(hours, settings.academicHoursPerLesson),
+            ...computePlannedLessons(hours, ACADEMIC_HOURS_PER_LESSON),
           };
           await this.prisma.semesterCurriculumItem.upsert({
             where: { curriculumItemId_semesterId: { curriculumItemId: item.id, semesterId: semester.id } },

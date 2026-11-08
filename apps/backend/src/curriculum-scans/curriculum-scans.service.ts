@@ -20,14 +20,15 @@ import { tmpdir } from 'os';
 import { extname, join } from 'path';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types/auth-user';
-import { parseDate, toDateStr } from '../common/utils/dates';
+import { academicYearOf, academicYearRange } from '../common/utils/academic-year';
+import { parseDate, toDateStr, todayInTimezone } from '../common/utils/dates';
 import { educationLevelByCode } from '../common/utils/education';
 import { computePlannedLessons } from '../common/utils/hours';
 import { CALENDAR_EVENT_LABELS } from '../common/utils/labels';
 import { EngineService } from '../engine/engine.service';
 import { defaultBlocksSchedule } from '../planning/calendar-context';
 import { PrismaService } from '../prisma/prisma.service';
-import { SettingsService } from '../settings/settings.service';
+import { ACADEMIC_HOURS_PER_LESSON, SettingsService } from '../settings/settings.service';
 import { ApplyScanDto, ScanHoursDto, ScanItemDto, ScanItemKind } from './dto/curriculum-scan.dto';
 
 export const SCAN_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.webp'];
@@ -85,12 +86,11 @@ export interface RecognizedPlan {
 }
 
 /** Черновик для формы проверки: данные скана в формате запроса на создание учебного плана */
-export function toDraft(plan: RecognizedPlan) {
+export function toDraft(plan: RecognizedPlan, yearStart?: string, today: string = toDateStr(new Date())) {
   const t = plan.title ?? {};
   const str = (v: unknown) => (typeof v === 'string' ? v : '');
   const admissionYear =
-    Number(t.admissionYear) ||
-    (plan.semesters[0] ? Number(plan.semesters[0].startDate.slice(0, 4)) : new Date().getFullYear());
+    Number(t.admissionYear) || academicYearOf(plan.semesters[0]?.startDate ?? today, yearStart);
   const code = str(t.specialtyCode);
   const name = str(t.specialtyName);
   const level = (str(t.educationLevel) as EducationLevel) || educationLevelByCode(code);
@@ -294,7 +294,12 @@ export class CurriculumScansService implements OnModuleInit {
   async getWithDraft(id: string, actor: AuthUser) {
     const scan = await this.get(id, actor);
     const result = scan.resultJson as unknown as RecognizedPlan | null;
-    return { ...scan, draft: result ? toDraft(result) : null };
+    if (!result) return { ...scan, draft: null };
+    const settings = await this.settings.getEffective(actor.organizationId);
+    return {
+      ...scan,
+      draft: toDraft(result, settings.academicYearStart, todayInTimezone(settings.timezone)),
+    };
   }
 
   async remove(id: string, actor: AuthUser) {
@@ -351,16 +356,30 @@ export class CurriculumScansService implements OnModuleInit {
     await this.audit.log(actor.id, 'UPLOAD', 'CurriculumScan', scan.id, null, { files: scan.fileNames });
     if (planFile) {
       // Чтение файла занимает доли секунды — без очереди распознавания
-      void this.process(scan.id, paths, dir, true);
+      void this.process(scan.id, paths, dir, true, actor.organizationId);
     } else {
-      this.chain = this.chain.then(() => this.process(scan.id, paths, dir, false));
+      this.chain = this.chain.then(() => this.process(scan.id, paths, dir, false, actor.organizationId));
     }
     return scan;
   }
 
-  private async process(id: string, paths: string[], dir: string, planFile: boolean): Promise<void> {
+  private async process(
+    id: string,
+    paths: string[],
+    dir: string,
+    planFile: boolean,
+    organizationId: string,
+  ): Promise<void> {
     let lastWrite = 0;
     try {
+      const settings = await this.settings.getEffective(organizationId);
+      // Учебный год организации — для планов без своих дат (без графика, без года набора)
+      const academicCalendar = [
+        settings.academicYearStart,
+        settings.firstSemesterEnd,
+        settings.secondSemesterStart,
+        settings.secondSemesterEnd,
+      ].join(',');
       await this.prisma.curriculumScan.update({
         where: { id },
         data: { message: planFile ? 'Чтение файла учебного плана' : 'Распознавание', progress: 0.01 },
@@ -368,6 +387,7 @@ export class CurriculumScansService implements OnModuleInit {
       const args = planFile ? ['import-plan', paths[0]] : ['recognize', ...paths];
       const result = await this.engine.run<Prisma.InputJsonValue>(args, {
         timeoutMs: planFile ? PLAN_FILE_TIMEOUT_MS : RECOGNITION_TIMEOUT_MS,
+        env: { SCHEDULE_ACADEMIC_CALENDAR: academicCalendar },
         onProgress: (fraction, message) => {
           const now = Date.now();
           if (now - lastWrite < 800) return;
@@ -448,7 +468,7 @@ export class CurriculumScansService implements OnModuleInit {
       throw new BadRequestException({ message: 'Исправьте данные перед созданием учебного плана', errors });
     }
     const settings = await this.settings.getEffective(actor.organizationId);
-    const perLesson = settings.academicHoursPerLesson;
+    const perLesson = ACADEMIC_HOURS_PER_LESSON;
     const items = dto.items.filter((i) => i.include !== false);
     const totalSemesters = Math.max(...dto.semesters.map((s) => s.number));
     const source = (scan.resultJson as unknown as RecognizedPlan | null)?.source;
@@ -504,8 +524,9 @@ export class CurriculumScansService implements OnModuleInit {
         for (const course of courses) {
           const y = dto.program.admissionYear + course - 1;
           const own = dto.semesters.filter((s) => s.course === course);
-          const start = [`${y}-09-01`, ...own.map((s) => s.startDate)].sort()[0];
-          const end = [`${y + 1}-08-31`, ...own.map((s) => s.endDate)].sort().at(-1)!;
+          const range = academicYearRange(y, settings.academicYearStart);
+          const start = [range.start, ...own.map((s) => s.startDate)].sort()[0];
+          const end = [range.end, ...own.map((s) => s.endDate)].sort().at(-1)!;
           const year = await tx.academicYear.create({
             data: {
               educationalProgramId: program.id,
@@ -669,7 +690,7 @@ export class CurriculumScansService implements OnModuleInit {
         // Учебная группа
         let groupId: string | null = null;
         if (dto.group) {
-          const today = toDateStr(new Date());
+          const today = todayInTimezone(settings.timezone);
           const sorted = [...semesterRanges].sort((a, b) => a.number - b.number);
           const current =
             sorted.find((s) => today >= s.start && today <= s.end) ??

@@ -31,7 +31,7 @@ import { SchedulePeriodsService } from '../schedule/schedule-periods.service';
 import { ScheduleLessonsService } from '../schedule/schedule-lessons.service';
 import { GenerationRunnerService } from '../scheduler/generation-runner.service';
 import { GenerationService } from '../scheduler/generation.service';
-import { DEFAULT_LESSON_TIMES } from '../settings/settings.service';
+import { ACADEMIC_HOURS_PER_LESSON, DEFAULT_LESSON_TIMES } from '../settings/settings.service';
 import {
   CLASSROOMS,
   CURRICULUM,
@@ -222,15 +222,7 @@ async function main() {
   const programs: ProgramRefs[] = [];
   for (const cohort of cohorts) {
     programs.push(
-      await createProgram(
-        prisma,
-        org.id,
-        specialty.id,
-        cohort,
-        teacherIds,
-        settings.academicHoursPerLesson,
-        today,
-      ),
+      await createProgram(prisma, org.id, specialty.id, cohort, teacherIds, ACADEMIC_HOURS_PER_LESSON, today),
     );
   }
 

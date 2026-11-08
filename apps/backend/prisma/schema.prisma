@@ -264,15 +264,9 @@ model Organization {
 model OrganizationSettings {
   id                         String   @id @default(uuid())
   organizationId             String   @unique
-  /// Академических часов в одной паре (всегда 2, в интерфейсе не меняется)
-  academicHoursPerLesson     Int      @default(2)
-  /// Длительность академического часа, мин
-  academicHourMinutes        Int      @default(45)
-  /// Длительность пары, мин (= academicHourMinutes × 2, считается при сохранении)
-  lessonDurationMinutes      Int      @default(90)
   /// Количество пар в день (слотов)
   lessonsPerDay              Int      @default(6)
-  /// Максимум пар у группы в день для групп без ограничения «пары с–по» (в настройках не показывается)
+  /// Максимум пар у группы в день для групп без ограничения «пары с–по»
   maxGroupLessonsPerDay      Int      @default(4)
   /// Максимум пар одной дисциплины у группы в день
   maxSameDisciplinePerDay    Int      @default(2)
@@ -280,6 +274,14 @@ model OrganizationSettings {
   maxSameDisciplinePerWeek   Int      @default(2)
   /// Номер пары, начиная с которой пара считается поздней
   lateLessonNumber           Int      @default(5)
+  /// Сложные дисциплины генератор старается не ставить начиная с этой пары
+  difficultLessonNumber      Int      @default(4)
+  /// Начало учебного года, «ММ-ДД»: от него считаются учебный год и недели (числитель/знаменатель)
+  academicYearStart          String   @default("09-01")
+  /// Типовые границы семестров нового плана, «ММ-ДД»
+  firstSemesterEnd           String   @default("12-31")
+  secondSemesterStart        String   @default("01-12")
+  secondSemesterEnd          String   @default("06-30")
   /// Учебные дни недели (1 — понедельник ... 7 — воскресенье)
   workingDays                Int[]    @default([1, 2, 3, 4, 5, 6])
   maxGroupWindowsPerWeek     Int      @default(2)

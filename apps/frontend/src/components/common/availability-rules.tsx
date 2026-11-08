@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { useSettings } from '@/hooks/use-reference';
 import { api } from '@/lib/api';
+import { DEFAULT_YEAR_START, monthDayText } from '@/lib/academic-year';
 import { formatDate } from '@/lib/format';
 import { WEEKDAYS_SHORT } from '@/lib/labels';
 import { useApi, useApiMutation } from '@/lib/query';
@@ -219,7 +220,7 @@ function RuleDialog({
           <Field label="Неделя месяца" hint="Например: последняя + суббота = «последняя суббота месяца». Не выбрано — каждая неделя">
             <Chips options={MONTH_WEEKS} value={form.monthWeeks} onChange={(monthWeeks) => set({ monthWeeks })} />
           </Field>
-          <Field label="Чётность недели учебного года" hint="Неделя 1 — неделя, в которую входит 1 сентября">
+          <Field label="Чётность недели учебного года" hint={`Неделя 1 — неделя, в которую входит ${monthDayText(settings.data?.settings.academicYearStart ?? DEFAULT_YEAR_START)} (начало учебного года в настройках)`}>
             <SimpleSelect
               value={form.parity}
               onChange={(v) => set({ parity: (v ?? 'ANY') as WeekParity })}
