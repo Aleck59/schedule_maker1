@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { CalendarPlus, LayoutGrid, List, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { Controller, useForm } from 'react-hook-form';
@@ -24,7 +25,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useGroups, usePrograms, useSemesters, useTeachers } from '@/hooks/use-reference';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { formatDate, formatDateShort, isoWeekday, today, weekdayName } from '@/lib/format';
+import { formatDate, isoWeekday, today, weekdayName } from '@/lib/format';
 import { CALENDAR_EVENT_CODES, CALENDAR_EVENT_COLORS, CALENDAR_EVENT_LABELS, CONTROL_FORM_LABELS } from '@/lib/labels';
 import { useApi, useApiMutation } from '@/lib/query';
 import type { CalendarEvent, CalendarEventType } from '@/lib/types';
@@ -42,6 +43,8 @@ interface GraphWeek {
   workingDays: number;
   blockedDays: number;
   eventIds: string[];
+  /** Пн–Сб: тип дня и обозначение; code '' — день вне учебного года */
+  days: Array<{ date: string; type: CalendarEventType | null; code: string }>;
 }
 
 interface CalendarGraph {
@@ -81,12 +84,15 @@ const WEEK_TYPES: CalendarEventType[] = [
   'DIPLOMA_PREPARATION',
   'DIPLOMA_DEFENSE',
   'DEMO_EXAM',
+  'SELF_STUDY',
 ];
 
 export default function CalendarGraphPage() {
   const { canEdit } = useAuth();
   const programs = usePrograms();
-  const [programId, setProgramId] = useState<string | null>(null);
+  // ?program=&tab=assessments&semester= — переход из карточки экзамена в сетке расписания
+  const [params] = useSearchParams();
+  const [programId, setProgramId] = useState<string | null>(params.get('program'));
   const pid = programId ?? programs.data?.[0]?.id ?? null;
   const graph = useApi<CalendarGraph>(['calendar-graph', pid], pid ? `/programs/${pid}/calendar-graph` : null);
 
@@ -104,7 +110,7 @@ export default function CalendarGraphPage() {
           </div>
         }
       />
-      <Tabs defaultValue="graph">
+      <Tabs defaultValue={params.get('tab') === 'assessments' ? 'assessments' : params.get('tab') === 'events' ? 'events' : 'graph'}>
         <TabsList>
           <TabsTrigger value="graph">График по неделям</TabsTrigger>
           <TabsTrigger value="events">Периоды и события</TabsTrigger>
@@ -123,12 +129,25 @@ export default function CalendarGraphPage() {
           <EventsView programId={pid} editable={canEdit} />
         </TabsContent>
         <TabsContent value="assessments">
-          <AssessmentsView programId={pid} editable={canEdit} />
+          <AssessmentsView programId={pid} editable={canEdit} initialSemesterId={params.get('semester')} />
         </TabsContent>
       </Tabs>
     </div>
   );
 }
+
+const GRID_DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+const MONTHS = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+
+/** Цвета клеток сетки — как в сетке импорта .plx: теория ярко-голубая «Т», самостоятельная — серая «С» */
+const GRID_COLORS: Record<string, string> = {
+  ...CALENDAR_EVENT_COLORS,
+  THEORETICAL_TRAINING: 'bg-sky-300 text-sky-950 dark:bg-sky-700/70 dark:text-sky-50',
+  HOLIDAY: 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-200',
+};
+const GRID_CODES: Record<string, string> = { ...CALENDAR_EVENT_CODES, HOLIDAY: '*' };
+const NO_STUDY = 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500';
+const LEGEND_TYPES = [...WEEK_TYPES.slice(0, 7), 'SELF_STUDY', 'DIPLOMA_PREPARATION', 'DIPLOMA_DEFENSE', 'DEMO_EXAM', 'HOLIDAY'];
 
 function GraphView({ graph, editable }: { graph: CalendarGraph; editable: boolean }) {
   const setWeek = useApiMutation(
@@ -142,14 +161,24 @@ function GraphView({ graph, editable }: { graph: CalendarGraph; editable: boolea
   return (
     <>
       <Card>
-        <CardContent className="flex flex-wrap gap-2 pt-2">
-          {graph.legend
-            .filter((l) => l.type !== 'OTHER')
-            .map((l) => (
-              <span key={l.type} className={cn('inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium', CALENDAR_EVENT_COLORS[l.type])}>
-                <b>{l.code}</b> {l.label}
+        <CardContent className="flex flex-wrap gap-1.5 pt-2">
+          {LEGEND_TYPES.map((t) => (
+            <span key={t} className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs">
+              <span className={cn('flex size-5 items-center justify-center rounded text-[11px] font-semibold', GRID_COLORS[t])}>
+                {GRID_CODES[t]}
               </span>
-            ))}
+              {t === 'HOLIDAY' ? 'Праздничный день' : CALENDAR_EVENT_LABELS[t]}
+            </span>
+          ))}
+          <span className="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs">
+            <span className={cn('flex size-5 items-center justify-center rounded text-[11px] font-semibold', NO_STUDY)}>=</span>
+            Обучение не ведётся
+          </span>
+          {editable && (
+            <span className="text-muted-foreground basis-full pt-1 text-xs">
+              Чтобы изменить тип недели, щёлкните по её номеру над сеткой. Дни семестра без периодов — теоретическое обучение.
+            </span>
+          )}
         </CardContent>
       </Card>
       {graph.years.length === 0 && <EmptyState title="Учебные годы не созданы" />}
@@ -164,77 +193,131 @@ function GraphView({ graph, editable }: { graph: CalendarGraph; editable: boolea
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="flex flex-wrap gap-1">
-              {year.weeks.map((w) => {
-                const cell = (
-                  <button
-                    type="button"
-                    className={cn(
-                      'relative flex h-12 w-10 flex-col items-center justify-center rounded border text-[10px] leading-tight transition hover:ring-2 hover:ring-primary/40',
-                      w.type ? CALENDAR_EVENT_COLORS[w.type] : 'bg-card text-muted-foreground',
-                      !editable && 'cursor-default',
-                    )}
-                  >
-                    <span className="text-[9px] opacity-70">{w.index}</span>
-                    <span className="text-xs font-bold">{w.code || '·'}</span>
-                    <span className="text-[9px] opacity-70">{formatDateShort(w.start)}</span>
-                    {w.mixed && <span className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-current opacity-60" />}
-                    {w.holidays > 0 && w.type !== 'HOLIDAY' && <span className="absolute bottom-0.5 left-0.5 size-1.5 rounded-full bg-red-500" />}
-                  </button>
-                );
-                const tip = (
-                  <div className="text-xs">
-                    <div className="font-medium">
-                      Неделя {w.index}: {formatDate(w.start)} — {formatDate(w.end)}
-                    </div>
-                    <div>{w.label}</div>
-                    {w.mixed && <div>Смешанная неделя</div>}
-                    {w.holidays > 0 && <div>Праздничных дней: {w.holidays}</div>}
-                    <div>
-                      Учебных дней заблокировано: {w.blockedDays} из {w.workingDays}
-                    </div>
-                  </div>
-                );
-                return editable ? (
-                  <Popover key={w.start}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <PopoverTrigger asChild>{cell}</PopoverTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent>{tip}</TooltipContent>
-                    </Tooltip>
-                    <PopoverContent className="w-64 p-2">
-                      <div className="mb-1.5 px-1 text-xs font-medium">
-                        Тип недели {formatDate(w.start)} — {formatDate(w.end)}
-                      </div>
-                      <div className="grid gap-1">
-                        {WEEK_TYPES.map((t) => (
-                          <button
-                            key={t}
-                            type="button"
-                            className={cn('rounded px-2 py-1 text-left text-xs hover:opacity-80', CALENDAR_EVENT_COLORS[t])}
-                            onClick={() => setWeek.mutate({ weekStart: w.start, courseNumber: year.courseNumber, eventType: t })}
-                          >
-                            <b>{CALENDAR_EVENT_CODES[t]}</b> {CALENDAR_EVENT_LABELS[t]}
-                          </button>
-                        ))}
+            <div className="overflow-x-auto pb-1 scrollbar-thin">
+              <table className="border-collapse text-[10px]">
+                <thead>
+                  <tr>
+                    <th className="w-7" />
+                    {year.weeks.map((w, i) => {
+                      const month = Number(w.days[3]?.date.slice(5, 7) ?? w.start.slice(5, 7)) - 1;
+                      const prev = i > 0 ? Number(year.weeks[i - 1].days[3]?.date.slice(5, 7)) - 1 : -1;
+                      return (
+                        <th key={w.start} className="text-muted-foreground h-4 px-0 text-left font-normal">
+                          {month !== prev ? MONTHS[month] : ''}
+                        </th>
+                      );
+                    })}
+                  </tr>
+                  <tr>
+                    <th className="text-muted-foreground pr-1 text-right font-normal">Нед</th>
+                    {year.weeks.map((w) => {
+                      const tip = (
+                        <div className="text-xs">
+                          <div className="font-medium">
+                            Неделя {w.index}: {formatDate(w.start)} — {formatDate(w.end)}
+                          </div>
+                          <div>{w.label}</div>
+                          {w.mixed && <div>Смешанная неделя</div>}
+                          {w.holidays > 0 && <div>Праздничных дней: {w.holidays}</div>}
+                          <div>
+                            Учебных дней заблокировано: {w.blockedDays} из {w.workingDays}
+                          </div>
+                        </div>
+                      );
+                      const btn = (
                         <button
                           type="button"
-                          className="hover:bg-muted rounded border px-2 py-1 text-left text-xs"
-                          onClick={() => setWeek.mutate({ weekStart: w.start, courseNumber: year.courseNumber, eventType: null })}
+                          className={cn(
+                            'text-muted-foreground h-5 w-6 rounded-sm font-normal',
+                            editable ? 'hover:bg-muted' : 'cursor-default',
+                          )}
                         >
-                          Очистить неделю
+                          {w.index}
                         </button>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                ) : (
-                  <Tooltip key={w.start}>
-                    <TooltipTrigger asChild>{cell}</TooltipTrigger>
-                    <TooltipContent>{tip}</TooltipContent>
-                  </Tooltip>
-                );
-              })}
+                      );
+                      return (
+                        <th key={w.start} className="p-0">
+                          {editable ? (
+                            <Popover>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <PopoverTrigger asChild>{btn}</PopoverTrigger>
+                                </TooltipTrigger>
+                                <TooltipContent>{tip}</TooltipContent>
+                              </Tooltip>
+                              <PopoverContent className="w-64 p-2">
+                                <div className="mb-1.5 px-1 text-xs font-medium">
+                                  Тип недели {formatDate(w.start)} — {formatDate(w.end)}
+                                </div>
+                                <div className="grid gap-1">
+                                  {WEEK_TYPES.map((t) => (
+                                    <button
+                                      key={t}
+                                      type="button"
+                                      className={cn('rounded px-2 py-1 text-left text-xs hover:opacity-80', GRID_COLORS[t])}
+                                      onClick={() => setWeek.mutate({ weekStart: w.start, courseNumber: year.courseNumber, eventType: t })}
+                                    >
+                                      <b>{GRID_CODES[t]}</b> {CALENDAR_EVENT_LABELS[t]}
+                                    </button>
+                                  ))}
+                                  <button
+                                    type="button"
+                                    className="hover:bg-muted rounded border px-2 py-1 text-left text-xs"
+                                    onClick={() => setWeek.mutate({ weekStart: w.start, courseNumber: year.courseNumber, eventType: null })}
+                                  >
+                                    Очистить неделю
+                                  </button>
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                          ) : (
+                            <Tooltip>
+                              <TooltipTrigger asChild>{btn}</TooltipTrigger>
+                              <TooltipContent>{tip}</TooltipContent>
+                            </Tooltip>
+                          )}
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  {GRID_DAYS.map((dayName, d) => (
+                    <tr key={dayName}>
+                      <td className="text-muted-foreground pr-1 text-right">{dayName}</td>
+                      {year.weeks.map((w) => {
+                        const day = w.days[d];
+                        const inYear = !!day && day.code !== '';
+                        const label = day?.type ? (day.type === 'HOLIDAY' ? 'Праздничный день' : CALENDAR_EVENT_LABELS[day.type]) : 'Обучение не ведётся';
+                        const cell = (
+                          <div
+                            className={cn(
+                              'flex h-6 w-6 items-center justify-center border border-white text-[10px] font-semibold dark:border-slate-900',
+                              !inYear ? 'bg-transparent' : day.type ? GRID_COLORS[day.type] : NO_STUDY,
+                            )}
+                          >
+                            {inYear ? (day.type ? GRID_CODES[day.type] : '=') : ''}
+                          </div>
+                        );
+                        return (
+                          <td key={w.start} className="p-0">
+                            {inYear ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>{cell}</TooltipTrigger>
+                                <TooltipContent>
+                                  {formatDate(day.date)} — {label}
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              cell
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
             <div className="flex flex-wrap gap-2 text-xs">
               {Object.entries(year.summary).map(([t, n]) => (
@@ -512,12 +595,12 @@ function EventDialog({ open, onOpenChange, programId }: { open: boolean; onOpenC
   );
 }
 
-function AssessmentsView({ programId, editable }: { programId: string; editable: boolean }) {
+function AssessmentsView({ programId, editable, initialSemesterId }: { programId: string; editable: boolean; initialSemesterId?: string | null }) {
   const semesters = useSemesters();
   const programSemesters = (semesters.data ?? [])
     .filter((s) => s.educationalProgramId === programId)
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
-  const [semesterId, setSemesterId] = useState<string | null>(null);
+  const [semesterId, setSemesterId] = useState<string | null>(initialSemesterId ?? null);
   // По умолчанию — текущий семестр (или ближайший предстоящий)
   const now = today();
   const current = programSemesters.find((s) => s.endDate.slice(0, 10) >= now) ?? programSemesters[programSemesters.length - 1];

@@ -10,10 +10,10 @@ export const CODE_TYPES: Record<string, string> = {
   Д: 'DIPLOMA_PREPARATION',
   Г: 'FINAL_ATTESTATION',
   '*': 'HOLIDAY',
-  С: 'OTHER',
+  С: 'SELF_STUDY',
 };
 
-/** Названия периодов, у которых тип «Прочее» */
+/** Названия периодов, отличающиеся от названия типа */
 export const CODE_TITLES: Record<string, string> = {
   С: 'Самостоятельная работа (межсессионный период)',
 };

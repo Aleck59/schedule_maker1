@@ -200,6 +200,7 @@ export default function FullWeekSchedulePage() {
   const lessonQuery = useApi<Lesson[]>(['lessons', 'full-week', week], '/schedule-lessons', {
     from: week,
     to: addDays(week, 6),
+    withAssessments: 'true',
   });
   const events = useApi<CalendarEvent[]>(['calendar-events', week, addDays(week, 6), 'all'], '/calendar-events', {
     from: week,
@@ -260,7 +261,7 @@ export default function FullWeekSchedulePage() {
     [periods.data],
   );
   const canDrag = (l: Lesson) =>
-    canEdit && !archived.has(l.schedulePeriodId) && (l.status === 'PLANNED' || l.status === 'REPLACED');
+    canEdit && !l.assessment && !archived.has(l.schedulePeriodId) && (l.status === 'PLANNED' || l.status === 'REPLACED');
 
   const move = useLessonMove();
   const invalidate = () => {

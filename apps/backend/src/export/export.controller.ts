@@ -59,7 +59,12 @@ export class ExportController {
     const settings = await this.settings.getEffective(user.organizationId);
     const range = { from: from ?? toDateStr(period.startDate), to: to ?? toDateStr(period.endDate) };
     const lessons = await this.lessons.list(
-      { periodId: filter.teacherId || filter.classroomId ? undefined : periodId, ...filter, ...range },
+      {
+        periodId: filter.teacherId || filter.classroomId ? undefined : periodId,
+        ...filter,
+        ...range,
+        withAssessments: 'true',
+      },
       user,
     );
     return this.pdf.scheduleGrid({

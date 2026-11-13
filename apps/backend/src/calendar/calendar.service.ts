@@ -7,6 +7,7 @@ import {
   LessonStatus,
   LessonType,
   Prisma,
+  UserRole,
 } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthUser } from '../common/types/auth-user';
@@ -233,6 +234,7 @@ export class CalendarService {
         workingDays: number;
         blockedDays: number;
         eventIds: string[];
+        days: Array<{ date: string; type: CalendarEventType | null; code: string }>;
       }> = [];
       let cursor = weekStart(yearStart);
       let index = 1;
@@ -242,33 +244,55 @@ export class CalendarService {
         const days = eachDay(cursor < yearStart ? yearStart : cursor, wEnd > yearEnd ? yearEnd : wEnd).filter(
           (d) => settings.workingDays.includes(isoWeekday(d)),
         );
-        const counts = new Map<CalendarEventType, number>();
-        let holidays = 0;
-        let blockedDays = 0;
-        const eventIds = new Set<string>();
-        for (const d of days) {
+        const yearSemesters = program.semesters.filter((s) => s.academicYearId === year.id);
+        const inSemester = (d: string) =>
+          yearSemesters.some((s) => toDateStr(s.startDate) <= d && toDateStr(s.endDate) >= d);
+        /** Тип дня: самый узкий период (группы → курса → плана → организации); праздник —
+         * поверх теории; дни семестра без периодов — теоретическое обучение, как в сетке .plx */
+        const dayType = (d: string) => {
           const dayEvents = events.filter(
             (e) =>
               toDateStr(e.startDate) <= d &&
               toDateStr(e.endDate) >= d &&
               (!e.courseNumber || e.courseNumber === year.courseNumber),
           );
-          if (dayEvents.some((e) => e.blocksSchedule)) blockedDays++;
-          // Тип дня задаёт самый узкий период: группы → курса → плана → организации
           let topRank = -1;
           for (const e of dayEvents) {
             if (e.eventType !== CalendarEventType.HOLIDAY) topRank = Math.max(topRank, scopeRank(e));
           }
-          for (const e of dayEvents) {
-            eventIds.add(e.id);
-            if (e.eventType === CalendarEventType.HOLIDAY) {
-              holidays++;
-              continue;
-            }
-            if (scopeRank(e) < topRank) continue;
-            counts.set(e.eventType, (counts.get(e.eventType) ?? 0) + 1);
+          const top = dayEvents.filter((e) => e.eventType !== CalendarEventType.HOLIDAY && scopeRank(e) === topRank);
+          const holiday = dayEvents.some((e) => e.eventType === CalendarEventType.HOLIDAY);
+          const special = top.find((e) => e.eventType !== CalendarEventType.THEORETICAL_TRAINING);
+          let type: CalendarEventType | null = special?.eventType ?? (top.length ? CalendarEventType.THEORETICAL_TRAINING : null);
+          let implicit = false;
+          if (!type && inSemester(d)) {
+            type = CalendarEventType.THEORETICAL_TRAINING;
+            implicit = true;
+          }
+          if (holiday && (!type || type === CalendarEventType.THEORETICAL_TRAINING)) type = CalendarEventType.HOLIDAY;
+          return { dayEvents, type, implicit, holiday };
+        };
+        const counts = new Map<CalendarEventType, number>();
+        let holidays = 0;
+        let blockedDays = 0;
+        const eventIds = new Set<string>();
+        for (const d of days) {
+          const info = dayType(d);
+          if (info.dayEvents.some((e) => e.blocksSchedule)) blockedDays++;
+          for (const e of info.dayEvents) eventIds.add(e.id);
+          if (info.holiday) holidays++;
+          if (info.type && info.type !== CalendarEventType.HOLIDAY) {
+            counts.set(info.type, (counts.get(info.type) ?? 0) + 1);
           }
         }
+        // Дни недели Пн–Сб для сетки «как в .plx»: тип и обозначение каждого дня
+        const grid = Array.from({ length: 6 }, (_, i) => {
+          const date = addDaysStr(cursor, i);
+          if (date < yearStart || date > yearEnd) return { date, type: null, code: '' };
+          const { type } = dayType(date);
+          // «=» — день учебного года вне семестров: обучение не ведётся
+          return { date, type, code: type ? CALENDAR_EVENT_CODES[type] : '=' };
+        });
         const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
         let type: CalendarEventType | null = sorted[0]?.[0] ?? null;
         if (!type && holidays > 0 && holidays >= days.length) type = CalendarEventType.HOLIDAY;
@@ -284,6 +308,7 @@ export class CalendarService {
           workingDays: days.length,
           blockedDays,
           eventIds: [...eventIds],
+          days: grid,
         });
         cursor = addDaysStr(cursor, 7);
         index++;
@@ -582,6 +607,32 @@ export class CalendarService {
       },
       orderBy: [{ date: 'asc' }, { lessonNumber: 'asc' }],
     });
+  }
+
+  async getAssessment(id: string, actor: AuthUser) {
+    const event = await this.prisma.assessmentEvent.findFirst({
+      where: {
+        id,
+        group: { program: { organizationId: actor.organizationId } },
+        // студент видит только мероприятия своей группы
+        studentGroupId: actor.role === UserRole.STUDENT ? (actor.studentGroupId ?? '00000000-0000-0000-0000-000000000000') : undefined,
+      },
+      include: {
+        group: { select: { id: true, code: true, educationalProgramId: true } },
+        semesterItem: {
+          select: { semesterId: true, curriculumItem: { select: { code: true, name: true } } },
+        },
+        teacher: { select: { id: true, fullName: true } },
+        classroom: { select: { id: true, code: true, name: true } },
+      },
+    });
+    if (!event) throw new NotFoundException('Мероприятие не найдено');
+    const settings = await this.settings.getEffective(actor.organizationId);
+    return {
+      ...event,
+      date: toDateStr(event.date),
+      time: event.lessonNumber ? this.settings.lessonTime(settings, event.lessonNumber) : null,
+    };
   }
 
   async createAssessment(dto: CreateAssessmentDto, actor: AuthUser) {

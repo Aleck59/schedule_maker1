@@ -19,6 +19,15 @@ export const LESSON_TYPE_LABELS: Record<string, string> = {
   OTHER: "Другое",
 };
 
+/** Пометка экзамена или зачёта в сетке расписания */
+export const ASSESSMENT_MARK: Record<string, string> = {
+  EXAM: "Экзамен",
+  QUALIFICATION_EXAM: "Квалиф. экзамен",
+  CREDIT: "Зачёт",
+  DIFFERENTIATED_CREDIT: "Диф. зачёт",
+  COURSE_PROJECT: "Защита КП",
+};
+
 export const LESSON_TYPE_SHORT: Record<string, string> = {
   LECTURE: "лек",
   PRACTICAL: "пр",
@@ -89,6 +98,7 @@ export const CALENDAR_EVENT_LABELS: Record<string, string> = {
   DEMO_EXAM: "Демонстрационный экзамен",
   REATTESTATION: "Повторная аттестация",
   HOLIDAY: "Праздничный день",
+  SELF_STUDY: "Самостоятельная работа",
   OTHER: "Прочее",
 };
 
@@ -106,6 +116,7 @@ export const CALENDAR_EVENT_CODES: Record<string, string> = {
   DEMO_EXAM: "ДЭ",
   REATTESTATION: "ПА",
   HOLIDAY: "В",
+  SELF_STUDY: "С",
   OTHER: "*",
 };
 
@@ -130,6 +141,8 @@ export const CALENDAR_EVENT_COLORS: Record<string, string> = {
   DEMO_EXAM: "bg-indigo-400 text-white",
   REATTESTATION: "bg-red-300 text-red-950",
   HOLIDAY: "bg-slate-300 text-slate-900",
+  // как в сетке импорта .plx: межсессионный период серым
+  SELF_STUDY: "bg-gray-400 text-white dark:bg-gray-600 dark:text-gray-100",
   OTHER: "bg-slate-200 text-slate-800",
 };
 

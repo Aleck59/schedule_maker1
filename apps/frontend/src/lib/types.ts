@@ -53,6 +53,7 @@ export type CalendarEventType =
   | "DEMO_EXAM"
   | "REATTESTATION"
   | "HOLIDAY"
+  | "SELF_STUDY"
   | "OTHER";
 export type PeriodStatus = "DRAFT" | "GENERATED" | "PUBLISHED" | "ARCHIVED";
 export type HourStatus = "NORMAL" | "RISK" | "DEFICIT" | "EXCESS";
@@ -571,6 +572,8 @@ export interface Lesson {
     lessonNumber: number;
     status: LessonStatus;
   }>;
+  /** Экзамен или зачёт из «Экзамены и зачёты» — в сетке только для чтения (id вида assessment-<id>) */
+  assessment?: { id: string; controlForm: ControlForm };
   substitution: {
     originalTeacher: { id: string; fullName: string } | null;
     substituteTeacher: { id: string; fullName: string };

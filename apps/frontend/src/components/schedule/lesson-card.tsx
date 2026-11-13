@@ -1,7 +1,7 @@
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { Lock, Repeat2, UserRoundCog } from 'lucide-react';
+import { GraduationCap, Lock, Repeat2, UserRoundCog } from 'lucide-react';
 import { shortName } from '@/lib/format';
-import { LESSON_STATUS_LABELS, LESSON_TYPE_SHORT } from '@/lib/labels';
+import { ASSESSMENT_MARK, LESSON_STATUS_LABELS, LESSON_TYPE_SHORT } from '@/lib/labels';
 import type { Lesson } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -44,6 +44,7 @@ export function LessonCard({
   className?: string;
   dragHandleProps?: Record<string, unknown>;
 }) {
+  if (lesson.assessment) return <AssessmentCard lesson={lesson} mode={mode} onClick={onClick} className={className} />;
   const inactive = lesson.status === 'CANCELLED' || lesson.status === 'MOVED';
   const partial = lesson.academicHours === 1;
   const second =
@@ -119,6 +120,43 @@ export function LessonCard({
   );
 }
 
+const EXAM_FORMS = ['EXAM', 'QUALIFICATION_EXAM'];
+
+/** Экзамен или зачёт в сетке: розовый (экзамен) или голубой (зачёт), не перетаскивается */
+function AssessmentCard({ lesson, mode, onClick, className }: { lesson: Lesson; mode: GridMode; onClick?: () => void; className?: string }) {
+  const form = lesson.assessment!.controlForm;
+  const exam = EXAM_FORMS.includes(form);
+  const second =
+    mode === 'group' || mode === 'day' ? shortName(lesson.teacher?.fullName) : lesson.studentGroup.code;
+  const room = mode === 'classroom' ? shortName(lesson.teacher?.fullName) : (lesson.classroom?.code ?? 'без ауд.');
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => e.key === 'Enter' && onClick?.()}
+      title={`${ASSESSMENT_MARK[form] ?? 'Контроль'}: ${lesson.semesterItem.curriculumItem.name}`}
+      className={cn(
+        'relative w-full min-w-0 cursor-pointer rounded-lg border border-l-[3px] px-1.5 py-1 text-left text-[11px] leading-tight shadow-xs transition duration-200 hover:-translate-y-px hover:shadow-soft',
+        exam
+          ? 'border-rose-300 border-l-rose-500 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/50'
+          : 'border-sky-300 border-l-sky-500 bg-sky-50 dark:border-sky-800 dark:bg-sky-950/50',
+        className,
+      )}
+    >
+      <div className={cn('flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide', exam ? 'text-rose-700 dark:text-rose-300' : 'text-sky-700 dark:text-sky-300')}>
+        <GraduationCap className="size-3" />
+        {ASSESSMENT_MARK[form] ?? 'Контроль'}
+      </div>
+      <div className="line-clamp-2 font-semibold">{lesson.semesterItem.curriculumItem.name}</div>
+      <div className="mt-0.5 flex items-center justify-between gap-1">
+        <span className="truncate">{second}</span>
+        <span className="text-muted-foreground shrink-0 font-medium">{room}</span>
+      </div>
+    </div>
+  );
+}
+
 export function LessonTypeLegend() {
   const items = [
     ['LECTURE', 'Лекция', 'bg-blue-500'],
@@ -135,6 +173,12 @@ export function LessonTypeLegend() {
           {text}
         </span>
       ))}
+      <span className="inline-flex items-center gap-1.5">
+        <span className="size-2.5 rounded-sm border border-rose-300 bg-rose-100" /> Экзамен
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="size-2.5 rounded-sm border border-sky-300 bg-sky-100" /> Зачёт
+      </span>
       <span className="inline-flex items-center gap-1.5">
         <span className="size-2.5 rounded-sm border bg-emerald-100" /> Проведено
       </span>

@@ -24,7 +24,7 @@ import { useApi, useApiMutation } from '@/lib/query';
 import type { Assignment, SemesterItem } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { StreamsTab } from '@/components/workload/streams';
-import { contactHours, featuresText, hoursText, isDefaultLessons, lessonsText } from '@/components/workload/format';
+import { contactHours, featuresText, hoursText, isDefaultLessons, itemLessonTypes, lessonsText, uncoveredTypes } from '@/components/workload/format';
 
 interface TeacherWorkloadRow {
   teacherId: string;
@@ -121,6 +121,12 @@ function GroupAssignments() {
     },
   );
   const remove = useApiMutation((id: string) => api.delete(`/assignments/${id}`), { success: 'Назначение удалено', invalidate: [['assignments']] });
+  // Вид занятий без назначения (например, лекции после того, как практику отдали другому) — сразу с преподавателем
+  const assignGap = useApiMutation(
+    (v: { itemId: string; lessonType: string; teacherId: string | null }) =>
+      api.post('/assignments', { studentGroupId: group!.id, semesterCurriculumItemId: v.itemId, lessonType: v.lessonType, teacherId: v.teacherId }),
+    { success: 'Преподаватель назначен', invalidate: [['assignments'], ['hour-control'], ['teachers']] },
+  );
   const setTeacher = useApiMutation((v: { id: string; teacherId: string | null }) => api.patch(`/assignments/${v.id}`, { teacherId: v.teacherId }), {
     success: 'Преподаватель назначен',
     invalidate: [['assignments'], ['hour-control'], ['teachers']],
@@ -145,7 +151,7 @@ function GroupAssignments() {
   const scheduled = (items.data ?? []).filter((i) => i.curriculumItem?.itemType !== 'MODULE' && contactHours(i) > 0);
   const missing = (i: SemesterItem) => {
     const list = byItem.get(i.id) ?? [];
-    return list.length === 0 || list.some((a) => !a.teacherId);
+    return list.length === 0 || list.some((a) => !a.teacherId) || uncoveredTypes(i, list).length > 0;
   };
   const missingCount = scheduled.filter(missing).length;
   const q = search.trim().toLowerCase();
@@ -230,8 +236,39 @@ function GroupAssignments() {
             <TableBody>
               {shown.map((item) => {
                 const list = byItem.get(item.id) ?? [];
-                const rows = list.length ? list : [null];
-                return rows.map((a, i) => (
+                const gaps = uncoveredTypes(item, list);
+                const rows: Array<Assignment | { gap: string; hours: number } | null> = list.length
+                  ? [...list, ...gaps.map((g) => ({ gap: g.type, hours: g.hours }))]
+                  : [null];
+                return rows.map((row, i) => {
+                  if (row && 'gap' in row) {
+                    return (
+                      <TableRow key={`${item.id}-${row.gap}`} className={cn('border-t-0', i < rows.length - 1 && 'border-b-border/40')}>
+                        <TableCell className="text-sm whitespace-nowrap text-amber-700 dark:text-amber-300">
+                          {LESSON_TYPE_LABELS[row.gap]} <span className="text-xs opacity-70">({row.hours} ч)</span>
+                        </TableCell>
+                        <TableCell>
+                          {canEdit ? (
+                            <SimpleSelect
+                              size="sm"
+                              value={null}
+                              allowEmpty
+                              emptyLabel="Не назначен"
+                              onChange={(v) => v && assignGap.mutate({ itemId: item.id, lessonType: row.gap, teacherId: v })}
+                              options={teacherOptions}
+                              className="w-72 border-amber-400 text-amber-700"
+                            />
+                          ) : (
+                            <span className="text-amber-600">не назначен</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-xs">нет назначения на этот вид занятий</TableCell>
+                        {canEdit && <TableCell />}
+                      </TableRow>
+                    );
+                  }
+                  const a = row;
+                  return (
                   <TableRow key={a?.id ?? item.id} className={cn(i > 0 && 'border-t-0', i < rows.length - 1 && 'border-b-border/40')}>
                     {i === 0 && (
                       <>
@@ -315,7 +352,8 @@ function GroupAssignments() {
                       </TableCell>
                     )}
                   </TableRow>
-                ));
+                  );
+                });
               })}
               {shown.length === 0 && (
                 <TableRow>
@@ -328,12 +366,33 @@ function GroupAssignments() {
           </Table>
         </div>
       )}
-      {edit && <AssignmentDialog groupId={group.id} item={edit.item} assignment={edit.assignment} onClose={() => setEdit(null)} />}
+      {edit && (
+        <AssignmentDialog
+          groupId={group.id}
+          item={edit.item}
+          assignment={edit.assignment}
+          siblings={(byItem.get(edit.item.id) ?? []).filter((a) => a.id !== edit.assignment?.id)}
+          onClose={() => setEdit(null)}
+        />
+      )}
     </div>
   );
 }
 
-function AssignmentDialog({ groupId, item, assignment, onClose }: { groupId: string; item: SemesterItem; assignment?: Assignment; onClose: () => void }) {
+function AssignmentDialog({
+  groupId,
+  item,
+  assignment,
+  siblings,
+  onClose,
+}: {
+  groupId: string;
+  item: SemesterItem;
+  assignment?: Assignment;
+  /** Другие назначения этой дисциплины у группы */
+  siblings: Assignment[];
+  onClose: () => void;
+}) {
   const teachers = useTeachers();
   const classrooms = useClassrooms();
   const groups = useGroups();
@@ -346,6 +405,8 @@ function AssignmentDialog({ groupId, item, assignment, onClose }: { groupId: str
   const [streamKey, setStreamKey] = useState(assignment?.streamKey ?? '');
   const [priority, setPriority] = useState(String(assignment?.priority ?? 0));
   const [allowExcess, setAllowExcess] = useState(assignment?.allowHoursExcess ?? false);
+  // Преподаватели остальных видов занятий: лекции — одному, практика — другому
+  const [others, setOthers] = useState<Record<string, string | null>>({});
 
   const body = {
     studentGroupId: groupId,
@@ -359,18 +420,38 @@ function AssignmentDialog({ groupId, item, assignment, onClose }: { groupId: str
     priority: Number(priority) || 0,
     allowHoursExcess: allowExcess,
   };
-  const save = useApiMutation(() => (assignment ? api.patch(`/assignments/${assignment.id}`, body) : api.post('/assignments', body)), {
+  // Виды, которые останутся без назначения, если этому назначению задать конкретный вид
+  const restTypes =
+    lessonType && !siblings.some((a) => !a.lessonType)
+      ? itemLessonTypes(item).filter((t) => t.type !== lessonType && !siblings.some((a) => a.lessonType === t.type))
+      : [];
+  const teacherChoices = (teachers.data ?? [])
+    .filter(
+      (t) =>
+        t.id === assignment?.teacherId ||
+        (t.isActive && (t.allowedLevels ?? allowedLevelsOf(t)).includes(group?.program?.specialty?.educationLevel ?? 'SPO')),
+    )
+    .map((t) => ({ value: t.id, label: t.fullName, hint: t.position ?? undefined }));
+  const save = useApiMutation(
+    async () => {
+      const result = assignment ? await api.patch(`/assignments/${assignment.id}`, body) : await api.post('/assignments', body);
+      for (const t of restTypes) {
+        if (!others[t.type]) continue;
+        await api.post('/assignments', {
+          studentGroupId: groupId,
+          semesterCurriculumItemId: item.id,
+          lessonType: t.type,
+          subgroupNumber: body.subgroupNumber,
+          teacherId: others[t.type],
+        });
+      }
+      return result;
+    },
+    {
     success: 'Назначение сохранено',
     invalidate: [['assignments'], ['hour-control']],
     onSuccess: onClose,
   });
-  const types: Array<[string, number]> = [
-    ['LECTURE', item.lectureHours],
-    ['PRACTICAL', item.practicalHours],
-    ['LABORATORY', item.laboratoryHours],
-    ['CONSULTATION', item.consultationHours],
-    ['PRACTICE', item.practiceAtCollege ? item.practiceHours : 0],
-  ];
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-xl">
@@ -380,13 +461,13 @@ function AssignmentDialog({ groupId, item, assignment, onClose }: { groupId: str
           </DialogTitle>
         </DialogHeader>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Вид занятий" hint="«Все виды» — если один преподаватель ведёт всё">
+          <Field label="Вид занятий" hint="«Все виды» — один преподаватель ведёт всё; вид — для разных преподавателей">
             <SimpleSelect
               value={lessonType}
               onChange={setLessonType}
               allowEmpty
               emptyLabel="Все виды"
-              options={types.filter(([, h]) => h > 0).map(([t, h]) => ({ value: t, label: `${LESSON_TYPE_LABELS[t]} (${h} ч)` }))}
+              options={itemLessonTypes(item).map((t) => ({ value: t.type, label: `${LESSON_TYPE_LABELS[t.type]} (${t.hours} ч)` }))}
             />
           </Field>
           <Field label="Подгруппа" hint="Для лабораторных и иностранного языка">
@@ -399,20 +480,27 @@ function AssignmentDialog({ groupId, item, assignment, onClose }: { groupId: str
             />
           </Field>
           <Field label="Преподаватель" className="sm:col-span-2" hint="Только те, кто может вести занятия у групп этого уровня образования">
-            <SimpleSelect
-              value={teacherId}
-              onChange={setTeacherId}
-              allowEmpty
-              emptyLabel="Не назначен"
-              options={(teachers.data ?? [])
-                .filter(
-                  (t) =>
-                    t.id === assignment?.teacherId ||
-                    (t.isActive && (t.allowedLevels ?? allowedLevelsOf(t)).includes(group?.program?.specialty?.educationLevel ?? 'SPO')),
-                )
-                .map((t) => ({ value: t.id, label: t.fullName, hint: t.position ?? undefined }))}
-            />
+            <SimpleSelect value={teacherId} onChange={setTeacherId} allowEmpty emptyLabel="Не назначен" options={teacherChoices} />
           </Field>
+          {restTypes.length > 0 && (
+            <div className="space-y-2 rounded-lg border border-dashed p-3 sm:col-span-2">
+              <div className="text-sm font-medium">Остальные виды занятий — другой преподаватель</div>
+              <p className="text-muted-foreground text-xs">
+                Эти часы останутся без назначения. Укажите преподавателя сейчас или позже прямо в таблице нагрузки.
+              </p>
+              {restTypes.map((t) => (
+                <Field key={t.type} label={`${LESSON_TYPE_LABELS[t.type]} (${t.hours} ч)`}>
+                  <SimpleSelect
+                    value={others[t.type] ?? null}
+                    onChange={(v) => setOthers((o) => ({ ...o, [t.type]: v }))}
+                    allowEmpty
+                    emptyLabel="Назначить позже"
+                    options={teacherChoices}
+                  />
+                </Field>
+              ))}
+            </div>
+          )}
           <Field label="Пар в неделю" hint="Пусто — рассчитать автоматически">
             <Input type="number" min={1} max={10} value={weekly} onChange={(e) => setWeekly(e.target.value)} />
           </Field>

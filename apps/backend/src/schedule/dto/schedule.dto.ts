@@ -153,6 +153,13 @@ export class LessonQueryDto {
   @IsOptional()
   @IsIn(['true', 'false'])
   activeOnly?: string;
+
+  @ApiPropertyOptional({
+    description: 'Добавить экзамены и зачёты (вкладка «Экзамены и зачёты» календарного графика) как пары только для чтения',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  withAssessments?: string;
 }
 
 export class CreateLessonDto {

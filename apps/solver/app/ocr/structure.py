@@ -46,7 +46,7 @@ CODE_TYPES = {
     "Д": "DIPLOMA_PREPARATION",
     "Г": "FINAL_ATTESTATION",
     "*": "HOLIDAY",
-    "С": "OTHER",
+    "С": "SELF_STUDY",
 }
 # Коды графика, которые сохраняются у заочной формы вне сессий
 KEEP_OUTSIDE_SESSIONS = {"К", "У", "П", "Пд", "Д", "Г", "*", "="}
