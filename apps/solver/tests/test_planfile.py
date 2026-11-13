@@ -393,5 +393,5 @@ def test_plx_unknown_activity_code_is_self_study(tmp_path: Path) -> None:
     days = result["warningCells"][warning]
     assert len(days) == 12
     assert days[0] == {"course": 1, "date": "2026-09-21"}
-    other = next(p for p in result["periods"] if p["type"] == "OTHER")
+    other = next(p for p in result["periods"] if p["type"] == "SELF_STUDY")
     assert (other["startDate"], other["endDate"]) == ("2026-09-21", "2026-10-03")

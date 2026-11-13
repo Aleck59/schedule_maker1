@@ -222,7 +222,7 @@ export default function ProgramDetailsPage() {
       </Button>
       <PageHeader
         title={
-          <span className="inline-flex items-center gap-1">
+          <span>
             {p.title}
             {canEdit && (
               <Button
@@ -230,6 +230,7 @@ export default function ProgramDetailsPage() {
                 size="icon"
                 aria-label="Переименовать учебный план"
                 title="Переименовать учебный план"
+                className="ml-1 align-middle"
                 onClick={() => setRenameOpen(true)}
               >
                 <Pencil />
