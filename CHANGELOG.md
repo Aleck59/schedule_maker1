@@ -2,6 +2,12 @@
 
 Формируется автоматически по сообщениям коммитов (Conventional Commits).
 
+## [1.6.7](https://github.com/Aleck59/schedule_maker1/compare/v1.6.6...v1.6.7) (2026-11-13)
+
+### Исправления
+
+* название плана, график как в .plx, два преподавателя по видам занятий, экзамены в расписании 1.6.7 ([#57](https://github.com/Aleck59/schedule_maker1/issues/57)) ([db74fae](https://github.com/Aleck59/schedule_maker1/commit/db74fae864ca53f27f95c60d0b58b37552bef2a6))
+
 ## [1.6.6](https://github.com/Aleck59/schedule_maker1/compare/v1.6.5...v1.6.6) (2026-11-08)
 
 ### Исправления
