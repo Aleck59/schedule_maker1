@@ -260,16 +260,20 @@ export class CalendarService {
           for (const e of dayEvents) {
             if (e.eventType !== CalendarEventType.HOLIDAY) topRank = Math.max(topRank, scopeRank(e));
           }
-          const top = dayEvents.filter((e) => e.eventType !== CalendarEventType.HOLIDAY && scopeRank(e) === topRank);
+          const top = dayEvents.filter(
+            (e) => e.eventType !== CalendarEventType.HOLIDAY && scopeRank(e) === topRank,
+          );
           const holiday = dayEvents.some((e) => e.eventType === CalendarEventType.HOLIDAY);
           const special = top.find((e) => e.eventType !== CalendarEventType.THEORETICAL_TRAINING);
-          let type: CalendarEventType | null = special?.eventType ?? (top.length ? CalendarEventType.THEORETICAL_TRAINING : null);
+          let type: CalendarEventType | null =
+            special?.eventType ?? (top.length ? CalendarEventType.THEORETICAL_TRAINING : null);
           let implicit = false;
           if (!type && inSemester(d)) {
             type = CalendarEventType.THEORETICAL_TRAINING;
             implicit = true;
           }
-          if (holiday && (!type || type === CalendarEventType.THEORETICAL_TRAINING)) type = CalendarEventType.HOLIDAY;
+          if (holiday && (!type || type === CalendarEventType.THEORETICAL_TRAINING))
+            type = CalendarEventType.HOLIDAY;
           return { dayEvents, type, implicit, holiday };
         };
         const counts = new Map<CalendarEventType, number>();
@@ -615,7 +619,10 @@ export class CalendarService {
         id,
         group: { program: { organizationId: actor.organizationId } },
         // студент видит только мероприятия своей группы
-        studentGroupId: actor.role === UserRole.STUDENT ? (actor.studentGroupId ?? '00000000-0000-0000-0000-000000000000') : undefined,
+        studentGroupId:
+          actor.role === UserRole.STUDENT
+            ? (actor.studentGroupId ?? '00000000-0000-0000-0000-000000000000')
+            : undefined,
       },
       include: {
         group: { select: { id: true, code: true, educationalProgramId: true } },

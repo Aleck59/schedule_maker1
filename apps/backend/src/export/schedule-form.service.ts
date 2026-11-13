@@ -115,7 +115,12 @@ export class ScheduleFormService {
       lessonType: l.lessonType,
     }));
     // Экзамены и зачёты, назначенные на пару, — в бланке вместе с занятиями
-    for (const a of await loadAssessmentRows(this.prisma, actor.organizationId, monday, addDaysStr(monday, 6))) {
+    for (const a of await loadAssessmentRows(
+      this.prisma,
+      actor.organizationId,
+      monday,
+      addDaysStr(monday, 6),
+    )) {
       rows.push({
         studentGroupId: a.groupId,
         date: a.date,

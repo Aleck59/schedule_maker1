@@ -203,7 +203,8 @@ export class ScheduleLessonsService {
       ],
       take: LESSON_LIST_LIMIT,
     });
-    const list: Array<ReturnType<typeof presentListLesson> | AssessmentLesson> = lessons.map(presentListLesson);
+    const list: Array<ReturnType<typeof presentListLesson> | AssessmentLesson> =
+      lessons.map(presentListLesson);
     if (query.withAssessments === 'true' && (!statuses?.length || statuses.includes(LessonStatus.PLANNED))) {
       const assessments = await this.assessmentLessons(query, actor);
       if (assessments.length) {
