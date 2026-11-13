@@ -77,6 +77,71 @@ interface ImportResult {
   errors: Array<{ row: number; message: string }>;
 }
 
+/** Окно «Переименовать учебный план» (карандаш у заголовка). */
+function RenameProgramDialog({
+  open,
+  onOpenChange,
+  programId,
+  title,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  programId: string;
+  title: string;
+}) {
+  const [value, setValue] = useState(title);
+  useEffect(() => {
+    if (open) setValue(title);
+  }, [open, title]);
+  const save = useApiMutation(
+    (t: string) => api.patch(`/programs/${programId}`, { title: t }),
+    {
+      success: "Название сохранено",
+      invalidate: [["program", programId], ["programs"]],
+      onSuccess: () => onOpenChange(false),
+    },
+  );
+  const trimmed = value.trim();
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Название учебного плана</DialogTitle>
+        </DialogHeader>
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (trimmed && trimmed !== title) save.mutate(trimmed);
+            else if (trimmed) onOpenChange(false);
+          }}
+        >
+          <Field label="Название">
+            <Input
+              autoFocus
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder="09.02.07 ИСиП, набор 2024"
+            />
+          </Field>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
+              Отмена
+            </Button>
+            <Button type="submit" disabled={!trimmed || save.isPending}>
+              {save.isPending && <Spinner />} Сохранить
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /** Типы элементов, для которых часы ставятся в расписание не автоматически */
 const NOT_SCHEDULED: CurriculumItemType[] = [
   "INDUSTRIAL_PRACTICE",
@@ -103,6 +168,7 @@ export default function ProgramDetailsPage() {
   const [newItem, setNewItem] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [editSemester, setEditSemester] = useState<Semester | null>(null);
+  const [renameOpen, setRenameOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const importPlan = useApiMutation(
@@ -155,7 +221,23 @@ export default function ProgramDetailsPage() {
         </Link>
       </Button>
       <PageHeader
-        title={p.title}
+        title={
+          <span>
+            {p.title}
+            {canEdit && (
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Переименовать учебный план"
+                title="Переименовать учебный план"
+                className="ml-1 align-middle"
+                onClick={() => setRenameOpen(true)}
+              >
+                <Pencil />
+              </Button>
+            )}
+          </span>
+        }
         description={
           <>
             {p.specialty.code} {p.specialty.name} · квалификация «
@@ -265,6 +347,13 @@ export default function ProgramDetailsPage() {
             )}
           </>
         }
+      />
+
+      <RenameProgramDialog
+        open={renameOpen}
+        onOpenChange={setRenameOpen}
+        programId={p.id}
+        title={p.title}
       />
 
       {importResult && (

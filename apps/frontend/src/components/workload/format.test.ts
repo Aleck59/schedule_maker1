@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Assignment, SemesterItem } from '@/lib/types';
-import { contactHours, featuresText, hoursText, isDefaultLessons, lessonsText } from './format';
+import { contactHours, featuresText, hoursText, isDefaultLessons, lessonsText, uncoveredTypes } from './format';
 
 const item = (over: Partial<SemesterItem> = {}) =>
   ({
@@ -38,5 +38,13 @@ describe('строки таблицы нагрузки', () => {
         assignment({ weeklyLessonTarget: 2, streamKey: 'ИСП-24', preferredClassroom: { id: 'r', code: '2-15', name: 'Лаб' }, allowHoursExcess: true }),
       ),
     ).toBe('2 пары/нед · поток ИСП-24 · ауд. 2-15 · превышение разрешено');
+  });
+
+  it('непокрытые виды занятий: «все виды» покрывает всё, иначе каждый вид отдельно', () => {
+    const i = item({ consultationHours: 0 });
+    expect(uncoveredTypes(i, [])).toEqual([]);
+    expect(uncoveredTypes(i, [assignment()])).toEqual([]);
+    expect(uncoveredTypes(i, [assignment({ lessonType: 'PRACTICAL' })])).toEqual([{ type: 'LECTURE', hours: 18 }]);
+    expect(uncoveredTypes(i, [assignment({ lessonType: 'PRACTICAL' }), assignment({ lessonType: 'LECTURE' })])).toEqual([]);
   });
 });

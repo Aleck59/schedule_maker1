@@ -14,7 +14,7 @@ import { usePeriods } from '@/hooks/use-reference';
 import { downloadFile, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { addDays, formatDate, formatDateLong, isoWeekday, today, weekStart, weekdayName } from '@/lib/format';
-import { LESSON_STATUS_LABELS, LESSON_TYPE_LABELS } from '@/lib/labels';
+import { LESSON_STATUS_LABELS, ASSESSMENT_MARK, LESSON_TYPE_LABELS } from '@/lib/labels';
 import { useApi } from '@/lib/query';
 import type { Lesson } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -95,7 +95,7 @@ export default function MySchedulePage() {
 function DayList({ filter, isTeacher }: { filter: { teacherId?: string; groupId?: string }; isTeacher: boolean }) {
   const from = today();
   const to = addDays(weekStart(from), 13);
-  const lessons = useApi<Lesson[]>(['lessons', 'my-list', filter, from], '/schedule-lessons', { ...filter, from, to });
+  const lessons = useApi<Lesson[]>(['lessons', 'my-list', filter, from], '/schedule-lessons', { ...filter, from, to, withAssessments: 'true' });
   const [lessonId, setLessonId] = useState<string | null>(null);
   if (lessons.isLoading) return <LoadingState rows={6} />;
   if (lessons.error) return <ErrorState error={lessons.error} onRetry={() => lessons.refetch()} />;
@@ -132,7 +132,11 @@ function DayList({ filter, isTeacher }: { filter: { teacherId?: string; groupId?
                   <div className="min-w-0 flex-1">
                     <div className={cn('text-sm font-medium', l.status === 'CANCELLED' && 'line-through')}>{l.semesterItem.curriculumItem.name}</div>
                     <div className="text-muted-foreground text-xs">
-                      {LESSON_TYPE_LABELS[l.lessonType]}
+                      {l.assessment ? (
+                        <b className="text-rose-600 dark:text-rose-300">{ASSESSMENT_MARK[l.assessment.controlForm] ?? 'Контроль'}</b>
+                      ) : (
+                        LESSON_TYPE_LABELS[l.lessonType]
+                      )}
                       {l.subgroupNumber ? ` · подгруппа ${l.subgroupNumber}` : ''} · ауд. {l.classroom?.code ?? '—'} ·{' '}
                       {isTeacher ? l.studentGroup.code : (l.teacher?.fullName ?? 'преподаватель не назначен')}
                       {l.academicHours === 1 && ' · 1 ак. ч (неполная пара)'}

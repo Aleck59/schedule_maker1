@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ControlForm } from '@prisma/client';
 import * as path from 'path';
+import { assessmentMark } from '../calendar/assessment-rows';
 import { addDaysStr, eachDay, formatDateRu, isoWeekday, weekStart, weekdayName } from '../common/utils/dates';
 import { LESSON_STATUS_LABELS, LESSON_TYPE_SHORT } from '../common/utils/labels';
 import { ReportTable } from '../reports/reports.service';
@@ -20,6 +22,8 @@ export interface PdfLesson {
   teacher: { fullName: string } | null;
   classroom: { code: string } | null;
   academicHours: number;
+  /** Экзамен или зачёт из редактора экзаменов (занятие только для чтения) */
+  assessment?: { controlForm: ControlForm };
 }
 
 type Content = Record<string, unknown> | string | Array<unknown>;
@@ -174,7 +178,7 @@ export class PdfService {
     const lines: unknown[] = [
       { text: l.semesterItem.curriculumItem.name, bold: true, decoration, fontSize: 7.5 },
       {
-        text: `${LESSON_TYPE_SHORT[l.lessonType] ?? ''}${mode === 'group' && l.subgroupNumber ? ` · п/г ${l.subgroupNumber}` : ''}${
+        text: `${l.assessment ? assessmentMark(l.assessment.controlForm) : (LESSON_TYPE_SHORT[l.lessonType] ?? '')}${mode === 'group' && l.subgroupNumber ? ` · п/г ${l.subgroupNumber}` : ''}${
           l.academicHours === 1 ? ' · 1 ч' : ''
         }`,
         fontSize: 7,

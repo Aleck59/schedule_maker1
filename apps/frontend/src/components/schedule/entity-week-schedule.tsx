@@ -33,7 +33,12 @@ export function EntityWeekSchedule({
   const settings = useSettings();
   const [week, setWeek] = useState(initialWeek ?? weekStart(today()));
   const [lessonId, setLessonId] = useState<string | null>(null);
-  const lessons = useApi<Lesson[]>(['lessons', 'entity', filter, week], '/schedule-lessons', { ...filter, from: week, to: addDays(week, 6) });
+  const lessons = useApi<Lesson[]>(['lessons', 'entity', filter, week], '/schedule-lessons', {
+    ...filter,
+    from: week,
+    to: addDays(week, 6),
+    withAssessments: 'true',
+  });
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">

@@ -7,7 +7,9 @@ import {
 } from '@nestjs/common';
 import {
   ConductedStatus,
+  ControlForm,
   LessonStatus,
+  LessonType,
   MakeupTaskStatus,
   NotificationType,
   Prisma,
@@ -118,6 +120,41 @@ export function presentLesson(l: LessonWithRelations) {
   };
 }
 
+/** Экзамен или зачёт в сетке расписания: занятие только для чтения с пометкой assessment */
+export interface AssessmentLesson {
+  id: string;
+  schedulePeriodId: string | null;
+  date: string;
+  weekday: number;
+  lessonNumber: number;
+  startTime: string;
+  endTime: string;
+  studentGroupId: string;
+  subgroupNumber: null;
+  semesterCurriculumItemId: string;
+  teacherId: string | null;
+  classroomId: string | null;
+  lessonType: LessonType;
+  status: LessonStatus;
+  academicHours: number;
+  originalLessonId: null;
+  streamKey: null;
+  isManual: boolean;
+  isLocked: boolean;
+  allowHoursExcess: boolean;
+  topic: null;
+  notes: string | null;
+  studentGroup: { id: string; code: string; studentCount: number };
+  semesterItem: ReturnType<typeof presentListLesson>['semesterItem'];
+  teacher: { id: string; fullName: string } | null;
+  classroom: ReturnType<typeof presentListLesson>['classroom'];
+  conducted: null;
+  originalLesson: null;
+  derivedLessons: never[];
+  substitution: null;
+  assessment: { id: string; controlForm: ControlForm };
+}
+
 const EDITOR: UserRole[] = [UserRole.ADMIN, UserRole.DISPATCHER];
 
 @Injectable()
@@ -166,7 +203,107 @@ export class ScheduleLessonsService {
       ],
       take: LESSON_LIST_LIMIT,
     });
-    return lessons.map(presentListLesson);
+    const list: Array<ReturnType<typeof presentListLesson> | AssessmentLesson> =
+      lessons.map(presentListLesson);
+    if (query.withAssessments === 'true' && (!statuses?.length || statuses.includes(LessonStatus.PLANNED))) {
+      const assessments = await this.assessmentLessons(query, actor);
+      if (assessments.length) {
+        list.push(...assessments);
+        list.sort(
+          (a, b) =>
+            a.date.localeCompare(b.date) ||
+            a.lessonNumber - b.lessonNumber ||
+            a.studentGroup.code.localeCompare(b.studentGroup.code),
+        );
+      }
+    }
+    return list;
+  }
+
+  /**
+   * Экзамены и зачёты, назначенные на пару, в виде занятий только для чтения: в сетке расписания
+   * они видны вместе с обычными парами. В часы и нагрузку не входят, правятся в редакторе экзаменов.
+   */
+  private async assessmentLessons(query: LessonQueryDto, actor: AuthUser): Promise<AssessmentLesson[]> {
+    let semesterId: string | undefined;
+    let periodFrom: string | undefined;
+    let periodTo: string | undefined;
+    if (query.periodId) {
+      const period = await this.prisma.schedulePeriod.findFirst({
+        where: { id: query.periodId, organizationId: actor.organizationId },
+        select: { semesterId: true, startDate: true, endDate: true },
+      });
+      if (!period) return [];
+      semesterId = period.semesterId;
+      periodFrom = toDateStr(period.startDate);
+      periodTo = toDateStr(period.endDate);
+    }
+    const from = [query.from, periodFrom].filter(Boolean).sort().at(-1);
+    const to = [query.to, periodTo].filter(Boolean).sort()[0];
+    let groupId = query.groupId || undefined;
+    if (actor.role === UserRole.STUDENT) {
+      if (!actor.studentGroupId || (groupId && groupId !== actor.studentGroupId)) return [];
+      groupId = actor.studentGroupId;
+    }
+    const events = await this.prisma.assessmentEvent.findMany({
+      where: {
+        group: { program: { organizationId: actor.organizationId } },
+        studentGroupId: groupId,
+        teacherId: query.teacherId || undefined,
+        classroomId: query.classroomId || undefined,
+        semesterCurriculumItemId: query.semesterItemId || undefined,
+        semesterItem: semesterId ? { semesterId } : undefined,
+        lessonNumber: { not: null },
+        date: { gte: from ? parseDate(from) : undefined, lte: to ? parseDate(to) : undefined },
+      },
+      include: {
+        group: { select: LESSON_INCLUDE.studentGroup.select },
+        semesterItem: { select: LESSON_INCLUDE.semesterItem.select },
+        teacher: { select: LESSON_INCLUDE.teacher.select },
+        classroom: { select: LESSON_INCLUDE.classroom.select },
+      },
+      orderBy: [{ date: 'asc' }, { lessonNumber: 'asc' }],
+      take: 5000,
+    });
+    if (events.length === 0) return [];
+    const settings = await this.settings.getEffective(actor.organizationId);
+    return events.map((e) => {
+      const date = toDateStr(e.date);
+      const time = this.settings.lessonTime(settings, e.lessonNumber!);
+      return {
+        id: `assessment-${e.id}`,
+        schedulePeriodId: query.periodId ?? null,
+        date,
+        weekday: isoWeekday(date),
+        lessonNumber: e.lessonNumber!,
+        startTime: time.startTime,
+        endTime: time.endTime,
+        studentGroupId: e.studentGroupId,
+        subgroupNumber: null,
+        semesterCurriculumItemId: e.semesterCurriculumItemId,
+        teacherId: e.teacherId,
+        classroomId: e.classroomId,
+        lessonType: LessonType.OTHER,
+        status: LessonStatus.PLANNED,
+        academicHours: 0,
+        originalLessonId: null,
+        streamKey: null,
+        isManual: true,
+        isLocked: true,
+        allowHoursExcess: false,
+        topic: null,
+        notes: e.notes,
+        studentGroup: e.group,
+        semesterItem: e.semesterItem,
+        teacher: e.teacher,
+        classroom: e.classroom,
+        conducted: null,
+        originalLesson: null,
+        derivedLessons: [],
+        substitution: null,
+        assessment: { id: e.id, controlForm: e.controlForm },
+      };
+    });
   }
 
   private applyRoleScope(where: Prisma.ScheduleLessonWhereInput, actor: AuthUser) {

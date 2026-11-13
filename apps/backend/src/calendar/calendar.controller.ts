@@ -133,6 +133,14 @@ export class CalendarController {
     return this.calendar.assessmentBoard(semesterId, user);
   }
 
+  @Get('assessment-events/:id')
+  @CacheResponse(120)
+  @Roles(...ALL_ROLES)
+  @ApiOperation({ summary: 'Контрольное мероприятие (карточка в сетке расписания)' })
+  getAssessment(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    return this.calendar.getAssessment(id, user);
+  }
+
   @Patch('assessment-events/:id')
   @Roles(...EDITOR_ROLES)
   @ApiOperation({ summary: 'Перенести или изменить контрольное мероприятие' })

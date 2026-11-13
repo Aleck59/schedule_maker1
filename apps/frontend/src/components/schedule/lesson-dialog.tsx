@@ -12,6 +12,7 @@ import {
   Wand2,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { AssessmentInfoDialog } from './assessment-info-dialog';
 import { toast } from 'sonner';
 import { Confirm } from '@/components/common/confirm';
 import { Field } from '@/components/common/field';
@@ -99,7 +100,28 @@ function lessonOptions(count: number) {
   return Array.from({ length: count }, (_, i) => ({ value: String(i + 1), label: `${i + 1} пара` }));
 }
 
-export function LessonDialog({
+/** Окно пары; для экзамена или зачёта в сетке (id вида assessment-<id>) — карточка мероприятия */
+export function LessonDialog(props: {
+  lessonId: string | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onChanged?: () => void;
+}) {
+  if (props.lessonId?.startsWith(ASSESSMENT_PREFIX)) {
+    return (
+      <AssessmentInfoDialog
+        assessmentId={props.lessonId.slice(ASSESSMENT_PREFIX.length)}
+        open={props.open}
+        onOpenChange={props.onOpenChange}
+      />
+    );
+  }
+  return <LessonDetailsDialog {...props} />;
+}
+
+const ASSESSMENT_PREFIX = 'assessment-';
+
+function LessonDetailsDialog({
   lessonId,
   open,
   onOpenChange,

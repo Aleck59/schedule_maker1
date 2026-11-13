@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { EducationLevel, LessonStatus, Prisma, SchedulePeriodStatus } from '@prisma/client';
 import ExcelJS from 'exceljs';
+import { loadAssessmentRows } from '../calendar/assessment-rows';
 import { AuthUser } from '../common/types/auth-user';
 import { addDaysStr, eachDay, isoWeekday, parseDate, toDateStr, weekStart } from '../common/utils/dates';
 import { STUDY_FORM_LABELS } from '../common/utils/labels';
@@ -113,6 +114,24 @@ export class ScheduleFormService {
       classroom: l.classroom?.code ?? null,
       lessonType: l.lessonType,
     }));
+    // Экзамены и зачёты, назначенные на пару, — в бланке вместе с занятиями
+    for (const a of await loadAssessmentRows(
+      this.prisma,
+      actor.organizationId,
+      monday,
+      addDaysStr(monday, 6),
+    )) {
+      rows.push({
+        studentGroupId: a.groupId,
+        date: a.date,
+        lessonNumber: a.lessonNumber,
+        subgroupNumber: null,
+        itemName: a.subject,
+        teacherName: a.teacher,
+        classroom: a.room,
+        lessonType: 'OTHER',
+      });
+    }
     return this.assemble(actor, settings, days, rows, range);
   }
 

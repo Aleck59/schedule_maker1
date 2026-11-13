@@ -308,9 +308,12 @@ export default function SchedulePage() {
       classroomId: view === "classroom" ? (entityId ?? undefined) : undefined,
       from: range.from,
       to: range.to,
+      // экзамены и зачёты из календарного графика — в сетке вместе с парами
+      withAssessments: "true",
     },
   );
   const lessons = lessonQuery.data ?? [];
+  const lessonCount = lessons.filter((l) => !l.assessment).length;
 
   const events = useApi<CalendarEvent[]>(
     ["calendar-events", range.from, range.to, period?.semester.program?.id],
@@ -827,7 +830,7 @@ export default function SchedulePage() {
           ctx={ctx}
           onClose={() => setCtx(null)}
           selected={selected}
-          visibleIds={lessons.map((l) => l.id)}
+          visibleIds={lessons.filter((l) => !l.assessment).map((l) => l.id)}
           pending={bulk.isPending}
           onOpenLesson={(id) => setLessonId(id)}
           onSelect={setSelected}
@@ -936,7 +939,7 @@ export default function SchedulePage() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <LessonTypeLegend />
         <div className="text-muted-foreground text-xs">
-          Занятий на экране: {lessons.length}
+          Занятий на экране: {lessonCount}
           {editable &&
             view !== "month" &&
             " · перетащите карточку, чтобы перенести занятие; правый клик — массовое редактирование"}

@@ -65,6 +65,7 @@ export const CALENDAR_EVENT_LABELS: Record<string, string> = {
   DEMO_EXAM: 'Демонстрационный экзамен',
   REATTESTATION: 'Повторная аттестация',
   HOLIDAY: 'Праздничный день',
+  SELF_STUDY: 'Самостоятельная работа',
   OTHER: 'Прочее',
 };
 
@@ -83,6 +84,7 @@ export const CALENDAR_EVENT_CODES: Record<string, string> = {
   DEMO_EXAM: 'ДЭ',
   REATTESTATION: 'ПА',
   HOLIDAY: 'В',
+  SELF_STUDY: 'С',
   OTHER: '*',
 };
 

@@ -41,3 +41,28 @@ export function featuresText(a: Assignment): string {
 export function isDefaultLessons(a: Pick<Assignment, 'lessonType' | 'subgroupNumber'>): boolean {
   return !a.lessonType && !a.subgroupNumber;
 }
+
+/** Виды занятий дисциплины с часами (практика — только если проходит в колледже) */
+export function itemLessonTypes(item: SemesterItem): Array<{ type: string; hours: number }> {
+  const all: Array<[string, number]> = [
+    ['LECTURE', item.lectureHours],
+    ['PRACTICAL', item.practicalHours],
+    ['LABORATORY', item.laboratoryHours],
+    ['CONSULTATION', item.consultationHours],
+    ['PRACTICE', item.practiceAtCollege ? item.practiceHours : 0],
+  ];
+  return all.filter(([, h]) => h > 0).map(([type, hours]) => ({ type, hours }));
+}
+
+/**
+ * Виды занятий, которые не покрыты ни одним назначением: назначение «все виды» покрывает всё,
+ * иначе каждый вид нужно назначить отдельно (например, лекции — одному преподавателю, практику — другому).
+ */
+export function uncoveredTypes(
+  item: SemesterItem,
+  list: Array<Pick<Assignment, 'lessonType'>>,
+): Array<{ type: string; hours: number }> {
+  if (list.length === 0 || list.some((a) => !a.lessonType)) return [];
+  const covered = new Set(list.map((a) => a.lessonType));
+  return itemLessonTypes(item).filter((t) => !covered.has(t.type as Assignment['lessonType']));
+}

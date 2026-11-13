@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import ruLocale from '@fullcalendar/core/locales/ru';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import FullCalendar from '@fullcalendar/react';
-import { LESSON_TYPE_SHORT } from '@/lib/labels';
+import { ASSESSMENT_MARK, LESSON_TYPE_SHORT } from '@/lib/labels';
 import type { Lesson } from '@/lib/types';
 
 const TYPE_COLOR: Record<string, string> = {
@@ -34,8 +34,18 @@ export function MonthView({
         id: l.id,
         start: `${l.date}T${l.startTime}`,
         end: `${l.date}T${l.endTime}`,
-        title: `${l.lessonNumber} · ${showGroup ? `${l.studentGroup.code} ` : ''}${l.semesterItem.curriculumItem.name} (${LESSON_TYPE_SHORT[l.lessonType]})`,
-        backgroundColor: l.status === 'CANCELLED' ? '#ef4444' : l.status === 'MOVED' ? '#94a3b8' : TYPE_COLOR[l.lessonType],
+        title: `${l.lessonNumber} · ${showGroup ? `${l.studentGroup.code} ` : ''}${l.semesterItem.curriculumItem.name} (${
+          l.assessment ? (ASSESSMENT_MARK[l.assessment.controlForm] ?? 'контроль').toLowerCase() : LESSON_TYPE_SHORT[l.lessonType]
+        })`,
+        backgroundColor: l.assessment
+          ? ['EXAM', 'QUALIFICATION_EXAM'].includes(l.assessment.controlForm)
+            ? '#e11d48'
+            : '#0284c7'
+          : l.status === 'CANCELLED'
+            ? '#ef4444'
+            : l.status === 'MOVED'
+              ? '#94a3b8'
+              : TYPE_COLOR[l.lessonType],
         textColor: '#fff',
         classNames: l.status === 'CANCELLED' || l.status === 'MOVED' ? ['line-through', 'opacity-70'] : [],
         extendedProps: { lesson: l },
