@@ -134,13 +134,13 @@ export default function ReportFormsPage() {
               <div className="mt-3 flex items-center justify-between gap-2">
                 <span className="text-muted-foreground text-xs">Изменена {formatDate(f.updatedAt.slice(0, 10))}</span>
                 <div className="flex gap-1">
-                  <Button variant="ghost" size="icon-sm" asChild title={canEdit ? 'Открыть редактор' : 'Открыть'}>
+                  <Button variant="ghost" size="icon-sm" asChild aria-label={canEdit ? 'Открыть редактор' : 'Открыть'} title={canEdit ? 'Открыть редактор' : 'Открыть'}>
                     <Link to={`/reports/forms/${f.id}`}>{canEdit ? <Pencil /> : <FileSpreadsheet />}</Link>
                   </Button>
                   {canEdit && (
                     <Confirm
                       trigger={
-                        <Button variant="ghost" size="icon-sm" title="Удалить" className="text-destructive">
+                        <Button variant="ghost" size="icon-sm" aria-label="Удалить форму" title="Удалить форму" className="text-destructive">
                           <Trash2 />
                         </Button>
                       }

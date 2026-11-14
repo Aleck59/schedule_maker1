@@ -9,6 +9,7 @@ import { ClassroomsModule } from './classrooms/classrooms.module';
 import { CurriculumScansModule } from './curriculum-scans/curriculum-scans.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { EngineModule } from './engine/engine.module';
+import { EventsModule } from './events/events.module';
 import { ExportModule } from './export/export.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -55,6 +56,7 @@ import { ValidationModule } from './validation/validation.module';
     ClassroomsModule,
     AssignmentsModule,
     CalendarModule,
+    EventsModule,
     HolidaysModule,
     ScheduleModule,
     SchedulerModule,

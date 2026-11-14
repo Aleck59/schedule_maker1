@@ -21,10 +21,13 @@ export function nowTimeInTimezone(timezone: string, now: Date = new Date()): str
 
 const NOTE = 'Проведено: отмечено автоматически по окончании пары';
 
+/** Пар за одну транзакцию */
+const BATCH = 500;
+
 /**
- * Автозачёт часов: пара опубликованного расписания, которая закончилась и по которой никто ничего
- * не отметил (не отменена, не перенесена, нет отметки), считается проведённой — часы засчитываются.
- * Отметку можно снять или изменить вручную, как обычную.
+ * Автозачёт часов: пара расписания (черновик, составленное или опубликованное — кроме архива),
+ * которая закончилась и по которой никто ничего не отметил (не отменена, не перенесена, нет
+ * отметки), считается проведённой — часы засчитываются. Отметку можно снять или изменить вручную.
  */
 @Injectable()
 export class AutoConductService implements OnModuleInit, OnModuleDestroy {
@@ -39,6 +42,11 @@ export class AutoConductService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
+    // Настройку только что включили — засчитать уже закончившиеся пары сразу
+    this.settings.onAutoConductEnabled(async (organizationId) => {
+      const marked = await this.run(organizationId);
+      if (marked > 0) await this.cache.invalidate();
+    });
     const minutes = Number(
       process.env.AUTO_CONDUCT_INTERVAL_MINUTES ?? (process.env.NODE_ENV === 'test' ? 0 : 10),
     );
@@ -81,7 +89,7 @@ export class AutoConductService implements OnModuleInit, OnModuleDestroy {
     const time = nowTimeInTimezone(settings.timezone, now);
     const candidates = await this.prisma.scheduleLesson.findMany({
       where: {
-        schedulePeriod: { organizationId, status: SchedulePeriodStatus.PUBLISHED },
+        schedulePeriod: { organizationId, status: { not: SchedulePeriodStatus.ARCHIVED } },
         status: { in: [LessonStatus.PLANNED, LessonStatus.REPLACED] },
         conducted: null,
         date: { lte: parseDate(today) },
@@ -96,24 +104,27 @@ export class AutoConductService implements OnModuleInit, OnModuleDestroy {
         academicHours: true,
         substitutions: { select: { substituteTeacherId: true }, orderBy: { createdAt: 'desc' }, take: 1 },
       },
-      take: 2000,
+      orderBy: [{ date: 'asc' }, { lessonNumber: 'asc' }],
     });
     const due = candidates.filter((l) => l.date.toISOString().slice(0, 10) < today || l.endTime <= time);
-    for (const l of due) {
-      await this.prisma.$transaction(async (tx) => {
-        // Повторная проверка: за это время пару могли отметить вручную
-        const fresh = await tx.scheduleLesson.findUnique({
-          where: { id: l.id },
-          select: { status: true, conducted: true },
+    let marked = 0;
+    for (let i = 0; i < due.length; i += BATCH) {
+      const chunk = due.slice(i, i + BATCH);
+      marked += await this.prisma.$transaction(async (tx) => {
+        // Повторная проверка: за это время пары могли отметить вручную
+        const fresh = await tx.scheduleLesson.findMany({
+          where: {
+            id: { in: chunk.map((l) => l.id) },
+            conducted: null,
+            status: { in: [LessonStatus.PLANNED, LessonStatus.REPLACED] },
+          },
+          select: { id: true },
         });
-        if (
-          !fresh ||
-          fresh.conducted ||
-          (fresh.status !== LessonStatus.PLANNED && fresh.status !== LessonStatus.REPLACED)
-        )
-          return;
-        await tx.conductedLesson.create({
-          data: {
+        const ok = new Set(fresh.map((f) => f.id));
+        const rows = chunk.filter((l) => ok.has(l.id));
+        if (rows.length === 0) return 0;
+        await tx.conductedLesson.createMany({
+          data: rows.map((l) => ({
             scheduleLessonId: l.id,
             status: ConductedStatus.CONDUCTED,
             actualHours: l.academicHours,
@@ -121,20 +132,21 @@ export class AutoConductService implements OnModuleInit, OnModuleDestroy {
             actualClassroomId: l.classroomId,
             conductedAt: now,
             notes: NOTE,
-          },
+          })),
+          skipDuplicates: true,
         });
-        await tx.scheduleLesson.update({
-          where: { id: l.id },
-          data: {
-            status: l.status === LessonStatus.REPLACED ? LessonStatus.REPLACED : LessonStatus.CONDUCTED,
-          },
+        // Замена остаётся заменой (часы засчитаны), обычная пара становится проведённой
+        await tx.scheduleLesson.updateMany({
+          where: { id: { in: rows.filter((l) => l.status === LessonStatus.PLANNED).map((l) => l.id) } },
+          data: { status: LessonStatus.CONDUCTED },
         });
         await tx.makeupTask.updateMany({
-          where: { resolvedLessonId: l.id },
+          where: { resolvedLessonId: { in: rows.map((l) => l.id) } },
           data: { status: MakeupTaskStatus.DONE },
         });
+        return rows.length;
       });
     }
-    return due.length;
+    return marked;
   }
 }

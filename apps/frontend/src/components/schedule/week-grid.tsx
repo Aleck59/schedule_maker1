@@ -164,7 +164,7 @@ export function ScheduleGrid({
     onMove(lesson, target.date, target.lessonNumber);
   };
 
-  const canDrag = (l: Lesson) => editable && !!onMove && !l.assessment && (l.status === 'PLANNED' || l.status === 'REPLACED');
+  const canDrag = (l: Lesson) => editable && !!onMove && (l.status === 'PLANNED' || l.status === 'REPLACED');
 
   return (
     <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActive(null)}>
@@ -191,7 +191,7 @@ export function ScheduleGrid({
                 <div className="flex flex-col items-center justify-center border-t p-1 text-center">
                   <div className="text-sm font-semibold">{n}</div>
                   {time && (
-                    <div className="text-muted-foreground text-[10px] leading-tight">
+                    <div className="text-muted-foreground text-[11px] leading-tight tabular-nums">
                       {time.startTime}
                       <br />
                       {time.endTime}
@@ -216,7 +216,7 @@ export function ScheduleGrid({
                               lesson={l}
                               mode={mode}
                               onClick={() => onLessonClick(l)}
-                              onContextMenu={onLessonContextMenu && !l.assessment ? (e) => onLessonContextMenu(l, e) : undefined}
+                              onContextMenu={onLessonContextMenu ? (e) => onLessonContextMenu(l, e) : undefined}
                               selected={selectedIds?.has(l.id)}
                               onSelect={onToggleSelect && !l.assessment ? () => onToggleSelect(l.id) : undefined}
                               dragHandleProps={props}

@@ -11,7 +11,7 @@ import {
   weekStart,
 } from '../common/utils/dates';
 import { groupDailyLimit, groupLessonNumbers } from '../common/utils/groups';
-import { fullTimeLimitOnExtramural, weeklyLessonLimit } from '../common/utils/weekly-limits';
+import { formTierOf, weeklyLessonLimit } from '../common/utils/weekly-limits';
 import { rankRooms, roomsForDiscipline, roomTags } from '../common/utils/rooms';
 import { LESSON_TYPE_SHORT } from '../common/utils/labels';
 import { TeacherRules } from '../planning/availability-rules';
@@ -572,6 +572,13 @@ export class ProblemBuilderService {
         taggedRoomIds: taggedRoomIds.filter((id) => roomIds.includes(id)),
         allowedDates,
         isDifficult: s.isDifficult,
+        ...(settings.reduceFullTimeOnExtramural
+          ? {
+              formTier: Math.min(
+                ...group.map((p) => formTierOf(groupById.get(p.stream.groupId)!.program.studyForm)),
+              ),
+            }
+          : {}),
       };
     };
 
@@ -718,18 +725,7 @@ export class ProblemBuilderService {
       }));
 
     const maxGroupLessonsPerDay = params.maxGroupLessonsPerDay ?? settings.maxGroupLessonsPerDay;
-    const weekLimits = permanent
-      ? null
-      : await this.weeklyLimits(
-          organizationId,
-          settings,
-          groupsDb,
-          groupAllowed,
-          demands,
-          days,
-          occupied,
-          warnings,
-        );
+    const weekLimits = permanent ? null : this.weeklyLimits(settings, groupsDb);
     const problem: SolverProblem = {
       version: 1,
       mode: params.mode,
@@ -790,66 +786,15 @@ export class ProblemBuilderService {
     };
   }
 
-  /**
-   * Лимиты пар групп в неделю по формам обучения. Для очных групп в недели, когда у заочников
-   * занятия (уже стоят в расписании или заочные группы участвуют в этой генерации), лимит снижается.
-   */
-  private async weeklyLimits(
-    organizationId: string,
+  /** Лимиты пар групп в неделю по формам обучения */
+  private weeklyLimits(
     settings: EffectiveSettings,
-    groupsDb: Array<{ id: string; code: string; program: { studyForm: StudyForm } }>,
-    groupAllowed: Map<string, string[]>,
-    demands: SolverDemand[],
-    days: SolverDay[],
-    occupied: SolverOccupied[],
-    warnings: string[],
-  ): Promise<Map<string, { maxLessonsPerWeek?: number; weekLimits?: Array<[number, number]> }>> {
-    const result = new Map<string, { maxLessonsPerWeek?: number; weekLimits?: Array<[number, number]> }>();
-    const reduced = fullTimeLimitOnExtramural(settings);
-    const extramuralWeeks = new Set<number>();
-    if (reduced !== null && groupsDb.some((g) => g.program.studyForm === StudyForm.FULL_TIME)) {
-      const weekOf = new Map(days.map((d) => [d.date, d.week]));
-      // Заочные группы, у которых уже есть занятия в интервале (в том числе из других периодов)
-      const extramural = await this.prisma.studentGroup.findMany({
-        where: { program: { organizationId, studyForm: StudyForm.EXTRAMURAL } },
-        select: { id: true },
-      });
-      const extramuralIds = new Set(extramural.map((g) => g.id));
-      for (const o of occupied) {
-        const w = weekOf.get(o.date);
-        if (w !== undefined && o.groupId && extramuralIds.has(o.groupId)) extramuralWeeks.add(w);
-      }
-      // Заочные группы этой генерации: недели, в которые им можно ставить их пары
-      for (const d of demands) {
-        if (d.lessonsRequired <= 0 || !d.groupIds.some((g) => extramuralIds.has(g))) continue;
-        const dates =
-          d.allowedDates ??
-          d.groupIds
-            .map((g) => groupAllowed.get(g) ?? [])
-            .reduce((acc, list) => acc.filter((x) => list.includes(x)));
-        for (const date of dates) {
-          const w = weekOf.get(date);
-          if (w !== undefined) extramuralWeeks.add(w);
-        }
-      }
-    }
+    groupsDb: Array<{ id: string; program: { studyForm: StudyForm } }>,
+  ): Map<string, { maxLessonsPerWeek?: number }> {
+    const result = new Map<string, { maxLessonsPerWeek?: number }>();
     for (const g of groupsDb) {
       const base = weeklyLessonLimit(settings, g.program.studyForm);
-      const entry: { maxLessonsPerWeek?: number; weekLimits?: Array<[number, number]> } = {};
-      if (base !== null) entry.maxLessonsPerWeek = base;
-      if (g.program.studyForm === StudyForm.FULL_TIME && reduced !== null && extramuralWeeks.size > 0) {
-        entry.weekLimits = [...extramuralWeeks].sort((a, b) => a - b).map((w) => [w, reduced]);
-      }
-      if (entry.maxLessonsPerWeek !== undefined || entry.weekLimits) result.set(g.id, entry);
-    }
-    if (
-      reduced !== null &&
-      extramuralWeeks.size > 0 &&
-      groupsDb.some((g) => g.program.studyForm === StudyForm.FULL_TIME)
-    ) {
-      warnings.push(
-        `У заочников занятия на ${extramuralWeeks.size} нед. интервала — очным группам в эти недели ставится не более ${reduced} пар`,
-      );
+      if (base !== null) result.set(g.id, { maxLessonsPerWeek: base });
     }
     return result;
   }

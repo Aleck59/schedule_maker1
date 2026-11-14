@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowRightLeft,
   CalendarClock,
   CalendarPlus,
   CheckSquare,
@@ -80,7 +81,7 @@ import {
   weekStart,
   weekdayName,
 } from "@/lib/format";
-import { CANCELLATION_REASON_LABELS } from "@/lib/labels";
+import { ASSESSMENT_MARK, CANCELLATION_REASON_LABELS } from "@/lib/labels";
 import { useApi, useApiMutation } from "@/lib/query";
 import { cn } from "@/lib/utils";
 import type {
@@ -353,6 +354,16 @@ export default function SchedulePage() {
   };
 
   const move = useLessonMove();
+  const [lessonPanel, setLessonPanel] = useState<"move" | "edit">();
+  const [deleteAssessment, setDeleteAssessment] = useState<Lesson | null>(null);
+  const removeAssessment = useApiMutation(
+    (id: string) => api.delete(`/assessment-events/${id}`),
+    {
+      success: "Мероприятие удалено",
+      invalidate: [["assessments"], ["assessment-board"]],
+      onSuccess: invalidate,
+    },
+  );
 
   const validation = useApi<ValidationIssue[]>(
     ["validation", period?.id],
@@ -709,7 +720,7 @@ export default function SchedulePage() {
       <Card className="py-3">
         <CardContent className="flex flex-wrap items-center gap-2 px-3">
           <Tabs value={view} onValueChange={(v) => setParam({ view: v })}>
-            <TabsList className="h-auto flex-wrap">
+            <TabsList className="h-auto flex-wrap [&>button]:flex-none">
               <TabsTrigger value="group">Группа</TabsTrigger>
               {user?.role !== "STUDENT" && (
                 <TabsTrigger value="teacher">Преподаватель</TabsTrigger>
@@ -755,7 +766,7 @@ export default function SchedulePage() {
                     ? setParam({ day: addDays(day, -1) })
                     : setParam({ week: addDays(week, -7) })
                 }
-                aria-label="Назад"
+                aria-label={view === "day" ? "Предыдущий день" : "Предыдущая неделя"}
               >
                 <ChevronLeft />
               </Button>
@@ -778,7 +789,7 @@ export default function SchedulePage() {
                     ? setParam({ day: addDays(day, 1) })
                     : setParam({ week: addDays(week, 7) })
                 }
-                aria-label="Вперёд"
+                aria-label={view === "day" ? "Следующий день" : "Следующая неделя"}
               >
                 <ChevronRight />
               </Button>
@@ -792,10 +803,10 @@ export default function SchedulePage() {
               </Button>
             </div>
           )}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
             {editable && (
               <Button
-                aria-label="Добавить занятие"
+                className="w-full sm:w-auto"
                 onClick={() => {
                   setCreateInitial({
                     groupId: params.get("groupId") ?? undefined,
@@ -804,8 +815,7 @@ export default function SchedulePage() {
                   setCreateOpen(true);
                 }}
               >
-                <CalendarPlus />{" "}
-                <span className="hidden sm:inline">Добавить занятие</span>
+                <CalendarPlus /> Добавить занятие
               </Button>
             )}
           </div>
@@ -832,7 +842,11 @@ export default function SchedulePage() {
           selected={selected}
           visibleIds={lessons.filter((l) => !l.assessment).map((l) => l.id)}
           pending={bulk.isPending}
-          onOpenLesson={(id) => setLessonId(id)}
+          onOpenLesson={(id, panel) => {
+            setLessonPanel(panel);
+            setLessonId(id);
+          }}
+          onDeleteAssessment={setDeleteAssessment}
           onSelect={setSelected}
           onAction={(ids, action) =>
             action === "delete"
@@ -949,8 +963,31 @@ export default function SchedulePage() {
       <LessonDialog
         lessonId={lessonId}
         open={!!lessonId}
-        onOpenChange={(o) => !o && setLessonId(null)}
+        initialPanel={lessonPanel}
+        onOpenChange={(o) => {
+          if (!o) {
+            setLessonId(null);
+            setLessonPanel(undefined);
+          }
+        }}
         onChanged={invalidate}
+      />
+      <Confirm
+        open={!!deleteAssessment}
+        onOpenChange={(o) => !o && setDeleteAssessment(null)}
+        title={`Удалить ${(deleteAssessment?.assessment && ASSESSMENT_MARK[deleteAssessment.assessment.controlForm]?.toLowerCase()) || "мероприятие"}?`}
+        description={
+          deleteAssessment
+            ? `«${deleteAssessment.semesterItem.curriculumItem.name}», ${deleteAssessment.studentGroup.code}, ${formatDate(deleteAssessment.date)}. Мероприятие будет удалено и из «Экзаменов и зачётов».`
+            : undefined
+        }
+        destructive
+        confirmText="Удалить"
+        onConfirm={() => {
+          if (deleteAssessment?.assessment)
+            removeAssessment.mutate(deleteAssessment.assessment.id);
+          setDeleteAssessment(null);
+        }}
       />
       <CreateLessonDialog
         open={createOpen}
@@ -1104,6 +1141,7 @@ function LessonContextMenu({
   visibleIds,
   pending,
   onOpenLesson,
+  onDeleteAssessment,
   onSelect,
   onAction,
 }: {
@@ -1112,7 +1150,8 @@ function LessonContextMenu({
   selected: Set<string>;
   visibleIds: string[];
   pending: boolean;
-  onOpenLesson: (id: string) => void;
+  onOpenLesson: (id: string, panel?: "move" | "edit") => void;
+  onDeleteAssessment: (lesson: Lesson) => void;
   onSelect: (next: Set<string>) => void;
   onAction: (ids: string[], action: "lock" | "unlock" | "delete") => void;
 }) {
@@ -1145,7 +1184,40 @@ function LessonContextMenu({
         className="w-72"
         onCloseAutoFocus={(e) => e.preventDefault()}
       >
-        {lesson && (
+        {lesson?.assessment && (
+          <>
+            <DropdownMenuLabel className="line-clamp-2 text-xs font-medium">
+              {ASSESSMENT_MARK[lesson.assessment.controlForm] ?? "Контроль"}:{" "}
+              {lesson.semesterItem.curriculumItem.name}
+              <span className="text-muted-foreground block font-normal">
+                {lesson.studentGroup.code} · {formatDate(lesson.date)} ·{" "}
+                {lesson.lessonNumber} пара
+              </span>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => onOpenLesson(lesson.id)}>
+              <FileText /> Открыть
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => onOpenLesson(lesson.id, "move")}
+            >
+              <ArrowRightLeft /> Перенести…
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => onOpenLesson(lesson.id, "edit")}
+            >
+              <Pencil /> Изменить…
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              onSelect={() => onDeleteAssessment(lesson)}
+            >
+              <Trash2 /> Удалить…
+            </DropdownMenuItem>
+          </>
+        )}
+        {lesson && !lesson.assessment && (
           <>
             <DropdownMenuLabel className="line-clamp-2 text-xs font-medium">
               {lesson.semesterItem.curriculumItem.name}

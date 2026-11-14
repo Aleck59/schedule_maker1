@@ -4,8 +4,6 @@ export interface WeeklyLimitSettings {
   maxWeeklyLessonsFullTime: number | null;
   maxWeeklyLessonsPartTime: number | null;
   maxWeeklyLessonsExtramural: number | null;
-  reduceFullTimeOnExtramural: boolean;
-  fullTimeWeeklyOnExtramural: number | null;
 }
 
 /** Максимум пар группы в неделю по форме обучения (настройки организации); null — без ограничения */
@@ -23,13 +21,17 @@ export function weeklyLessonLimit(settings: WeeklyLimitSettings, form: StudyForm
 }
 
 /**
- * Лимит очной группы в неделю, когда у заочников занятия. null — снижение выключено
- * (или не задано). Не превышает обычный лимит очной формы.
+ * Очередь форм обучения при составлении (настройка «приоритет заочников»): в периоды, когда у
+ * заочников занятия, пары ставятся сначала заочникам, затем очно-заочным, затем очным — по
+ * оставшимся свободным слотам. 0 — первыми.
  */
-export function fullTimeLimitOnExtramural(settings: WeeklyLimitSettings): number | null {
-  if (!settings.reduceFullTimeOnExtramural || settings.fullTimeWeeklyOnExtramural == null) return null;
-  const base = settings.maxWeeklyLessonsFullTime;
-  return base == null
-    ? settings.fullTimeWeeklyOnExtramural
-    : Math.min(base, settings.fullTimeWeeklyOnExtramural);
+export function formTierOf(form: StudyForm): number {
+  switch (form) {
+    case StudyForm.EXTRAMURAL:
+      return 0;
+    case StudyForm.PART_TIME:
+      return 1;
+    default:
+      return 2;
+  }
 }

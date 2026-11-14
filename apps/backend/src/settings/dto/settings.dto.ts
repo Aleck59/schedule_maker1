@@ -129,22 +129,11 @@ export class UpdateSettingsDto {
 
   @ApiPropertyOptional({
     description:
-      'В неделю, когда у заочных групп есть занятия, очным группам ставить не более fullTimeWeeklyOnExtramural пар',
+      'Приоритет заочников: при составлении пары ставятся сначала заочным группам, затем очно-заочным, затем очным — по оставшимся свободным слотам',
   })
   @IsOptional()
   @IsBoolean()
   reduceFullTimeOnExtramural?: boolean;
-
-  @ApiPropertyOptional({
-    example: 15,
-    description: 'Очная форма: максимум пар в неделю, когда у заочников занятия',
-  })
-  @IsOptional()
-  @ValidateIf((_o, v) => v !== null)
-  @IsInt()
-  @Min(0)
-  @Max(70)
-  fullTimeWeeklyOnExtramural?: number | null;
 
   @ApiPropertyOptional()
   @IsOptional()

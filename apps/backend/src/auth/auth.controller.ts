@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
-import { Roles } from '../common/decorators/roles.decorator';
+import { ALL_ROLES, Roles } from '../common/decorators/roles.decorator';
 import { AuthUser } from '../common/types/auth-user';
 import { CacheResponse, NoCacheInvalidate } from '../cache/cache.decorators';
 import { AuthService } from './auth.service';
@@ -42,6 +42,7 @@ export class AuthController {
 
   @ApiBearerAuth()
   @Get('me')
+  @Roles(...ALL_ROLES)
   @CacheResponse(60, 'user')
   @ApiOperation({ summary: 'Профиль текущего пользователя' })
   me(@CurrentUser() user: AuthUser) {
@@ -50,6 +51,7 @@ export class AuthController {
 
   @ApiBearerAuth()
   @Post('logout')
+  @Roles(...ALL_ROLES)
   @NoCacheInvalidate()
   @HttpCode(200)
   @ApiOperation({ summary: 'Выход (отзыв токена обновления)' })

@@ -257,6 +257,8 @@ model Organization {
   permanentSchedules PermanentSchedule[]
   reportForms        ReportForm[]
   slowLoads          SlowLoadLog[]
+  reminders          Reminder[]
+  eventDismissals    EventDismissal[]
 
   @@map("organizations")
 }
@@ -288,7 +290,8 @@ model OrganizationSettings {
   maxWeeklyLessonsFullTime   Int?
   maxWeeklyLessonsPartTime   Int?
   maxWeeklyLessonsExtramural Int?
-  /// В неделю, когда у заочных групп есть занятия, очным группам — не более fullTimeWeeklyOnExtramural пар
+  /// Приоритет заочников: при составлении пары ставятся сначала заочным, затем очно-заочным, затем очным группам
+  /// (fullTimeWeeklyOnExtramural с 1.6.8 не используется)
   reduceFullTimeOnExtramural Boolean  @default(false)
   fullTimeWeeklyOnExtramural Int?
   maxTeacherWindowsPerWeek   Int      @default(4)
@@ -360,6 +363,7 @@ model User {
   approvedSubstitutions TeacherSubstitution[]
   generationJobs        ScheduleGenerationJob[]
   slowLoads             SlowLoadLog[]
+  reminders             Reminder[]
 
   @@index([organizationId])
   @@map("users")
@@ -1178,12 +1182,17 @@ model CurriculumScan {
   resultJson     Json?
   /// Учебный план, созданный по скану
   programId      String?
+  /// Пакетная загрузка: общий идентификатор файлов, загруженных одним действием
+  batchId        String?
+  /// Сразу создать учебный план после чтения файла, если данные без ошибок
+  autoApply      Boolean              @default(false)
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, createdAt])
+  @@index([batchId])
   @@map("curriculum_scans")
 }
 
@@ -1300,4 +1309,45 @@ model SlowLoadLog {
 
   @@index([organizationId, createdAt])
   @@map("slow_load_logs")
+}
+
+// ============================================================================
+// События и напоминания
+// ============================================================================
+
+/// Напоминание, добавленное вручную на странице «События»
+model Reminder {
+  id             String    @id @default(uuid())
+  organizationId String
+  title          String
+  notes          String?
+  date           DateTime  @db.Date
+  /// Повторять каждый год в тот же день
+  yearly         Boolean   @default(false)
+  doneAt         DateTime?
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, date])
+  @@map("reminders")
+}
+
+/// Событие, скрытое на странице «События» (навсегда или до даты)
+model EventDismissal {
+  id             String    @id @default(uuid())
+  organizationId String
+  /// Ключ события, например «graduated» или «assessments:2026-12-20»
+  eventKey       String
+  /// Скрыть до этой даты включительно; null — навсегда
+  until          DateTime? @db.Date
+  createdAt      DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, eventKey])
+  @@map("event_dismissals")
 }

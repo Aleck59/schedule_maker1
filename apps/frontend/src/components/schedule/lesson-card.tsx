@@ -44,7 +44,17 @@ export function LessonCard({
   className?: string;
   dragHandleProps?: Record<string, unknown>;
 }) {
-  if (lesson.assessment) return <AssessmentCard lesson={lesson} mode={mode} onClick={onClick} className={className} />;
+  if (lesson.assessment)
+    return (
+      <AssessmentCard
+        lesson={lesson}
+        mode={mode}
+        onClick={onClick}
+        onContextMenu={onContextMenu}
+        className={className}
+        dragHandleProps={dragHandleProps}
+      />
+    );
   const inactive = lesson.status === 'CANCELLED' || lesson.status === 'MOVED';
   const partial = lesson.academicHours === 1;
   const second =
@@ -122,8 +132,22 @@ export function LessonCard({
 
 const EXAM_FORMS = ['EXAM', 'QUALIFICATION_EXAM'];
 
-/** Экзамен или зачёт в сетке: розовый (экзамен) или голубой (зачёт), не перетаскивается */
-function AssessmentCard({ lesson, mode, onClick, className }: { lesson: Lesson; mode: GridMode; onClick?: () => void; className?: string }) {
+/** Экзамен или зачёт в сетке: розовый (экзамен) или голубой (зачёт); переносится и правится как пара */
+function AssessmentCard({
+  lesson,
+  mode,
+  onClick,
+  onContextMenu,
+  className,
+  dragHandleProps,
+}: {
+  lesson: Lesson;
+  mode: GridMode;
+  onClick?: () => void;
+  onContextMenu?: (e: ReactMouseEvent) => void;
+  className?: string;
+  dragHandleProps?: Record<string, unknown>;
+}) {
   const form = lesson.assessment!.controlForm;
   const exam = EXAM_FORMS.includes(form);
   const second =
@@ -134,6 +158,15 @@ function AssessmentCard({ lesson, mode, onClick, className }: { lesson: Lesson; 
       role="button"
       tabIndex={0}
       onClick={onClick}
+      onContextMenu={
+        onContextMenu
+          ? (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onContextMenu(e);
+            }
+          : undefined
+      }
       onKeyDown={(e) => e.key === 'Enter' && onClick?.()}
       title={`${ASSESSMENT_MARK[form] ?? 'Контроль'}: ${lesson.semesterItem.curriculumItem.name}`}
       className={cn(
@@ -143,6 +176,7 @@ function AssessmentCard({ lesson, mode, onClick, className }: { lesson: Lesson; 
           : 'border-sky-300 border-l-sky-500 bg-sky-50 dark:border-sky-800 dark:bg-sky-950/50',
         className,
       )}
+      {...dragHandleProps}
     >
       <div className={cn('flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide', exam ? 'text-rose-700 dark:text-rose-300' : 'text-sky-700 dark:text-sky-300')}>
         <GraduationCap className="size-3" />

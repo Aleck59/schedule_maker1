@@ -153,6 +153,13 @@ export class GroupsService {
     if (dto.subgroupCount && dto.subgroupCount !== before.subgroupCount) {
       await this.syncSubgroupCount(id, dto.subgroupCount, updated.studentCount);
     }
+    // Группа вернулась из архива — её учебный план тоже снова рабочий
+    if (dto.isActive === true && !before.isActive) {
+      await this.prisma.educationalProgram.updateMany({
+        where: { id: updated.educationalProgramId, status: 'ARCHIVED' },
+        data: { status: 'APPROVED' },
+      });
+    }
     await this.audit.log(actor.id, 'UPDATE', 'StudentGroup', id, before, updated);
     return this.get(id, actor);
   }

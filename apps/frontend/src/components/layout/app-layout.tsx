@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   BarChart3,
@@ -6,6 +6,7 @@ import {
   BookOpen,
   Building2,
   CalendarCheck2,
+  CalendarClock,
   CalendarDays,
   CalendarRange,
   Compass,
@@ -68,6 +69,7 @@ const NAV: Array<{ section: string; items: NavItem[] }> = [
     items: [
       { to: '/setup', label: 'Мастер настройки', icon: Compass, roles: EDITORS, color: 'oklch(0.62 0.17 55)' },
       { to: '/', label: 'Главная', icon: LayoutDashboard, roles: ['ADMIN', 'DISPATCHER', 'MANAGER', 'TEACHER', 'STUDENT'], color: 'oklch(0.58 0.2 265)' },
+      { to: '/events', label: 'События', icon: CalendarClock, roles: STAFF, color: 'oklch(0.62 0.19 25)' },
       { to: '/my', label: 'Моё расписание', icon: CalendarCheck2, roles: ['TEACHER', 'STUDENT'], color: 'oklch(0.6 0.17 160)' },
       { to: '/schedule', label: 'Расписание', icon: CalendarDays, roles: [...STAFF, 'TEACHER'], color: 'oklch(0.58 0.2 265)' },
       { to: '/generation', label: 'Составление', icon: Sparkles, roles: EDITORS, color: 'oklch(0.6 0.22 300)' },
@@ -111,12 +113,21 @@ function useTheme() {
     }
   });
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', dark);
+    // Все цвета переключаются одновременно: переходы на время смены темы отключены
+    const root = document.documentElement;
+    root.classList.add('theme-switching');
+    root.classList.toggle('dark', dark);
+    void root.offsetHeight;
+    const frame = requestAnimationFrame(() => root.classList.remove('theme-switching'));
     try {
       localStorage.setItem('sm.theme', dark ? 'dark' : 'light');
     } catch {
       /* ignore */
     }
+    return () => {
+      cancelAnimationFrame(frame);
+      root.classList.remove('theme-switching');
+    };
   }, [dark]);
   return { dark, toggle: () => setDark((d) => !d) };
 }
@@ -132,6 +143,10 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     return { ...group, items };
   });
   const org = user?.organization?.shortName ?? 'Колледж';
+  const isStaff = !!user && STAFF.includes(user.role);
+  const events = useApi<{ attention: number }>(['events', 'attention'], isStaff ? '/events/attention' : null, undefined, {
+    refetchInterval: 300_000,
+  });
   const branding = useBranding();
   return (
     <nav className="flex h-full flex-col">
@@ -141,7 +156,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           iconClassName="size-[18px]"
         />
         <div className="min-w-0">
-          <div className="text-foreground line-clamp-2 text-[15px] leading-tight font-semibold tracking-tight break-words" title={branding.appName}>
+          <div className="text-foreground line-clamp-2 text-[15px] leading-tight font-semibold tracking-tight text-balance break-words" title={branding.appName}>
             {branding.appName}
           </div>
           <div className="text-sidebar-muted truncate text-xs leading-tight" title={org}>
@@ -149,7 +164,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </div>
         </div>
       </div>
-      <div className="flex-1 space-y-5 overflow-y-auto px-3 pb-4 scrollbar-thin">
+      <div className="flex-1 space-y-5 overflow-y-auto overscroll-contain px-3 pb-4 scrollbar-thin">
         {sections.map((group) => {
           if (group.items.length === 0) return null;
           return (
@@ -172,6 +187,14 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                   >
                     <item.icon className="size-4 shrink-0" />
                     <span className="truncate">{item.label}</span>
+                    {item.to === '/events' && (events.data?.attention ?? 0) > 0 && (
+                      <span
+                        className="animate-pop ml-auto rounded-full bg-red-100 px-1.5 text-[10px] font-semibold text-red-700 tabular-nums dark:bg-red-400/15 dark:text-red-200"
+                        title="Событий, требующих действий"
+                      >
+                        {events.data!.attention}
+                      </span>
+                    )}
                     {item.to === '/setup' && setup.data?.next && (
                       <span className="ml-auto rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-700 tabular-nums dark:bg-amber-400/15 dark:text-amber-200">
                         {setup.data.completed}/{setup.data.total}
@@ -200,10 +223,10 @@ function NotificationsBell() {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative" aria-label="Уведомления">
+        <Button variant="ghost" size="icon" className="relative" aria-label={count > 0 ? `Уведомления, непрочитанных: ${count}` : 'Уведомления'}>
           <Bell />
           {count > 0 && (
-            <span className="animate-pop bg-destructive ring-background absolute top-1 right-1 flex min-w-4 ring-2 items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white">
+            <span className="animate-pop bg-destructive ring-background absolute top-1 right-1 flex min-w-4 ring-2 items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white tabular-nums">
               {count > 99 ? '99+' : count}
             </span>
           )}
@@ -218,7 +241,7 @@ function NotificationsBell() {
             </Button>
           )}
         </div>
-        <div className="max-h-96 overflow-y-auto">
+        <div className="max-h-96 overflow-y-auto overscroll-contain">
           {(list.data ?? []).slice(0, 8).map((n) => (
             <div key={n.id} className={cn('hover:bg-muted/50 border-b px-4 py-2.5 text-sm transition-colors last:border-0', !n.isRead && 'bg-primary/5')}>
               <div className="flex items-center justify-between gap-2">
@@ -246,23 +269,53 @@ export function AppLayout() {
   const location = useLocation();
   const { dark, toggle } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const drawer = useRef<HTMLElement>(null);
   useEffect(() => setMobileOpen(false), [location.pathname]);
   useEffect(() => {
     if (!mobileOpen) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMobileOpen(false);
+    // Фокус уходит в открытое меню, Tab не выходит за его пределы, после закрытия — обратно на кнопку «Меню»
+    const trigger = menuButton.current;
+    drawer.current?.querySelector<HTMLElement>('a[href], button')?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileOpen(false);
+      if (e.key !== 'Tab' || !drawer.current) return;
+      const items = drawer.current.querySelectorAll<HTMLElement>('a[href], button:not([disabled])');
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last?.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first?.focus();
+      }
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      trigger?.focus();
+    };
   }, [mobileOpen]);
 
   return (
     <div className="flex min-h-screen">
+      <a href="#main" className="skip-link bg-primary text-primary-foreground shadow-lift rounded-lg px-4 py-2 text-sm font-medium">
+        Перейти к содержимому
+      </a>
       <aside className="bg-sidebar fixed inset-y-0 left-0 z-30 hidden w-60 border-r border-border/70 backdrop-blur-xl lg:block">
         <Sidebar />
       </aside>
       {mobileOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="animate-fade-in absolute inset-0 bg-slate-950/30 backdrop-blur-[3px]" onClick={() => setMobileOpen(false)} />
-          <aside className="animate-drawer bg-card shadow-lift absolute inset-y-0 left-0 w-72 max-w-[85vw]">
+          <aside
+            ref={drawer}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Меню"
+            className="animate-drawer bg-card shadow-lift absolute inset-y-0 left-0 w-72 max-w-[85vw]"
+          >
             <Button
               variant="ghost"
               size="icon"
@@ -278,12 +331,20 @@ export function AppLayout() {
       )}
       <div className="flex min-w-0 flex-1 flex-col lg:pl-60">
         <header className="bg-background/70 sticky top-0 z-20 flex h-14 items-center gap-2 border-b border-border/60 px-4 backdrop-blur-xl md:px-6">
-          <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)} aria-label="Меню">
+          <Button
+            ref={menuButton}
+            variant="ghost"
+            size="icon"
+            className="lg:hidden"
+            onClick={() => setMobileOpen(true)}
+            aria-label="Меню"
+            aria-expanded={mobileOpen}
+          >
             <Menu />
           </Button>
           <div className="text-muted-foreground hidden text-sm md:block">{user?.organization?.name}</div>
           <div className="ml-auto flex items-center gap-1">
-            <Button variant="ghost" size="icon" onClick={toggle} aria-label="Тема оформления">
+            <Button variant="ghost" size="icon" onClick={toggle} aria-label={dark ? 'Включить светлую тему' : 'Включить тёмную тему'} title={dark ? 'Светлая тема' : 'Тёмная тема'}>
               {dark ? <Sun /> : <Moon />}
             </Button>
             <NotificationsBell />
@@ -328,7 +389,7 @@ export function AppLayout() {
             </DropdownMenu>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-[1600px] flex-1 space-y-5 p-4 md:p-6">
+        <main id="main" tabIndex={-1} className="mx-auto w-full max-w-[1600px] flex-1 scroll-mt-14 space-y-5 p-4 outline-none md:p-6">
           <GuideBar />
           <div key={location.pathname} className="page-enter">
             <Outlet />

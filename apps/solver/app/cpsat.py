@@ -432,7 +432,8 @@ class CpSatScheduler:
         candidates: dict[tuple[int, str, int], list[str]] = {}
 
         for i, ds in enumerate(active):
-            reward = PLACE_REWARD * (10 + ds.d.priority)
+            # Заочники (ярус 0) и очно-заочные (1) — вперёд очных: их пары ценнее в спорных слотах
+            reward = PLACE_REWARD * (10 + ds.d.priority + 10 * (2 - ds.d.form_tier))
             m = ds.d.matching_rooms
             fallback = set(ds.d.room_ids[m:]) if m is not None else set()
             for day in days:

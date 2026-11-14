@@ -261,7 +261,7 @@ export default function FullWeekSchedulePage() {
     [periods.data],
   );
   const canDrag = (l: Lesson) =>
-    canEdit && !l.assessment && !archived.has(l.schedulePeriodId) && (l.status === 'PLANNED' || l.status === 'REPLACED');
+    canEdit && !(l.schedulePeriodId && archived.has(l.schedulePeriodId)) && (l.status === 'PLANNED' || l.status === 'REPLACED');
 
   const move = useLessonMove();
   const invalidate = () => {
@@ -404,7 +404,7 @@ export default function FullWeekSchedulePage() {
                           <div className="bg-card sticky left-0 z-10 flex flex-col items-center justify-center border-t p-1 text-center">
                             <div className="text-sm font-semibold">{n}</div>
                             {time && (
-                              <div className="text-muted-foreground text-[10px] leading-tight">
+                              <div className="text-muted-foreground text-[11px] leading-tight tabular-nums">
                                 {time.startTime}
                                 <br />
                                 {time.endTime}

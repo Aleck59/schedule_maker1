@@ -170,7 +170,7 @@ function Editor({ record }: { record: ReportFormRecord }) {
     <div className="space-y-4">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex min-w-0 items-center gap-2">
-          <Button variant="ghost" size="icon" asChild title="К формам отчётов">
+          <Button variant="ghost" size="icon" asChild aria-label="К формам отчётов" title="К формам отчётов">
             <Link to="/reports/forms">
               <ArrowLeft />
             </Link>
