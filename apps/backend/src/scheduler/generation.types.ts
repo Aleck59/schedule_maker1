@@ -9,6 +9,12 @@ export interface GenerationParams {
   lessonsPerDay?: number;
   /** Заменить ранее сгенерированные (не ручные, не закреплённые, не проведённые) занятия */
   replaceExisting?: boolean;
+  /**
+   * Составление на основе текущего расписания: составленные ранее занятия интервала берутся за основу —
+   * остаются на местах, если не нарушают ограничений; накладки и нарушения исправляются,
+   * недостающие пары добавляются, окна сокращаются
+   */
+  improveExisting?: boolean;
   timeLimitSeconds?: number;
   solver?: 'auto' | 'cp-sat' | 'heuristic';
   maxGroupLessonsPerDay?: number;

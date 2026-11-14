@@ -12,6 +12,23 @@ def effective_rate(required: int, available_weeks: int, weekly_rate: float | Non
     return max(required / available_weeks, weekly_rate or 0.0)
 
 
+def weekly_slots(rate: float, required: int) -> tuple[int, bool]:
+    """Пар дисциплины в типовой неделе по темпу (как weeklySlots в backend): целая часть каждую неделю,
+    дробная от ¼ до ¾ — одна пара через неделю, больше ¾ — ещё пара каждую неделю."""
+    if required <= 0 or rate <= 0:
+        return 0, False
+    weekly = int(rate + 1e-9)
+    frac = rate - weekly
+    biweekly = False
+    if frac >= 0.75 - 1e-9:
+        weekly += 1
+    elif frac >= 0.25 - 1e-9:
+        biweekly = True
+    if weekly == 0 and not biweekly:
+        biweekly = True
+    return min(weekly, required), biweekly
+
+
 def cumulative_target_by_days(
     required: int,
     days_up_to: int,

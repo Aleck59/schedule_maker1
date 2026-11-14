@@ -12,8 +12,8 @@ import { AuthUser } from '../common/types/auth-user';
 import { formatDateRu, toDateStr } from '../common/utils/dates';
 import { PrismaService } from '../prisma/prisma.service';
 import { GenerationService } from '../scheduler/generation.service';
-import { solveHeuristicInThread } from '../scheduler/heuristic-thread';
 import { BuiltProblem, ProblemBuilderService } from '../scheduler/problem-builder.service';
+import { SolverClientService } from '../scheduler/solver-client.service';
 import { SolverResult } from '../scheduler/solver.types';
 import { SettingsService } from '../settings/settings.service';
 import {
@@ -37,8 +37,11 @@ type LessonRow = Prisma.PermanentLessonGetPayload<{ include: typeof lessonInclud
 
 /**
  * Постоянное расписание для руководства: типовая неделя (день × пара, числитель/знаменатель),
- * равномерно распределяющая нагрузку семестра. Недоступность, пожелания и лимиты преподавателей
- * не учитываются; запрещены только накладки — преподаватель, группа или аудитория в двух местах сразу.
+ * равномерно распределяющая нагрузку семестра. Учитываются те же ограничения, что в рабочем расписании
+ * (накладки, календарный график и учебные дни групп, пары группы «с–по» и в день, лимит пар в неделю
+ * по форме обучения, частота дисциплины, поздние пары, окна, тип и вместимость аудиторий), кроме
+ * ограничений преподавателей (недоступность, пожелания, лимиты) и аудиторий (недоступность).
+ * Составляется решателем CP-SAT (эвристика — стартовая точка и запасной вариант).
  * Хранится отдельно от рабочего (внутреннего) расписания по датам и никак на него не влияет.
  */
 @Injectable()
@@ -48,6 +51,7 @@ export class PermanentScheduleService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly builder: ProblemBuilderService,
+    private readonly solver: SolverClientService,
     private readonly generation: GenerationService,
     private readonly settings: SettingsService,
     private readonly audit: AuditService,
@@ -243,10 +247,11 @@ export class PermanentScheduleService implements OnModuleInit {
       const settings = await this.settings.getEffective(actor.organizationId);
       const built = await this.builder.buildPermanent(actor.organizationId, semesters, {
         groupIds: included.map((g) => g.groupId),
-        maximizePlacement: dto.maximizePlacement !== false,
+        // Как в «Составлении»: по умолчанию ограничения не ослабляются и поздние пары запрещены
+        maximizePlacement: dto.maximizePlacement === true,
         avoidWindows: dto.avoidWindows !== false,
-        allowLateLessons: dto.allowLateLessons !== false,
-        // Учитываются только пожелания по номерам пар, недоступность и лимиты — нет
+        allowLateLessons: dto.allowLateLessons === true,
+        // Пожелания, недоступность и лимиты преподавателей в постоянном расписании не учитываются
         respectTeacherPreferences: false,
         timeLimitSeconds: dto.timeLimitSeconds ?? Math.min(60, settings.solverTimeLimitSeconds),
       });
@@ -255,15 +260,17 @@ export class PermanentScheduleService implements OnModuleInit {
         message: `Составление типовой недели: ${built.problem.demands.length} дисциплин, ${built.groupIds.length} групп`,
       });
       let last = 0;
-      const result = await solveHeuristicInThread(built.problem, {
-        templateOnly: true,
-        onProgress: (fraction, message) => {
+      const result = await this.solver.solveTemplate(
+        built.problem,
+        dto.solver ?? 'auto',
+        (fraction, message) => {
           if (Date.now() - last < 1000) return;
           last = Date.now();
           void setState({ progress: Math.round(20 + fraction * 70), message }).catch(() => undefined);
         },
-      });
+      );
       const { rows, summary } = this.compose(built, result, semesters);
+      if (result.fallbackReason) summary.warnings.unshift(result.fallbackReason);
       await this.prisma.$transaction([
         this.prisma.permanentLesson.deleteMany({ where: { permanentScheduleId: id } }),
         this.prisma.permanentLesson.createMany({
@@ -345,7 +352,9 @@ export class PermanentScheduleService implements OnModuleInit {
         lessonsPerWeek: placedByDemand.get(u.demandId) ?? 0,
         missingPerWeek: u.count,
         reason:
-          'В типовой неделе не нашлось свободного времени: у группы, преподавателя или подходящих аудиторий все пары заняты',
+          'В типовой неделе не нашлось подходящего времени: у группы заняты все допустимые пары (с учётом лимитов ' +
+          'пар в день и в неделю, частоты дисциплины и запрета поздних пар) либо в это время занят преподаватель ' +
+          'или подходящие аудитории',
       });
     }
     // Не вошли в сетку ещё до составления: нет преподавателя, нет аудиторий нужного типа и т. п.

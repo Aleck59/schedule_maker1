@@ -65,6 +65,7 @@ const schema = z
     respectTeacherPreferences: z.boolean(),
     maximizePlacement: z.boolean(),
     replaceExisting: z.boolean(),
+    improveExisting: z.boolean(),
   })
   .refine((v) => !v.dateFrom || !v.dateTo || v.dateFrom <= v.dateTo, {
     message: 'Дата начала не может быть позже даты окончания',
@@ -165,6 +166,7 @@ export default function GenerationPage() {
       respectTeacherPreferences: true,
       maximizePlacement: false,
       replaceExisting: true,
+      improveExisting: false,
     },
   });
   const s = settings.data?.settings;
@@ -357,6 +359,28 @@ export default function GenerationPage() {
                     оставшимся неделям.
                   </p>
 
+                  <Controller
+                    control={form.control}
+                    name="improveExisting"
+                    render={({ field }) => (
+                      <label
+                        className={cn(
+                          'flex cursor-pointer items-start justify-between gap-3 rounded-md border p-3 text-sm transition-colors',
+                          field.value && 'border-primary/40 bg-primary/5',
+                        )}
+                      >
+                        <span>
+                          На основе текущего расписания
+                          <span className="text-muted-foreground block text-xs text-pretty">
+                            Составленные ранее пары остаются на своих местах; накладки и нарушения исправляются, недостающие пары добавляются, окна
+                            сокращаются. Ручные и закреплённые пары не меняются
+                          </span>
+                        </span>
+                        <Switch checked={field.value} onCheckedChange={field.onChange} />
+                      </label>
+                    )}
+                  />
+
                   <details className="group/adv rounded-md border">
                     <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium select-none">
                       <ChevronRight className="text-muted-foreground size-4 transition-transform group-open/adv:rotate-90" />
@@ -430,12 +454,16 @@ export default function GenerationPage() {
                             key={name}
                             control={form.control}
                             name={name}
-                            render={({ field }) => (
-                              <label className="flex cursor-pointer items-center justify-between gap-3 text-sm">
-                                {text}
-                                <Switch checked={field.value} onCheckedChange={field.onChange} />
-                              </label>
-                            )}
+                            render={({ field }) => {
+                              // При улучшении текущего расписания ранее составленные пары всегда берутся за основу и заменяются
+                              const locked = name === 'replaceExisting' && form.watch('improveExisting');
+                              return (
+                                <label className={cn('flex items-center justify-between gap-3 text-sm', locked ? 'opacity-60' : 'cursor-pointer')}>
+                                  {text}
+                                  <Switch checked={locked || field.value} disabled={locked} onCheckedChange={field.onChange} />
+                                </label>
+                              );
+                            }}
                           />
                         ))}
                         <Controller
@@ -473,7 +501,8 @@ export default function GenerationPage() {
                       className="flex-1"
                       disabled={generate.isPending || generateAll.isPending || running || (scope === 'all' && !plan.data?.summary.included)}
                     >
-                      {generate.isPending || generateAll.isPending ? <Spinner /> : <Play />} Составить расписание
+                      {generate.isPending || generateAll.isPending ? <Spinner /> : <Play />}{' '}
+                      {form.watch('improveExisting') ? 'Улучшить расписание' : 'Составить расписание'}
                     </Button>
                     {running && job.data && (
                       <Button type="button" variant="outline" size="lg" onClick={() => cancel.mutate(job.data!.id)}>
@@ -682,7 +711,7 @@ function JobHistory({ jobs, currentJobId, onSelect }: { jobs: GenerationJob[]; c
               >
                 <span className="shrink-0 whitespace-nowrap tabular-nums">{formatDateTime(j.createdAt)}</span>
                 <span className="text-muted-foreground hidden min-w-0 flex-1 truncate text-xs sm:block">
-                  {j.mode === 'CALENDAR' ? 'по датам' : 'одинаковая неделя'}
+                  {j.params?.improveExisting ? 'улучшение текущего' : j.mode === 'CALENDAR' ? 'по датам' : 'одинаковая неделя'}
                   {j.solver ? ` · ${SOLVER_LABELS[j.solver] ?? j.solver}` : ''}
                 </span>
                 <span className="ml-auto shrink-0 text-right tabular-nums">

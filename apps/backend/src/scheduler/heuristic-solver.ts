@@ -995,40 +995,46 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
       }
     }
     solveWeek(st, templateDays, targets, repairLimit * 4);
+    const before = st.placements.length;
     if (settings.maximizePlacement) {
       const rest = new Map<DemandState, number>();
       for (const [ds, t] of targets) if (ds.placed < t) rest.set(ds, t - ds.placed);
       if (rest.size > 0) {
-        const before = st.placements.length;
         relaxed = true;
         solveWeek(st, templateDays, rest, repairLimit * 4);
-        // Аудиторий не хватает на всю сетку — пара ставится без аудитории, её назначат вручную
-        let withoutRoom = 0;
-        for (const [ds, t] of targets) {
-          while (ds.placed < t) {
-            let best: { day: DayRef; lesson: number; cost: number } | null = null;
-            for (const day of templateDays) {
-              if (!ds.allowedDays.has(day.key)) continue;
-              for (let lesson = 1; lesson <= lessonsPerDay; lesson++) {
-                if (!slotAllowed(ds, day, lesson) || !teacherFree(st, ds, day, lesson)) continue;
-                if (!groupFree(st, ds, day, lesson)) continue;
-                const cost = slotCost(st, ds, day, lesson);
-                if (!best || cost < best.cost) best = { day, lesson, cost };
-              }
-            }
-            if (!best) break;
-            st.apply({ demand: ds, day: best.day, lesson: best.lesson, roomId: null, fixed: false });
-            ds.placed++;
-            withoutRoom++;
-          }
-        }
         relaxed = false;
-        log.push(
-          `Расстановка по максимуму: дополнительно поставлено ${st.placements.length - before} пар` +
-            (withoutRoom ? `, из них ${withoutRoom} без аудитории (свободных подходящих аудиторий нет)` : ''),
-        );
       }
     }
+    // Аудиторий не хватает на всю сетку — пара ставится без аудитории, её назначат вручную
+    // (в постоянном расписании аудитории не ограничивают время пар)
+    relaxed = settings.maximizePlacement === true;
+    let withoutRoom = 0;
+    for (const [ds, t] of targets) {
+      while (ds.placed < t) {
+        let best: { day: DayRef; lesson: number; cost: number } | null = null;
+        for (const day of templateDays) {
+          if (!ds.allowedDays.has(day.key)) continue;
+          for (let lesson = 1; lesson <= lessonsPerDay; lesson++) {
+            if (!slotAllowed(ds, day, lesson) || !teacherFree(st, ds, day, lesson)) continue;
+            if (!groupFree(st, ds, day, lesson) || !disciplineOk(st, ds, day, lesson)) continue;
+            const cost = slotCost(st, ds, day, lesson);
+            if (!best || cost < best.cost) best = { day, lesson, cost };
+          }
+        }
+        if (!best) break;
+        st.apply({ demand: ds, day: best.day, lesson: best.lesson, roomId: null, fixed: false });
+        ds.placed++;
+        withoutRoom++;
+      }
+    }
+    relaxed = false;
+    if (settings.maximizePlacement && st.placements.length > before)
+      log.push(
+        `Расстановка по максимуму: дополнительно поставлено ${st.placements.length - before} пар` +
+          (withoutRoom ? `, из них ${withoutRoom} без аудитории (свободных подходящих аудиторий нет)` : ''),
+      );
+    else if (withoutRoom)
+      log.push(`Аудиторий не хватает на всю сетку: ${withoutRoom} пар без аудитории — назначьте вручную`);
     options.onProgress?.(0.7, 'Доводка окон');
     if (settings.avoidWindows) {
       const until = Date.now() + Math.min(20, Math.max(3, problem.timeLimitSeconds / 4)) * 1000;
