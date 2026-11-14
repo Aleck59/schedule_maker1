@@ -1178,12 +1178,17 @@ model CurriculumScan {
   resultJson     Json?
   /// Учебный план, созданный по скану
   programId      String?
+  /// Пакетная загрузка: общий идентификатор файлов, загруженных одним действием
+  batchId        String?
+  /// Сразу создать учебный план после чтения файла, если данные без ошибок
+  autoApply      Boolean              @default(false)
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, createdAt])
+  @@index([batchId])
   @@map("curriculum_scans")
 }
 

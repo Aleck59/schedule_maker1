@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, CircleCheck, FileScan, FileUp, ScanLine, Trash2, TriangleAlert, Upload } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CircleCheck, FileScan, FileUp, Files, ScanLine, Trash2, TriangleAlert, Upload } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Confirm } from '@/components/common/confirm';
 import { PageHeader } from '@/components/common/page-header';
 import { ErrorState, LoadingState, Spinner } from '@/components/common/states';
 import { Stepper } from '@/components/common/stepper';
+import { BatchProgress } from '@/components/plan-import/batch-progress';
 import { deriveFromCalendar } from '@/components/plan-import/calendar';
 import { calendarErrors, ReviewCalendar } from '@/components/plan-import/review-calendar';
 import { ReviewFinish } from '@/components/plan-import/review-finish';
@@ -13,6 +14,7 @@ import { itemsErrors, ReviewItems } from '@/components/plan-import/review-items'
 import { warningStep, type WarningFocus } from '@/components/plan-import/warnings';
 import type {
   ApplyResult,
+  BatchUploadResult,
   CurriculumScan,
   Draft,
   RecognizedCalendar,
@@ -22,8 +24,10 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Progress } from '@/components/ui/progress';
+import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { api, ApiError } from '@/lib/api';
 import { formatDateTime } from '@/lib/format';
@@ -47,6 +51,9 @@ const STATUS: Record<CurriculumScan['status'], { label: string; variant: 'info' 
 const PLAN_FILE_EXT = ['.plx', '.xml'];
 const ACCEPT = `${PLAN_FILE_EXT.join(',')},.pdf,.jpg,.jpeg,.png,.tif,.tiff,.bmp,.webp`;
 const isPlanFile = (name: string) => PLAN_FILE_EXT.some((ext) => name.toLowerCase().endsWith(ext));
+const isPdf = (name: string) => name.toLowerCase().endsWith('.pdf');
+/** Пакетная загрузка: каждый .plx/.xml/PDF — отдельный план */
+const BATCH_MAX = 100;
 
 /** Данные для запроса: без служебных полей распознавания (фрагменты скана, замечания) */
 function payload(draft: Draft) {
@@ -61,8 +68,17 @@ function payload(draft: Draft) {
   };
 }
 
-function UploadStep({ status, onUploaded }: { status?: ScanEngineStatus; onUploaded: (scan: CurriculumScan) => void }) {
+function UploadStep({
+  status,
+  onUploaded,
+  onBatch,
+}: {
+  status?: ScanEngineStatus;
+  onUploaded: (scan: CurriculumScan) => void;
+  onBatch: (batchId: string) => void;
+}) {
   const [files, setFiles] = useState<File[]>([]);
+  const [autoApply, setAutoApply] = useState(true);
   const [drag, setDrag] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const upload = useApiMutation(
@@ -73,15 +89,43 @@ function UploadStep({ status, onUploaded }: { status?: ScanEngineStatus; onUploa
     },
     { invalidate: [['scans']], onSuccess: (scan) => onUploaded(scan) },
   );
+  const uploadBatch = useApiMutation(
+    (list: File[]) => {
+      const form = new FormData();
+      list.forEach((f) => form.append('files', f));
+      form.append('autoApply', String(autoApply));
+      return api.post<BatchUploadResult>('/curriculum-scans/batch', form);
+    },
+    {
+      invalidate: [['scans']],
+      success: (r) => `Загружено файлов: ${r.count} — обработка идёт в фоне`,
+      onSuccess: (r) => onBatch(r.batchId),
+    },
+  );
   const add = (list: FileList | null) => {
     if (!list) return;
-    setFiles((prev) => [...prev, ...Array.from(list)].slice(0, 40));
+    const picked = Array.from(list);
+    setFiles((prev) => {
+      const seen = new Set(prev.map((f) => `${f.name}:${f.size}`));
+      const fresh = picked.filter((f) => !seen.has(`${f.name}:${f.size}`));
+      return [...prev, ...fresh].slice(0, BATCH_MAX);
+    });
   };
   const planFiles = files.filter((f) => isPlanFile(f.name));
   const planFile = planFiles.length > 0;
-  const mixed = planFile && files.length > 1;
+  // Несколько файлов .plx/.xml/PDF — каждый отдельный план, обработка в фоне
+  const batch = files.length > 1 && files.every((f) => isPlanFile(f.name) || isPdf(f.name));
+  const mixed = !batch && planFile && files.length > 1;
+  const pdfCount = files.filter((f) => isPdf(f.name)).length;
   const fileImportAvailable = status?.fileImportAvailable ?? status?.available;
-  const unavailable = status && (planFile ? !fileImportAvailable : !status.available);
+  const unavailable =
+    status &&
+    (batch
+      ? (planFile && !fileImportAvailable) || (pdfCount > 0 && !status.available)
+      : planFile
+        ? !fileImportAvailable
+        : !status.available);
+  const pending = upload.isPending || uploadBatch.isPending;
   return (
     <Card>
       <CardHeader>
@@ -89,7 +133,8 @@ function UploadStep({ status, onUploaded }: { status?: ScanEngineStatus; onUploa
         <CardDescription>
           Файл программы «Планы» (.plx или .xml GosInsp — те же, что загружаются в 1С:Университет) читается полностью: титул,
           календарный учебный график, дисциплины, модули и практики с часами и формами контроля по семестрам. Скан (PDF или фото)
-          распознаётся с проверкой сумм часов. Ничего не создаётся, пока вы не подтвердите данные.
+          распознаётся с проверкой сумм часов. Один файл — ничего не создаётся, пока вы не подтвердите данные; несколько файлов
+          .plx/.xml/PDF загружаются пакетом и обрабатываются в фоне.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -127,10 +172,22 @@ function UploadStep({ status, onUploaded }: { status?: ScanEngineStatus; onUploa
           <Upload className="text-muted-foreground size-9" />
           <div className="font-medium">Перетащите файлы сюда или нажмите, чтобы выбрать</div>
           <div className="text-muted-foreground max-w-xl text-sm">
-            Файл учебного плана .plx (АС «Учебные планы») или .xml (GosInsp) — по одному. Или PDF со сканом (можно
-            многостраничный) или фотографии страниц JPG/PNG: титульный лист, календарный график и «план по семестрам».
+            Файлы учебных планов .plx (АС «Учебные планы») или .xml (GosInsp) — можно сразу много, каждый станет отдельным
+            планом. Или PDF со сканом (можно многостраничный) или фотографии страниц JPG/PNG: титульный лист, календарный
+            график и «план по семестрам».
           </div>
-          <input ref={input} type="file" multiple accept={ACCEPT} className="hidden" onChange={(e) => add(e.target.files)} />
+          <input
+            ref={input}
+            type="file"
+            multiple
+            accept={ACCEPT}
+            className="hidden"
+            onChange={(e) => {
+              add(e.target.files);
+              // Тот же файл можно выбрать повторно после «Очистить»
+              e.target.value = '';
+            }}
+          />
         </div>
         {files.length > 0 && (
           <div className="space-y-2">
@@ -145,15 +202,52 @@ function UploadStep({ status, onUploaded }: { status?: ScanEngineStatus; onUploa
               ))}
             </div>
             {mixed && (
-              <div className="text-destructive text-sm">Файл .plx или .xml загружается отдельно — уберите остальные файлы.</div>
+              <div className="text-destructive text-sm">
+                Файлы .plx и .xml нельзя смешивать с фотографиями страниц. Для пакетной загрузки оставьте только .plx, .xml и PDF —
+                каждый файл станет отдельным планом.
+              </div>
             )}
-            <Button onClick={() => upload.mutate(files)} disabled={upload.isPending || unavailable || mixed}>
-              {upload.isPending ? <Spinner /> : planFile ? <FileUp /> : <ScanLine />} {planFile ? 'Загрузить план' : 'Распознать'}
-            </Button>
+            {batch && (
+              <div className="bg-primary/5 border-primary/20 space-y-3 rounded-lg border p-3">
+                <div className="flex items-start gap-2 text-sm">
+                  <Files className="text-primary mt-0.5 size-4 shrink-0" />
+                  <div>
+                    <span className="font-medium">Пакетная загрузка: {files.length} планов.</span> Каждый файл — отдельный учебный план.
+                    Обработка идёт в фоне по очереди{pdfCount > 0 ? ' (сканы PDF — около минуты каждый)' : ''}, страницу можно закрыть.
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <Switch id="auto-apply" checked={autoApply} onCheckedChange={setAutoApply} className="mt-0.5" />
+                  <Label htmlFor="auto-apply" className="block cursor-pointer text-sm leading-snug font-normal">
+                    <span className="font-medium">Сразу создавать учебные планы</span>
+                    <span className="text-muted-foreground block">
+                      План без ошибок создаётся автоматически. Если данные с ошибками, такой план уже есть или скан распознан с
+                      сомнениями — файл останется «на проверке».
+                    </span>
+                  </Label>
+                </div>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {batch ? (
+                <Button onClick={() => uploadBatch.mutate(files)} disabled={pending || unavailable}>
+                  {uploadBatch.isPending ? <Spinner /> : <Files />} Загрузить {files.length} планов в фоне
+                </Button>
+              ) : (
+                <Button onClick={() => upload.mutate(files)} disabled={pending || unavailable || mixed}>
+                  {upload.isPending ? <Spinner /> : planFile ? <FileUp /> : <ScanLine />} {planFile ? 'Загрузить план' : 'Распознать'}
+                </Button>
+              )}
+              {files.length > 1 && (
+                <Button variant="ghost" onClick={() => setFiles([])} disabled={pending}>
+                  Очистить
+                </Button>
+              )}
+            </div>
           </div>
         )}
         <div className="text-muted-foreground grid gap-1 text-xs sm:grid-cols-3">
-          <div>• .plx / .xml — самый точный способ: данные берутся из файла без распознавания</div>
+          <div>• .plx / .xml — самый точный способ: данные берутся из файла без распознавания, можно сразу пачкой</div>
           <div>• Сканируйте с разрешением от 300 dpi, страница целиком</div>
           <div>• Фото — без сильного наклона и бликов</div>
         </div>
@@ -162,8 +256,10 @@ function UploadStep({ status, onUploaded }: { status?: ScanEngineStatus; onUploa
   );
 }
 
-function RecentScans({ onOpen }: { onOpen: (id: string) => void }) {
-  const scans = useApi<CurriculumScan[]>(['scans'], '/curriculum-scans');
+function RecentScans({ onOpen, onBatch }: { onOpen: (id: string) => void; onBatch: (batchId: string) => void }) {
+  const scans = useApi<CurriculumScan[]>(['scans'], '/curriculum-scans', undefined, {
+    refetchInterval: (q) => (q.state.data?.some((s) => s.status === 'PROCESSING') ? 3000 : false),
+  });
   const remove = useApiMutation((id: string) => api.delete(`/curriculum-scans/${id}`), {
     success: 'Загрузка удалена',
     invalidate: [['scans']],
@@ -181,18 +277,36 @@ function RecentScans({ onOpen }: { onOpen: (id: string) => void }) {
               <TableHead>Файлы</TableHead>
               <TableHead>Загружен</TableHead>
               <TableHead>Состояние</TableHead>
+              <TableHead>Подробности</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
           <TableBody>
             {scans.data.map((s) => (
               <TableRow key={s.id}>
-                <TableCell className="max-w-md truncate">{s.fileNames.join(', ')}</TableCell>
+                <TableCell className="max-w-md truncate">
+                  {s.fileNames.join(', ')}
+                  {s.batchId && (
+                    <button
+                      type="button"
+                      onClick={() => onBatch(s.batchId!)}
+                      className="text-primary ml-2 text-xs underline-offset-2 hover:underline"
+                      title="Показать всю пакетную загрузку"
+                    >
+                      пакет
+                    </button>
+                  )}
+                </TableCell>
                 <TableCell>{formatDateTime(s.createdAt)}</TableCell>
                 <TableCell>
                   <Badge variant={STATUS[s.status].variant}>{STATUS[s.status].label}</Badge>
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-muted-foreground max-w-sm text-sm">
+                  <span className="line-clamp-2" title={s.error ?? s.message ?? ''}>
+                    {s.status === 'FAILED' ? s.error : s.message}
+                  </span>
+                </TableCell>
+                <TableCell className="text-right whitespace-nowrap">
                   {s.status === 'APPLIED' && s.programId ? (
                     <Button variant="outline" size="sm" asChild>
                       <Link to={`/programs/${s.programId}`}>Учебный план</Link>
@@ -267,6 +381,7 @@ function Done({ result }: { result: ApplyResult }) {
 export default function PlanImportPage() {
   const [params, setParams] = useSearchParams();
   const scanId = params.get('scan');
+  const batchId = params.get('batch');
   const status = useApi<ScanEngineStatus>(['scan-engine'], '/curriculum-scans/status', undefined, { staleTime: 60_000 });
   const scan = useApi<CurriculumScan>(['scan', scanId], scanId ? `/curriculum-scans/${scanId}` : null, undefined, {
     refetchInterval: (q) => (q.state.data?.status === 'PROCESSING' ? 1500 : false),
@@ -317,8 +432,10 @@ export default function PlanImportPage() {
     setResult(null);
     setDraft(null);
     setLoadedFor(null);
-    setParams(id ? { scan: id } : {});
+    // Из пакета: «Другой файл» возвращает к ходу пакетной загрузки
+    setParams(id ? { scan: id, ...(batchId ? { batch: batchId } : {}) } : {});
   };
+  const openBatch = (id: string) => setParams({ batch: id });
 
   const onCalendarChange = (next: RecognizedCalendar[]) => {
     setCalendar(next);
@@ -365,18 +482,27 @@ export default function PlanImportPage() {
         description="Загрузите файл .plx/.xml или скан — система сама создаст специальность, учебный план, семестры, дисциплины с часами и календарный график"
         actions={
           scanId && (
-            <Button variant="outline" onClick={() => open(null)}>
-              <FileUp /> Другой файл
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {batchId && (
+                <Button variant="outline" onClick={() => openBatch(batchId)}>
+                  <ArrowLeft /> К пакетной загрузке
+                </Button>
+              )}
+              <Button variant="outline" onClick={() => open(null)}>
+                <FileUp /> Другой файл
+              </Button>
+            </div>
           )
         }
       />
-      <Stepper steps={STEPS} current={stepIndex} onSelect={stepIndex >= 2 && stepIndex < 6 ? (i) => i >= 2 && setReviewStep(i - 2) : undefined} />
+      {!(batchId && !scanId) && <Stepper steps={STEPS} current={stepIndex} onSelect={stepIndex >= 2 && stepIndex < 6 ? (i) => i >= 2 && setReviewStep(i - 2) : undefined} />}
 
-      {!scanId && (
+      {!scanId && batchId && <BatchProgress batchId={batchId} onOpen={(id) => open(id)} onClose={() => setParams({})} />}
+
+      {!scanId && !batchId && (
         <>
-          <UploadStep status={status.data} onUploaded={(created) => open(created.id)} />
-          <RecentScans onOpen={(id) => open(id)} />
+          <UploadStep status={status.data} onUploaded={(created) => open(created.id)} onBatch={openBatch} />
+          <RecentScans onOpen={(id) => open(id)} onBatch={openBatch} />
         </>
       )}
 

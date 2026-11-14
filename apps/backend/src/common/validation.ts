@@ -97,7 +97,7 @@ function translateConstraint(constraint: string, original: string): string {
   }
 }
 
-function flatten(errors: ValidationError[], prefix = ''): string[] {
+export function flatten(errors: ValidationError[], prefix = ''): string[] {
   const result: string[] = [];
   for (const error of errors) {
     const path = prefix ? `${prefix}.${error.property}` : error.property;
