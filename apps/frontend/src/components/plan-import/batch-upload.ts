@@ -42,7 +42,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Ждать, пока сервер закончит обработку файла (чтение, распознавание, создание плана) */
 async function waitProcessed(batchId: string, scanId: string) {
-  let delay = 600;
+  let delay = 400;
   for (;;) {
     try {
       const list = await api.get<CurriculumScan[]>('/curriculum-scans', { batchId });
@@ -52,7 +52,7 @@ async function waitProcessed(batchId: string, scanId: string) {
       /* временная ошибка сети — повторим */
     }
     await sleep(delay);
-    delay = Math.min(2000, delay + 200);
+    delay = Math.min(1500, delay + 150);
   }
 }
 
@@ -68,7 +68,7 @@ async function run(autoApply: boolean) {
     form.append('batchTotal', String(raw.length - failed));
     if (state.batchId) form.append('batchId', state.batchId);
     try {
-      const res = await api.upload<BatchUploadResult>('/curriculum-scans/batch', form, (fraction) =>
+      const res = await api.uploadWithProgress<BatchUploadResult>('/curriculum-scans/batch', form, (fraction) =>
         patchFile(key, { uploaded: fraction }),
       );
       const scanId = res.scans[0]?.id;

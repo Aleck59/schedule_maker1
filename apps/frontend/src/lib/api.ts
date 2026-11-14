@@ -159,7 +159,7 @@ async function request<T>(method: string, path: string, body?: unknown, options:
  * Отправка файла с ходом загрузки (fetch не сообщает, сколько байт ушло): XMLHttpRequest
  * с тем же токеном и обновлением токена при 401.
  */
-function upload<T>(path: string, form: FormData, onProgress?: (fraction: number) => void, signal?: AbortSignal, retry = true): Promise<T> {
+function uploadWithProgress<T>(path: string, form: FormData, onProgress?: (fraction: number) => void, signal?: AbortSignal, retry = true): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', buildUrl(path));
@@ -173,7 +173,7 @@ function upload<T>(path: string, form: FormData, onProgress?: (fraction: number)
     xhr.onload = async () => {
       if (xhr.status === 401 && retry) {
         const ok = await refreshTokens();
-        if (ok) return upload<T>(path, form, onProgress, signal, false).then(resolve, reject);
+        if (ok) return uploadWithProgress<T>(path, form, onProgress, signal, false).then(resolve, reject);
         tokenStore.clear();
         logoutListeners.forEach((l) => l());
       }
@@ -193,7 +193,7 @@ function upload<T>(path: string, form: FormData, onProgress?: (fraction: number)
 }
 
 export const api = {
-  upload,
+  uploadWithProgress,
   get: <T>(path: string, query?: RequestOptions['query'], options: RequestOptions = {}) =>
     request<T>('GET', path, undefined, { ...options, query }),
   post: <T>(path: string, body?: unknown, options?: RequestOptions) => request<T>('POST', path, body ?? {}, options),

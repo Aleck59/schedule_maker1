@@ -22,6 +22,7 @@ describe('последовательная пакетная загрузка', (
         { key: '0', name: 'a.plx', size: 1, phase: 'sent', uploaded: 1, scanId: 'a' },
         { key: '1', name: 'b.plx', size: 1, phase: 'sent', uploaded: 1, scanId: 'b' },
         { key: '2', name: 'c.plx', size: 1, phase: 'uploading', uploaded: 0.4 },
+        { key: '5', name: 'f.plx', size: 1, phase: 'sent', uploaded: 1, scanId: 'не-в-списке' },
         { key: '3', name: 'd.plx', size: 1, phase: 'queued', uploaded: 0 },
         { key: '4', name: 'e.plx', size: 1, phase: 'error', uploaded: 0, error: 'Файл слишком большой' },
       ],
@@ -30,11 +31,12 @@ describe('последовательная пакетная загрузка', (
       ['a.plx', 'done', 100],
       ['b.plx', 'work', 75],
       ['c.plx', 'upload', 20],
+      ['f.plx', 'work', 50],
       ['d.plx', 'queue', 0],
       ['e.plx', 'fail', 100],
     ]);
     expect(cards[0].programId).toBe('p-a');
-    expect(cards[4].details).toBe('Файл слишком большой');
+    expect(cards[5].details).toBe('Файл слишком большой');
   });
 
   it('без файлов в браузере — по данным сервера', () => {

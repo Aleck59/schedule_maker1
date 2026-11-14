@@ -38,6 +38,9 @@ export interface BatchCard {
   programId?: string | null;
 }
 
+const fileSize = (bytes: number) =>
+  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} КБ` : `${(bytes / 1024 / 1024).toFixed(1)} МБ`;
+
 /** Файлы пакета: отправленные — по данным сервера, остальные — по состоянию в браузере */
 export function batchCards(scans: CurriculumScan[], local: LocalBatchFile[]): BatchCard[] {
   const byId = new Map(scans.map((s) => [s.id, s]));
@@ -66,7 +69,11 @@ export function batchCards(scans: CurriculumScan[], local: LocalBatchFile[]): Ba
     if (f.phase === 'error') {
       return { id: f.key, name: f.name, key: 'fail', label: 'Не отправлен', variant: 'destructive', percent: 100, details: f.error ?? null };
     }
-    if (f.phase === 'uploading' || f.phase === 'sent') {
+    if (f.phase === 'sent') {
+      // Файл уже на сервере, список загрузок ещё не обновился
+      return { id: f.key, name: f.name, key: 'work', label: 'Обрабатывается', variant: 'info', percent: 50, details: 'Файл отправлен, идёт обработка' };
+    }
+    if (f.phase === 'uploading') {
       return {
         id: f.key,
         name: f.name,
@@ -74,7 +81,7 @@ export function batchCards(scans: CurriculumScan[], local: LocalBatchFile[]): Ba
         label: 'Отправка',
         variant: 'info',
         percent: Math.round(f.uploaded * 50),
-        details: `Отправлено ${Math.round(f.uploaded * 100)}% · ${(f.size / 1024 / 1024).toFixed(1)} МБ`,
+        details: `Отправлено ${Math.round(f.uploaded * 100)}% из ${fileSize(f.size)}`,
       };
     }
     return { id: f.key, name: f.name, key: 'queue', label: 'В очереди', variant: 'muted', percent: 0, details: 'Отправится после предыдущего плана' };
@@ -111,8 +118,15 @@ export function BatchProgress({
   // Загрузка идёт из этой вкладки: файлы ещё не на сервере видны из состояния браузера
   const own = live.files.length > 0 && (!batchId || live.batchId === batchId);
   const uploading = own && live.running;
+  // Опрос идёт, пока что-то обрабатывается или отправленный файл ещё не появился в списке
+  const awaited = own ? live.files.filter((f) => f.scanId).map((f) => f.scanId!) : [];
   const list = useApi<CurriculumScan[]>(['scans', 'batch', batchId], batchId ? '/curriculum-scans' : null, { batchId: batchId ?? undefined }, {
-    refetchInterval: (q) => (uploading || q.state.data?.some((s) => s.status === 'PROCESSING') ? 1000 : false),
+    refetchInterval: (q) =>
+      uploading ||
+      q.state.data?.some((s) => s.status === 'PROCESSING') ||
+      awaited.some((id) => !q.state.data?.some((s) => s.id === id))
+        ? 1000
+        : false,
   });
   const cards = batchCards(list.data ?? [], own ? live.files : []);
   const total = cards.length;
