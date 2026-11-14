@@ -63,7 +63,7 @@ export class AuthService {
   async login(dto: LoginDto) {
     const email = dto.email.toLowerCase().trim();
     // Подбор пароля: после LOGIN_MAX_FAILS неудачных попыток вход по этому email закрыт на 15 минут.
-    // Счётчик в Redis общий для всех экземпляров API; без Redis ограничение не действует.
+    // Счётчик в Redis общий для всех экземпляров API; без Redis считается в памяти процесса.
     const failKey = `login-fail:${email}`;
     const fails = await this.cache.peek(failKey);
     if (fails >= LOGIN_MAX_FAILS) {

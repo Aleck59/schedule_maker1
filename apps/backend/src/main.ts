@@ -8,9 +8,10 @@ import { AppModule } from './app.module';
 import { startEventLoopWatchdog } from './common/event-loop-watchdog';
 import { appVersion } from './common/utils/app-version';
 import { createValidationPipe } from './common/validation';
-import { loadConfig } from './config/configuration';
+import { assertProductionSecrets, loadConfig } from './config/configuration';
 
 export async function createApp(options: { quiet?: boolean } = {}): Promise<NestExpressApplication> {
+  assertProductionSecrets();
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: options.quiet ? ['error', 'warn'] : ['log', 'error', 'warn'],
   });

@@ -21,8 +21,10 @@ export class RolesGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
+    // Закрыто по умолчанию: эндпоинт без @Roles (и без @Public) недоступен никому,
+    // чтобы забытый декоратор не открывал новый метод всем вошедшим, включая студентов.
     if (!roles || roles.length === 0) {
-      return true;
+      throw new ForbiddenException('Доступ к методу не настроен');
     }
     const user = context.switchToHttp().getRequest().user as AuthUser | undefined;
     if (!user || !roles.includes(user.role)) {

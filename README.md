@@ -163,7 +163,8 @@ python -m app info                                      # версии OR-Tools 
 | Переменная | Назначение |
 | --- | --- |
 | `DATABASE_URL` | Строка подключения PostgreSQL |
-| `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | Секреты токенов доступа и обновления |
+| `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | Секреты токенов доступа и обновления. При `NODE_ENV=production` (так в Docker-образе) API не запустится, если они не заданы, остались заглушками `change-me…`/`dev-…`, короче 32 символов или совпадают. Сгенерировать: `openssl rand -hex 32` |
+| `LOGIN_MAX_FAILS` | Число неудачных входов по одному email, после которого вход закрыт на 15 минут (по умолчанию 10; без Redis считается в памяти процесса) |
 | `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL` | Срок жизни токенов (по умолчанию 15m и 7d) |
 | `REDIS_URL` | Redis для очереди генерации BullMQ; пусто — генерация в процессе API |
 | `SOLVER_MODE` | Решатель: `auto` (эвристика как стартовое решение для CP-SAT, в итог — лучший из двух вариантов; без CP-SAT — эвристика), `cp-sat`, `heuristic` |

@@ -104,30 +104,65 @@ export class CacheService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** Счётчик в окне ttlSeconds (для ограничения попыток входа); null — Redis недоступен */
-  async hit(key: string, ttlSeconds: number): Promise<number | null> {
-    if (!this.enabled) return null;
-    try {
-      const [[, count]] = (await this.redis!.multi().incr(key).expire(key, ttlSeconds, 'NX').exec()) as [
-        [Error | null, number],
-      ];
-      return count;
-    } catch {
-      return null;
+  /**
+   * Счётчик в окне ttlSeconds (для ограничения попыток входа).
+   * Без Redis (или при его сбое) считает в памяти процесса, чтобы ограничение действовало всегда.
+   */
+  async hit(key: string, ttlSeconds: number): Promise<number> {
+    if (this.enabled) {
+      try {
+        const [[, count]] = (await this.redis!.multi().incr(key).expire(key, ttlSeconds, 'NX').exec()) as [
+          [Error | null, number],
+        ];
+        return count;
+      } catch {
+        /* ниже — счётчик в памяти */
+      }
     }
+    return this.memoryHit(key, ttlSeconds);
   }
 
   async peek(key: string): Promise<number> {
-    if (!this.enabled) return 0;
-    try {
-      return Number((await this.redis!.get(key)) ?? 0);
-    } catch {
-      return 0;
+    if (this.enabled) {
+      try {
+        return Math.max(Number((await this.redis!.get(key)) ?? 0), this.memoryPeek(key));
+      } catch {
+        /* ниже — счётчик в памяти */
+      }
     }
+    return this.memoryPeek(key);
   }
 
   async del(key: string): Promise<void> {
+    this.counters.delete(key);
     if (!this.enabled) return;
     await this.redis!.del(key).catch(() => undefined);
+  }
+
+  /** Счётчики в памяти: ключ → число и момент истечения окна */
+  private readonly counters = new Map<string, { count: number; expiresAt: number }>();
+
+  private memoryHit(key: string, ttlSeconds: number): number {
+    const now = Date.now();
+    if (this.counters.size > 10_000) {
+      for (const [k, v] of this.counters) if (v.expiresAt <= now) this.counters.delete(k);
+    }
+    const cur = this.counters.get(key);
+    if (!cur || cur.expiresAt <= now) {
+      this.counters.set(key, { count: 1, expiresAt: now + ttlSeconds * 1000 });
+      return 1;
+    }
+    cur.count += 1;
+    return cur.count;
+  }
+
+  private memoryPeek(key: string): number {
+    const cur = this.counters.get(key);
+    if (!cur) return 0;
+    if (cur.expiresAt <= Date.now()) {
+      this.counters.delete(key);
+      return 0;
+    }
+    return cur.count;
   }
 }
