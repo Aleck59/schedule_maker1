@@ -19,6 +19,18 @@ describe('сетка расписания', () => {
     expect(cols[1].blocked).toBeNull();
   });
 
+  it('дни аттестации закрыты для пар, но принимают экзамены; праздники — нет', () => {
+    const cols = weekColumns(
+      '2026-12-21',
+      [1, 2, 3, 4, 5],
+      { '2026-12-21': 'Промежуточная аттестация', '2026-12-25': 'Праздничный день' },
+      new Set(['2026-12-25']),
+    );
+    expect(cols[0]).toMatchObject({ blocked: 'Промежуточная аттестация', assessmentsAllowed: true });
+    expect(cols[4]).toMatchObject({ blocked: 'Праздничный день', assessmentsAllowed: false });
+    expect(cols[1].assessmentsAllowed).toBe(false);
+  });
+
   it('пятидневная неделя без субботы', () => {
     const cols = weekColumns('2026-09-21', [1, 2, 3, 4, 5]);
     expect(cols).toHaveLength(5);

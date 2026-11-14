@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/common/page-header';
 import { ErrorState, LoadingState, Spinner } from '@/components/common/states';
 import { Stepper } from '@/components/common/stepper';
 import { BatchProgress } from '@/components/plan-import/batch-progress';
+import { batchUpload, useBatchUpload } from '@/components/plan-import/batch-upload';
 import { deriveFromCalendar } from '@/components/plan-import/calendar';
 import { calendarErrors, ReviewCalendar } from '@/components/plan-import/review-calendar';
 import { ReviewFinish } from '@/components/plan-import/review-finish';
@@ -14,7 +15,6 @@ import { itemsErrors, ReviewItems } from '@/components/plan-import/review-items'
 import { warningStep, type WarningFocus } from '@/components/plan-import/warnings';
 import type {
   ApplyResult,
-  BatchUploadResult,
   CurriculumScan,
   Draft,
   RecognizedCalendar,
@@ -71,11 +71,11 @@ function payload(draft: Draft) {
 function UploadStep({
   status,
   onUploaded,
-  onBatch,
+  onBatchStart,
 }: {
   status?: ScanEngineStatus;
   onUploaded: (scan: CurriculumScan) => void;
-  onBatch: (batchId: string) => void;
+  onBatchStart: () => void;
 }) {
   const [files, setFiles] = useState<File[]>([]);
   const [autoApply, setAutoApply] = useState(true);
@@ -89,19 +89,13 @@ function UploadStep({
     },
     { invalidate: [['scans']], onSuccess: (scan) => onUploaded(scan) },
   );
-  const uploadBatch = useApiMutation(
-    (list: File[]) => {
-      const form = new FormData();
-      list.forEach((f) => form.append('files', f));
-      form.append('autoApply', String(autoApply));
-      return api.post<BatchUploadResult>('/curriculum-scans/batch', form);
-    },
-    {
-      invalidate: [['scans']],
-      success: (r) => `Загружено файлов: ${r.count} — обработка идёт в фоне`,
-      onSuccess: (r) => onBatch(r.batchId),
-    },
-  );
+  const live = useBatchUpload();
+  // Много файлов одним запросом упиралось в лимит размера запроса и «вешало» загрузку:
+  // файлы уходят по одному, следующий — после того, как предыдущий прочитан и создан
+  const startBatch = (list: File[]) => {
+    batchUpload.start(list, autoApply);
+    onBatchStart();
+  };
   const add = (list: FileList | null) => {
     if (!list) return;
     const picked = Array.from(list);
@@ -125,7 +119,7 @@ function UploadStep({
       : planFile
         ? !fileImportAvailable
         : !status.available);
-  const pending = upload.isPending || uploadBatch.isPending;
+  const pending = upload.isPending || live.running;
   return (
     <Card>
       <CardHeader>
@@ -213,7 +207,8 @@ function UploadStep({
                   <Files className="text-primary mt-0.5 size-4 shrink-0" />
                   <div>
                     <span className="font-medium">Пакетная загрузка: {files.length} планов.</span> Каждый файл — отдельный учебный план.
-                    Обработка идёт в фоне по очереди{pdfCount > 0 ? ' (сканы PDF — около минуты каждый)' : ''}, страницу можно закрыть.
+                    Файлы отправляются и обрабатываются строго по очереди{pdfCount > 0 ? ' (сканы PDF — около минуты каждый)' : ''}, у
+                    каждого плана — своя полоса хода.
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
@@ -230,8 +225,8 @@ function UploadStep({
             )}
             <div className="flex flex-wrap items-center gap-2">
               {batch ? (
-                <Button onClick={() => uploadBatch.mutate(files)} disabled={pending || unavailable}>
-                  {uploadBatch.isPending ? <Spinner /> : <Files />} Загрузить {files.length} планов в фоне
+                <Button onClick={() => startBatch(files)} disabled={pending || unavailable}>
+                  {live.running ? <Spinner /> : <Files />} Загрузить {files.length} планов по очереди
                 </Button>
               ) : (
                 <Button onClick={() => upload.mutate(files)} disabled={pending || unavailable || mixed}>
@@ -382,6 +377,26 @@ export default function PlanImportPage() {
   const [params, setParams] = useSearchParams();
   const scanId = params.get('scan');
   const batchId = params.get('batch');
+  const live = useBatchUpload();
+  // Пакет начат, сервер ещё не выдал его номер (первый файл отправляется) — уже показываем ход;
+  // если ни один файл не отправился, карточки с причинами остаются на экране
+  const [liveView, setLiveView] = useState(false);
+  const showBatch = !scanId && (!!batchId || (liveView && live.files.length > 0));
+
+  // Сервер выдал номер пакета — он в адресе страницы, ход можно открыть заново из «Загруженные ранее»
+  useEffect(() => {
+    if (liveView && !scanId && !batchId && live.batchId) setParams({ batch: live.batchId }, { replace: true });
+  }, [liveView, scanId, batchId, live.batchId, setParams]);
+
+  // Закрытие вкладки прервёт отправку оставшихся файлов — предупредить
+  useEffect(() => {
+    if (!live.running) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [live.running]);
   const status = useApi<ScanEngineStatus>(['scan-engine'], '/curriculum-scans/status', undefined, { staleTime: 60_000 });
   const scan = useApi<CurriculumScan>(['scan', scanId], scanId ? `/curriculum-scans/${scanId}` : null, undefined, {
     refetchInterval: (q) => (q.state.data?.status === 'PROCESSING' ? 1500 : false),
@@ -495,13 +510,26 @@ export default function PlanImportPage() {
           )
         }
       />
-      {!(batchId && !scanId) && <Stepper steps={STEPS} current={stepIndex} onSelect={stepIndex >= 2 && stepIndex < 6 ? (i) => i >= 2 && setReviewStep(i - 2) : undefined} />}
+      {!showBatch && <Stepper steps={STEPS} current={stepIndex} onSelect={stepIndex >= 2 && stepIndex < 6 ? (i) => i >= 2 && setReviewStep(i - 2) : undefined} />}
 
-      {!scanId && batchId && <BatchProgress batchId={batchId} onOpen={(id) => open(id)} onClose={() => setParams({})} />}
+      {showBatch && (
+        <BatchProgress
+          batchId={batchId}
+          onOpen={(id) => open(id)}
+          onClose={() => {
+            setLiveView(false);
+            setParams({});
+          }}
+        />
+      )}
 
-      {!scanId && !batchId && (
+      {!scanId && !showBatch && (
         <>
-          <UploadStep status={status.data} onUploaded={(created) => open(created.id)} onBatch={openBatch} />
+          <UploadStep
+            status={status.data}
+            onUploaded={(created) => open(created.id)}
+            onBatchStart={() => setLiveView(true)}
+          />
           <RecentScans onOpen={(id) => open(id)} onBatch={openBatch} />
         </>
       )}

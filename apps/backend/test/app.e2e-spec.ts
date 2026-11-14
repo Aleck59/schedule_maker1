@@ -1123,6 +1123,73 @@ describe('Расписание СПО (e2e)', () => {
     expect(note?.message).toMatch(/Файлов: 3; создано планов: 1, ждут проверки: 1, с ошибкой: 1/);
   });
 
+  it('пакетная загрузка по одному файлу: файлы дозагружаются в пакет, уведомление — после последнего', async () => {
+    const fixtures = join(__dirname, '../../solver/tests/fixtures');
+    const prisma = app.get(PrismaService);
+    const dispatcher = await prisma.user.findFirstOrThrow({ where: { email: 'dispatcher@college.ru' } });
+    const notes = () =>
+      prisma.notification.count({
+        where: { userId: dispatcher.id, title: 'Загрузка учебных планов завершена' },
+      });
+    const before = await notes();
+    const waitBatch = async (batchId: string, count: number) => {
+      let rows: Array<{ fileNames: string[]; status: string; batchTotal: number | null }> = [];
+      for (let i = 0; i < 150; i++) {
+        const res = await http
+          .get('/api/curriculum-scans')
+          .query({ batchId })
+          .set(auth('dispatcher'))
+          .expect(200);
+        rows = res.body;
+        if (rows.length === count && rows.every((r) => r.status !== 'PROCESSING')) break;
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      return rows;
+    };
+    const first = await http
+      .post('/api/curriculum-scans/batch')
+      .set(auth('dispatcher'))
+      .field('autoApply', 'false')
+      .field('batchTotal', '2')
+      .attach('files', readFileSync(join(fixtures, 'plan-spo.plx')), 'one.plx')
+      .expect(201);
+    const batchId = first.body.batchId as string;
+    const afterFirst = await waitBatch(batchId, 1);
+    expect(afterFirst).toMatchObject([{ fileNames: ['one.plx'], status: 'READY', batchTotal: 2 }]);
+    // Первый файл обработан, но пакет ещё не весь — уведомления нет
+    expect(await notes()).toBe(before);
+
+    // Чужой пакет и неверное число файлов отклоняются
+    await http
+      .post('/api/curriculum-scans/batch')
+      .set(auth('admin'))
+      .field('batchId', batchId)
+      .attach('files', readFileSync(join(fixtures, 'plan-spo.plx')), 'x.plx')
+      .expect(400);
+    await http
+      .post('/api/curriculum-scans/batch')
+      .set(auth('dispatcher'))
+      .field('batchTotal', '0')
+      .attach('files', readFileSync(join(fixtures, 'plan-spo.plx')), 'x.plx')
+      .expect(400);
+
+    const second = await http
+      .post('/api/curriculum-scans/batch')
+      .set(auth('dispatcher'))
+      .field('autoApply', 'false')
+      .field('batchId', batchId)
+      .field('batchTotal', '2')
+      .attach('files', readFileSync(join(fixtures, 'plan-spo-gosinsp.xml')), 'two.xml')
+      .expect(201);
+    expect(second.body.batchId).toBe(batchId);
+    const rows = await waitBatch(batchId, 2);
+    expect(rows.map((r) => [r.fileNames[0], r.status])).toEqual([
+      ['one.plx', 'READY'],
+      ['two.xml', 'READY'],
+    ]);
+    expect(await notes()).toBe(before + 1);
+  });
+
   it('уровень образования специальности определяется по коду', async () => {
     const vo = await http
       .post('/api/specialties')
@@ -1178,6 +1245,10 @@ describe('Расписание СПО (e2e)', () => {
     }>;
     const main = rows.find((r) => r.groupId === groupId)!;
     expect(main).toMatchObject({ included: true, periodId, createPeriod: false });
+    // Планы, созданные пакетной загрузкой, без групп — не пропадают молча, а видны с причиной
+    const noGroups = plan.body.programsWithoutGroups as Array<{ programTitle: string; reason: string }>;
+    expect(noGroups.some((p) => p.programTitle.startsWith('40.02.04'))).toBe(true);
+    expect(noGroups[0].reason).toMatch(/нет активных групп/);
     const second = rows.find((r) => r.groupId === other.id)! as (typeof rows)[number] & {
       semesterId: string;
     };

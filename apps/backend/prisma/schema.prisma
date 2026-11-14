@@ -1184,6 +1184,8 @@ model CurriculumScan {
   programId      String?
   /// Пакетная загрузка: общий идентификатор файлов, загруженных одним действием
   batchId        String?
+  /// Сколько файлов в пакете: файлы загружаются по одному, уведомление — когда обработан последний
+  batchTotal     Int?
   /// Сразу создать учебный план после чтения файла, если данные без ошибок
   autoApply      Boolean              @default(false)
   createdAt      DateTime             @default(now())

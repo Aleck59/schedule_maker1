@@ -13,6 +13,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
+import { isUUID } from 'class-validator';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { EDITOR_ROLES, Roles } from '../common/decorators/roles.decorator';
@@ -57,6 +58,12 @@ export class CurriculumScansController {
       properties: {
         files: { type: 'array', items: { type: 'string', format: 'binary' } },
         autoApply: { type: 'boolean', default: true },
+        batchId: {
+          type: 'string',
+          format: 'uuid',
+          description: 'Дозагрузить файл в начатый пакет (файлы пакета отправляются по одному)',
+        },
+        batchTotal: { type: 'integer', description: 'Сколько всего файлов будет в пакете' },
       },
     },
   })
@@ -64,10 +71,20 @@ export class CurriculumScansController {
   uploadBatch(
     @UploadedFiles() files: Express.Multer.File[] | undefined,
     @Body('autoApply') autoApply: string | boolean | undefined,
+    @Body('batchId') batchId: string | undefined,
+    @Body('batchTotal') batchTotal: string | number | undefined,
     @CurrentUser() user: AuthUser,
   ) {
     if (!files?.length) throw new BadRequestException('Файлы не переданы');
-    return this.scans.uploadBatch(files, autoApply !== false && autoApply !== 'false', user);
+    if (batchId && !isUUID(batchId)) throw new BadRequestException('Неверный идентификатор пакета');
+    const total = batchTotal === undefined || batchTotal === '' ? undefined : Number(batchTotal);
+    if (total !== undefined && (!Number.isInteger(total) || total < 1 || total > BATCH_MAX_FILES)) {
+      throw new BadRequestException(`Число файлов в пакете — от 1 до ${BATCH_MAX_FILES}`);
+    }
+    return this.scans.uploadBatch(files, autoApply !== false && autoApply !== 'false', user, {
+      batchId: batchId || undefined,
+      batchTotal: total,
+    });
   }
 
   @Post()

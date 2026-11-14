@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { educationLevelByCode } from '@/lib/labels';
 import type { AllGroupsPlanRow } from '@/lib/types';
-import { filterPlan, levelsOf } from './all-groups';
+import { filterPlan, levelCounts, levelsOf } from './all-groups';
 
 const row = (groupCode: string, educationLevel: AllGroupsPlanRow['educationLevel']): AllGroupsPlanRow => ({
   groupId: groupCode,
@@ -21,6 +21,14 @@ const row = (groupCode: string, educationLevel: AllGroupsPlanRow['educationLevel
 });
 
 describe('расписание для всех групп', () => {
+  it('сводка по уровням: магистратура видна отдельно', () => {
+    const rows = [row('ЭК-26-1м', 'MASTER'), row('ИСП-25-1', 'SPO'), row('ИСП-25-2', 'SPO'), { ...row('ЮР-20-1', 'BACHELOR'), included: false }];
+    expect(levelCounts(rows)).toEqual([
+      { level: 'SPO', count: 2 },
+      { level: 'MASTER', count: 1 },
+    ]);
+  });
+
   it('фильтр по уровню образования', () => {
     const rows = [row('ИСП-25-1', 'SPO'), row('ЮР-25-1', 'BACHELOR'), row('ЭК-26-1м', 'MASTER')];
     expect(filterPlan(rows, 'ALL').map((r) => r.groupCode)).toEqual(['ИСП-25-1', 'ЮР-25-1', 'ЭК-26-1м']);
