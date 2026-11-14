@@ -61,3 +61,37 @@ function resolveEngine(): AppConfig['engine'] {
   const python = process.env.PYTHON_BIN?.trim() || (existsSync(venv) ? venv : 'python3');
   return { python, dir };
 }
+
+/** Значения-заглушки из репозитория: с ними любой может подписать себе токен администратора */
+const PLACEHOLDER_SECRET = /^(dev-|change-me)/i;
+const MIN_SECRET_LENGTH = 32;
+
+/**
+ * В продакшене (NODE_ENV=production) сервер не запускается без собственных секретов JWT:
+ * они должны быть заданы, не совпадать с заглушками из репозитория, быть не короче 32 символов
+ * и различаться между собой. Возвращает список проблем (пустой — всё в порядке).
+ */
+export function jwtSecretProblems(env: NodeJS.ProcessEnv = process.env): string[] {
+  if (env.NODE_ENV !== 'production') return [];
+  const problems: string[] = [];
+  for (const name of ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'] as const) {
+    const value = env[name]?.trim();
+    if (!value) problems.push(`${name} не задан`);
+    else if (PLACEHOLDER_SECRET.test(value)) problems.push(`${name} — заглушка из репозитория`);
+    else if (value.length < MIN_SECRET_LENGTH) problems.push(`${name} короче ${MIN_SECRET_LENGTH} символов`);
+  }
+  const access = env.JWT_ACCESS_SECRET?.trim();
+  if (access && access === env.JWT_REFRESH_SECRET?.trim()) {
+    problems.push('JWT_ACCESS_SECRET и JWT_REFRESH_SECRET совпадают');
+  }
+  return problems;
+}
+
+export function assertProductionSecrets(env: NodeJS.ProcessEnv = process.env): void {
+  const problems = jwtSecretProblems(env);
+  if (problems.length === 0) return;
+  throw new Error(
+    `Небезопасные секреты JWT: ${problems.join('; ')}. ` +
+      'Задайте в .env две разные случайные строки, например командой `openssl rand -hex 32`, и перезапустите сервер.',
+  );
+}
