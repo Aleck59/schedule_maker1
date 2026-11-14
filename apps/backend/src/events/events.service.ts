@@ -1,7 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { CalendarEventType, ControlForm, MakeupTaskStatus, ProgramStatus } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
-import { addDaysStr, DateStr, formatDateRu, parseDate, toDateStr, todayInTimezone } from '../common/utils/dates';
+import {
+  addDaysStr,
+  DateStr,
+  formatDateRu,
+  parseDate,
+  toDateStr,
+  todayInTimezone,
+} from '../common/utils/dates';
 import { CALENDAR_EVENT_LABELS, CONTROL_FORM_LABELS } from '../common/utils/labels';
 import { AuthUser } from '../common/types/auth-user';
 import { PrismaService } from '../prisma/prisma.service';
@@ -76,7 +83,10 @@ export class EventsService {
   ) {}
 
   private async today(organizationId: string): Promise<DateStr> {
-    const org = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { timezone: true } });
+    const org = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { timezone: true },
+    });
     return todayInTimezone(org?.timezone ?? 'Europe/Moscow');
   }
 
@@ -195,7 +205,9 @@ export class EventsService {
       const exams = list.filter((r) => EXAM_LIKE.includes(r.controlForm)).length;
       const credits = list.filter((r) => CREDIT_LIKE.includes(r.controlForm)).length;
       const warnings = items.filter((i) => i.warning).length;
-      const codes = [...new Set(list.map((r) => r.group.code))].sort((a, b) => a.localeCompare(b, 'ru', { numeric: true }));
+      const codes = [...new Set(list.map((r) => r.group.code))].sort((a, b) =>
+        a.localeCompare(b, 'ru', { numeric: true }),
+      );
       const title =
         list.length === 1
           ? items[0].title
@@ -217,7 +229,10 @@ export class EventsService {
               (warnings ? ` · у ${warnings} не заполнены пара, преподаватель или аудитория` : ''),
         items: list.length > 1 ? items : undefined,
         needsAction: false,
-        link: { to: `/calendar?tab=assessments&program=${list[0].group.educationalProgramId}`, label: 'Экзамены и зачёты' },
+        link: {
+          to: `/calendar?tab=assessments&program=${list[0].group.educationalProgramId}`,
+          label: 'Экзамены и зачёты',
+        },
       });
     }
 
@@ -237,7 +252,9 @@ export class EventsService {
                 number: true,
                 endDate: true,
                 items: {
-                  where: { controlForm: { notIn: [ControlForm.NONE, ControlForm.OTHER, ControlForm.COURSE_PROJECT] } },
+                  where: {
+                    controlForm: { notIn: [ControlForm.NONE, ControlForm.OTHER, ControlForm.COURSE_PROJECT] },
+                  },
                   select: { id: true },
                 },
               },
@@ -279,7 +296,10 @@ export class EventsService {
         description: `Семестр заканчивается у ${missing.length} ${plural(missing.length, 'группы', 'групп', 'групп')}, первая — ${formatDateRu(earliestEnd)}. Назначьте даты в редакторе экзаменов`,
         items: missing,
         needsAction: true,
-        link: { to: `/calendar?tab=assessments&program=${groups.find((g) => g.id === missingGroups[0])?.educationalProgramId ?? ''}`, label: 'Назначить даты' },
+        link: {
+          to: `/calendar?tab=assessments&program=${groups.find((g) => g.id === missingGroups[0])?.educationalProgramId ?? ''}`,
+          label: 'Назначить даты',
+        },
       });
     }
     return events;
@@ -299,7 +319,9 @@ export class EventsService {
           select: {
             id: true,
             title: true,
-            semesters: { select: { id: true, number: true, courseNumber: true, startDate: true, endDate: true } },
+            semesters: {
+              select: { id: true, number: true, courseNumber: true, startDate: true, endDate: true },
+            },
           },
         },
       },
@@ -381,7 +403,8 @@ export class EventsService {
         severity: 'info',
         date,
         title: `Выпуск: ${items.map((i) => i.title).join(', ')}`,
-        description: 'Последний день обучения по учебному плану. После этой даты группы появятся в «Закончили обучение»',
+        description:
+          'Последний день обучения по учебному плану. После этой даты группы появятся в «Закончили обучение»',
         items: items.length > 1 ? items : undefined,
         needsAction: false,
         link: items.length === 1 ? { to: items[0].link!, label: 'Открыть группу' } : null,
@@ -415,7 +438,8 @@ export class EventsService {
       ),
     );
     const noSchedule = new Map<DateStr, typeof semesterChecks>();
-    for (const c of semesterChecks) if (!c.has) noSchedule.set(c.start, [...(noSchedule.get(c.start) ?? []), c]);
+    for (const c of semesterChecks)
+      if (!c.has) noSchedule.set(c.start, [...(noSchedule.get(c.start) ?? []), c]);
     for (const [start, list] of noSchedule) {
       const codes = list.map((c) => c.g.code);
       const ids = list.map((c) => c.g.id);
@@ -446,7 +470,12 @@ export class EventsService {
         OR: [{ studentGroupId: null }, { group: { isActive: true } }],
       },
       include: {
-        program: { select: { title: true, groups: { where: { isActive: true }, select: { code: true, courseNumber: true } } } },
+        program: {
+          select: {
+            title: true,
+            groups: { where: { isActive: true }, select: { code: true, courseNumber: true } },
+          },
+        },
         group: { select: { code: true } },
       },
     });
@@ -459,12 +488,16 @@ export class EventsService {
     for (const [key, list] of byKey) {
       const first = list[0];
       const start = toDateStr(first.startDate);
-      const end = list.reduce((m, r) => (toDateStr(r.endDate) > m ? toDateStr(r.endDate) : m), toDateStr(first.endDate));
+      const end = list.reduce(
+        (m, r) => (toDateStr(r.endDate) > m ? toDateStr(r.endDate) : m),
+        toDateStr(first.endDate),
+      );
       const codes = new Set<string>();
       for (const r of list) {
         if (r.group) codes.add(r.group.code);
         else if (r.program) {
-          for (const g of r.program.groups) if (!r.courseNumber || g.courseNumber === r.courseNumber) codes.add(g.code);
+          for (const g of r.program.groups)
+            if (!r.courseNumber || g.courseNumber === r.courseNumber) codes.add(g.code);
         }
       }
       if (!codes.size && list.every((r) => r.program)) continue; // план без активных групп
@@ -518,7 +551,10 @@ export class EventsService {
       endDate: h.end !== h.start ? h.end : null,
       ongoing: h.start < today,
       title: h.title,
-      description: h.end !== h.start ? `Нерабочие дни ${formatShort(h.start)}–${formatShort(h.end)}, пары не ставятся` : 'Нерабочий день, пары не ставятся',
+      description:
+        h.end !== h.start
+          ? `Нерабочие дни ${formatShort(h.start)}–${formatShort(h.end)}, пары не ставятся`
+          : 'Нерабочий день, пары не ставятся',
       needsAction: false,
       link: { to: '/holidays', label: 'Праздники' },
     }));
@@ -530,7 +566,10 @@ export class EventsService {
     if (month < 10) return [];
     const next = Number(today.slice(0, 4)) + 1;
     const count = await this.prisma.holidayTransfer.count({
-      where: { organizationId: org, fromDate: { gte: parseDate(`${next}-01-01`), lte: parseDate(`${next}-12-31`) } },
+      where: {
+        organizationId: org,
+        fromDate: { gte: parseDate(`${next}-01-01`), lte: parseDate(`${next}-12-31`) },
+      },
     });
     if (count) return [];
     return [
@@ -628,7 +667,8 @@ export class EventsService {
         severity: 'info',
         date: startRemind,
         title: `Скоро новый учебный год (${formatDateRu(start)})`,
-        description: 'Создайте группы нового набора, проверьте нагрузку преподавателей и составьте расписание на первый семестр',
+        description:
+          'Создайте группы нового набора, проверьте нагрузку преподавателей и составьте расписание на первый семестр',
         needsAction: false,
         link: { to: '/setup', label: 'Мастер настройки' },
       });
@@ -655,7 +695,11 @@ export class EventsService {
         date,
         title: r.title,
         description:
-          [r.notes, overdue ? `Просрочено с ${formatDateRu(date)}` : null, r.createdBy ? `Добавил(а): ${shortFio(r.createdBy.fullName)}` : null]
+          [
+            r.notes,
+            overdue ? `Просрочено с ${formatDateRu(date)}` : null,
+            r.createdBy ? `Добавил(а): ${shortFio(r.createdBy.fullName)}` : null,
+          ]
             .filter(Boolean)
             .join(' · ') || null,
         needsAction: date <= today,
@@ -709,7 +753,11 @@ export class EventsService {
       groups: groups.map((g) => g.code),
       programs: programs.map((p) => p.title),
     });
-    return { archivedGroups: groups.length, archivedPrograms: programs.length, programs: programs.map((p) => p.title) };
+    return {
+      archivedGroups: groups.length,
+      archivedPrograms: programs.length,
+      programs: programs.map((p) => p.title),
+    };
   }
 
   /** Удалить группы без пар в расписании; остальные не трогать */
@@ -719,7 +767,14 @@ export class EventsService {
     const kept = groups.filter((g) => g._count.lessons > 0);
     if (deletable.length) {
       await this.prisma.studentGroup.deleteMany({ where: { id: { in: deletable.map((g) => g.id) } } });
-      await this.audit.log(actor.id, 'DELETE', 'StudentGroup', null, { groups: deletable.map((g) => g.code) }, null);
+      await this.audit.log(
+        actor.id,
+        'DELETE',
+        'StudentGroup',
+        null,
+        { groups: deletable.map((g) => g.code) },
+        null,
+      );
     }
     return { deleted: deletable.length, kept: kept.map((g) => g.code) };
   }
@@ -734,7 +789,13 @@ export class EventsService {
         code: true,
         courseNumber: true,
         currentSemesterNumber: true,
-        program: { select: { semesters: { select: { id: true, number: true, courseNumber: true, startDate: true, endDate: true } } } },
+        program: {
+          select: {
+            semesters: {
+              select: { id: true, number: true, courseNumber: true, startDate: true, endDate: true },
+            },
+          },
+        },
       },
     });
     let updated = 0;
@@ -771,7 +832,9 @@ export class EventsService {
   }
 
   async restore(key: string, actor: AuthUser) {
-    await this.prisma.eventDismissal.deleteMany({ where: { organizationId: actor.organizationId, eventKey: key } });
+    await this.prisma.eventDismissal.deleteMany({
+      where: { organizationId: actor.organizationId, eventKey: key },
+    });
     return { success: true };
   }
 

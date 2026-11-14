@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
 import { DateStr, toDateStr } from '../common/utils/dates';
 
-export type EventCategory = 'assessments' | 'groups' | 'process' | 'holidays' | 'teachers' | 'schedule' | 'reminders';
+export type EventCategory =
+  'assessments' | 'groups' | 'process' | 'holidays' | 'teachers' | 'schedule' | 'reminders';
 export type EventSeverity = 'danger' | 'warning' | 'info' | 'success';
 export type EventAction = 'archive-graduates' | 'sync-semesters';
 
@@ -65,7 +66,10 @@ export function groupStage(semesters: SemesterLike[], today: DateStr): GroupStag
 
 /** Короткий устойчивый хэш набора идентификаторов: новое событие при изменении состава */
 export function idsHash(ids: string[]): string {
-  return createHash('sha1').update([...ids].sort().join(',')).digest('hex').slice(0, 10);
+  return createHash('sha1')
+    .update([...ids].sort().join(','))
+    .digest('hex')
+    .slice(0, 10);
 }
 
 /** Скрыто ли событие: навсегда (until = null) или до даты включительно */
@@ -108,7 +112,9 @@ export function academicYearStart(today: DateStr): DateStr {
 /** Порядок событий: сначала требующие действий и текущие, затем по дате */
 export function sortEvents(events: TimelineEvent[], today: DateStr): TimelineEvent[] {
   const eff = (e: TimelineEvent) => (e.date < today ? today : e.date);
-  return [...events].sort((a, b) => eff(a).localeCompare(eff(b)) || rank(a) - rank(b) || a.title.localeCompare(b.title, 'ru'));
+  return [...events].sort(
+    (a, b) => eff(a).localeCompare(eff(b)) || rank(a) - rank(b) || a.title.localeCompare(b.title, 'ru'),
+  );
 }
 
 const SEVERITY_RANK: Record<EventSeverity, number> = { danger: 0, warning: 1, info: 2, success: 3 };
