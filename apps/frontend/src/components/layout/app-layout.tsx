@@ -6,6 +6,7 @@ import {
   BookOpen,
   Building2,
   CalendarCheck2,
+  CalendarClock,
   CalendarDays,
   CalendarRange,
   Compass,
@@ -68,6 +69,7 @@ const NAV: Array<{ section: string; items: NavItem[] }> = [
     items: [
       { to: '/setup', label: 'Мастер настройки', icon: Compass, roles: EDITORS, color: 'oklch(0.62 0.17 55)' },
       { to: '/', label: 'Главная', icon: LayoutDashboard, roles: ['ADMIN', 'DISPATCHER', 'MANAGER', 'TEACHER', 'STUDENT'], color: 'oklch(0.58 0.2 265)' },
+      { to: '/events', label: 'События', icon: CalendarClock, roles: STAFF, color: 'oklch(0.62 0.19 25)' },
       { to: '/my', label: 'Моё расписание', icon: CalendarCheck2, roles: ['TEACHER', 'STUDENT'], color: 'oklch(0.6 0.17 160)' },
       { to: '/schedule', label: 'Расписание', icon: CalendarDays, roles: [...STAFF, 'TEACHER'], color: 'oklch(0.58 0.2 265)' },
       { to: '/generation', label: 'Составление', icon: Sparkles, roles: EDITORS, color: 'oklch(0.6 0.22 300)' },
@@ -132,6 +134,10 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     return { ...group, items };
   });
   const org = user?.organization?.shortName ?? 'Колледж';
+  const isStaff = !!user && STAFF.includes(user.role);
+  const events = useApi<{ attention: number }>(['events', 'attention'], isStaff ? '/events/attention' : null, undefined, {
+    refetchInterval: 300_000,
+  });
   const branding = useBranding();
   return (
     <nav className="flex h-full flex-col">
@@ -172,6 +178,14 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                   >
                     <item.icon className="size-4 shrink-0" />
                     <span className="truncate">{item.label}</span>
+                    {item.to === '/events' && (events.data?.attention ?? 0) > 0 && (
+                      <span
+                        className="animate-pop ml-auto rounded-full bg-red-100 px-1.5 text-[10px] font-semibold text-red-700 tabular-nums dark:bg-red-400/15 dark:text-red-200"
+                        title="Событий, требующих действий"
+                      >
+                        {events.data!.attention}
+                      </span>
+                    )}
                     {item.to === '/setup' && setup.data?.next && (
                       <span className="ml-auto rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-700 tabular-nums dark:bg-amber-400/15 dark:text-amber-200">
                         {setup.data.completed}/{setup.data.total}

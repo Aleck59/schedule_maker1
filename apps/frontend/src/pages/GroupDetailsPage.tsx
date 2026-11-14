@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowLeft, Download, Pencil, Trash2, UserPlus } from 'lucide-react';
+import { Archive, ArchiveRestore, ArrowLeft, Download, Pencil, Trash2, UserPlus } from 'lucide-react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Confirm } from '@/components/common/confirm';
@@ -39,6 +39,10 @@ export default function GroupDetailsPage() {
     invalidate: [['groups']],
     onSuccess: () => navigate('/groups'),
   });
+  const toggleActive = useApiMutation((isActive: boolean) => api.patch(`/groups/${id}`, { isActive }), {
+    success: 'Группа сохранена',
+    invalidate: [['groups'], ['group'], ['events'], ['programs']],
+  });
   if (group.isLoading) return <LoadingState rows={8} />;
   if (group.error) return <ErrorState error={group.error} onRetry={() => group.refetch()} />;
   const g = group.data!;
@@ -52,7 +56,12 @@ export default function GroupDetailsPage() {
         </Link>
       </Button>
       <PageHeader
-        title={`Группа ${g.code}`}
+        title={
+          <span className="inline-flex flex-wrap items-center gap-2">
+            Группа {g.code}
+            {!g.isActive && <Badge variant="muted">в архиве</Badge>}
+          </span>
+        }
         description={`${g.program?.specialty?.code ?? ''} ${g.program?.specialty?.name ?? ''} · ${g.courseNumber} курс · ${g.currentSemesterNumber} семестр`}
         actions={
           <>
@@ -73,6 +82,21 @@ export default function GroupDetailsPage() {
                 <Button variant="outline" onClick={() => setEdit(true)}>
                   <Pencil /> Изменить
                 </Button>
+                <Confirm
+                  trigger={
+                    <Button variant="outline">
+                      {g.isActive ? <Archive /> : <ArchiveRestore />} {g.isActive ? 'В архив' : 'Вернуть из архива'}
+                    </Button>
+                  }
+                  title={g.isActive ? `Перевести группу ${g.code} в архив?` : `Вернуть группу ${g.code} из архива?`}
+                  description={
+                    g.isActive
+                      ? 'Группа станет неактивной: она не попадёт в составление и нагрузку, но её расписание и отчёты сохранятся.'
+                      : 'Группа снова станет активной, а её учебный план — рабочим, если он был в архиве.'
+                  }
+                  confirmText={g.isActive ? 'В архив' : 'Вернуть'}
+                  onConfirm={() => toggleActive.mutate(!g.isActive)}
+                />
                 <Confirm
                   trigger={
                     <Button variant="ghost" size="icon" aria-label="Удалить группу">
