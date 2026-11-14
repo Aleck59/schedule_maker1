@@ -393,7 +393,7 @@ function UnplacedTable({ items, groupIdByCode }: { items: UnplacedItem[]; groupI
                   </td>
                   <td className="px-1 py-1 text-center" onClick={(e) => e.stopPropagation()}>
                     {t.teacherId && (
-                      <Button asChild variant="ghost" size="icon-sm" title="Карточка преподавателя: доступность, нагрузка">
+                      <Button asChild variant="ghost" size="icon-sm" aria-label="Карточка преподавателя" title="Карточка преподавателя: доступность, нагрузка">
                         <Link to={`/teachers/${t.teacherId}`}>
                           <ExternalLink />
                         </Link>
@@ -424,7 +424,7 @@ function UnplacedTable({ items, groupIdByCode }: { items: UnplacedItem[]; groupI
                         </td>
                         <td className="px-1 py-1 text-center">
                           {groupId && (
-                            <Button asChild variant="ghost" size="icon-sm" title="Нагрузка группы: сменить преподавателя или часы">
+                            <Button asChild variant="ghost" size="icon-sm" aria-label="Нагрузка группы" title="Нагрузка группы: сменить преподавателя или часы">
                               <Link to={`/workload?group=${groupId}`}>
                                 <ExternalLink />
                               </Link>
