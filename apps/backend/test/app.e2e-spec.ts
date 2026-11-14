@@ -1058,6 +1058,67 @@ describe('Расписание СПО (e2e)', () => {
     expect(xmlReady.draft.periods.length).toBeGreaterThan(5);
   });
 
+  it('пакетная загрузка учебных планов: каждый файл — отдельный план, создание в фоне', async () => {
+    const fixtures = join(__dirname, '../../solver/tests/fixtures');
+    await http
+      .post('/api/curriculum-scans/batch')
+      .set(auth('teacher'))
+      .attach('files', readFileSync(join(fixtures, 'plan-spo.plx')), 'a.plx')
+      .expect(403);
+    const photo = await http
+      .post('/api/curriculum-scans/batch')
+      .set(auth('dispatcher'))
+      .attach('files', readFileSync(join(fixtures, 'plan-spo.plx')), 'a.plx')
+      .attach('files', Buffer.from('jpg'), 'page.jpg')
+      .expect(400);
+    expect(photo.body.message).toMatch(/page\.jpg/);
+
+    // Такое же название могло остаться от проверок импорта выше — освободить его для .xml
+    const prismaBefore = app.get(PrismaService);
+    await prismaBefore.educationalProgram.updateMany({
+      where: { title: '40.02.04 Юриспруденция, набор 2026' },
+      data: { title: '40.02.04 Юриспруденция, набор 2026 (ранее)' },
+    });
+    const batch = await http
+      .post('/api/curriculum-scans/batch')
+      .set(auth('dispatcher'))
+      .field('autoApply', 'true')
+      .attach('files', readFileSync(join(fixtures, 'plan-spo.plx')), 'isp-again.plx')
+      .attach('files', readFileSync(join(fixtures, 'plan-spo-gosinsp.xml')), 'jur.xml')
+      .attach('files', Buffer.from('<root><a/></root>'), 'broken.xml')
+      .expect(201);
+    expect(batch.body.count).toBe(3);
+    const batchId = batch.body.batchId as string;
+    let rows: Array<{ fileNames: string[]; status: string; message: string; programId: string | null }> = [];
+    for (let i = 0; i < 150; i++) {
+      const res = await http.get('/api/curriculum-scans').query({ batchId }).set(auth('dispatcher')).expect(200);
+      rows = res.body;
+      if (rows.every((r) => r.status !== 'PROCESSING')) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    const byName = Object.fromEntries(rows.map((r) => [r.fileNames[0], r]));
+    expect(rows.map((r) => r.fileNames[0])).toEqual(['isp-again.plx', 'jur.xml', 'broken.xml']);
+    // План ИСиП 2025 уже создан предыдущим тестом — повторно не создаётся, ждёт проверки
+    expect(byName['isp-again.plx']).toMatchObject({ status: 'READY', programId: null });
+    expect(byName['isp-again.plx'].message).toMatch(/уже есть/);
+    expect([byName['jur.xml'].status, byName['jur.xml'].message]).toEqual(['APPLIED', 'Учебный план создан']);
+    expect(byName['broken.xml'].status).toBe('FAILED');
+    const prisma = app.get(PrismaService);
+    const program = await prisma.educationalProgram.findUniqueOrThrow({
+      where: { id: byName['jur.xml'].programId! },
+      include: { _count: { select: { semesters: true, items: true, calendarEvents: true } } },
+    });
+    expect(program.title).toContain('40.02.04');
+    expect(program._count.semesters).toBeGreaterThan(0);
+    expect(program._count.items).toBeGreaterThan(0);
+    expect(program._count.calendarEvents).toBeGreaterThan(5);
+    const dispatcher = await prisma.user.findFirstOrThrow({ where: { email: 'dispatcher@college.ru' } });
+    const note = await prisma.notification.findFirst({
+      where: { userId: dispatcher.id, title: 'Загрузка учебных планов завершена' },
+    });
+    expect(note?.message).toMatch(/Файлов: 3; создано планов: 1, ждут проверки: 1, с ошибкой: 1/);
+  });
+
   it('уровень образования специальности определяется по коду', async () => {
     const vo = await http
       .post('/api/specialties')

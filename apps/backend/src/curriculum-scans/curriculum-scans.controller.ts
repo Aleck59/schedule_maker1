@@ -8,6 +8,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
@@ -16,7 +17,7 @@ import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nes
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { EDITOR_ROLES, Roles } from '../common/decorators/roles.decorator';
 import { AuthUser } from '../common/types/auth-user';
-import { CurriculumScansService } from './curriculum-scans.service';
+import { BATCH_MAX_FILES, CurriculumScansService } from './curriculum-scans.service';
 import { ApplyScanDto } from './dto/curriculum-scan.dto';
 
 @ApiTags('Импорт учебного плана (скан, .plx, .xml)')
@@ -34,9 +35,36 @@ export class CurriculumScansController {
 
   @Get()
   @Roles(...EDITOR_ROLES)
-  @ApiOperation({ summary: 'Последние загруженные сканы' })
-  list(@CurrentUser() user: AuthUser) {
-    return this.scans.list(user);
+  @ApiOperation({ summary: 'Последние загрузки; с batchId — все файлы одной пакетной загрузки' })
+  list(@CurrentUser() user: AuthUser, @Query('batchId', new ParseUUIDPipe({ optional: true })) batchId?: string) {
+    return this.scans.list(user, batchId);
+  }
+
+  @Post('batch')
+  @Roles(...EDITOR_ROLES)
+  @ApiOperation({
+    summary:
+      'Пакетная загрузка: много файлов .plx/.xml/PDF, каждый — отдельный учебный план, обработка в фоне по очереди. ' +
+      'autoApply=true — сразу создавать планы без ошибок, остальные ждут проверки',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        files: { type: 'array', items: { type: 'string', format: 'binary' } },
+        autoApply: { type: 'boolean', default: true },
+      },
+    },
+  })
+  @UseInterceptors(FilesInterceptor('files', BATCH_MAX_FILES, { limits: { fileSize: 60 * 1024 * 1024 } }))
+  uploadBatch(
+    @UploadedFiles() files: Express.Multer.File[] | undefined,
+    @Body('autoApply') autoApply: string | boolean | undefined,
+    @CurrentUser() user: AuthUser,
+  ) {
+    if (!files?.length) throw new BadRequestException('Файлы не переданы');
+    return this.scans.uploadBatch(files, autoApply !== false && autoApply !== 'false', user);
   }
 
   @Post()

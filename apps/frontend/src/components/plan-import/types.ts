@@ -134,6 +134,9 @@ export interface CurriculumScan {
   message: string | null;
   error: string | null;
   programId: string | null;
+  /** Пакетная загрузка: общий идентификатор файлов одной загрузки */
+  batchId?: string | null;
+  autoApply?: boolean;
   createdAt: string;
   updatedAt: string;
   resultJson?: ScanResult | null;
@@ -171,3 +174,9 @@ export const KIND_LABELS: Record<ScanItemKind, string> = {
 };
 
 export const PRACTICE_KINDS: ScanItemKind[] = ['EDUCATIONAL_PRACTICE', 'INDUSTRIAL_PRACTICE', 'PRE_DIPLOMA_PRACTICE'];
+
+export interface BatchUploadResult {
+  batchId: string;
+  count: number;
+  scans: Array<{ id: string; fileName: string }>;
+}

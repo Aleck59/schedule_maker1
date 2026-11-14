@@ -15,12 +15,17 @@ import {
   Prisma,
   StudyForm,
 } from '@prisma/client';
+import { plainToInstance } from 'class-transformer';
+import { validate as validateDto } from 'class-validator';
+import { randomUUID } from 'crypto';
 import { mkdir, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { extname, join } from 'path';
 import { AuditService } from '../audit/audit.service';
+import { CacheService } from '../cache/cache.service';
 import { AuthUser } from '../common/types/auth-user';
 import { parseDate, toDateStr } from '../common/utils/dates';
+import { flatten } from '../common/validation';
 import { educationLevelByCode } from '../common/utils/education';
 import { computePlannedLessons } from '../common/utils/hours';
 import { CALENDAR_EVENT_LABELS } from '../common/utils/labels';
@@ -33,6 +38,9 @@ import { ApplyScanDto, ScanHoursDto, ScanItemDto, ScanItemKind } from './dto/cur
 export const SCAN_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.webp'];
 /** Файлы программы «Планы» (ММИС, GosInsp), совместимые с 1С:Университет: .plx и .xml */
 export const PLAN_FILE_EXTENSIONS = ['.plx', '.xml'];
+/** Пакетная загрузка: каждый файл .plx/.xml/PDF — отдельный учебный план */
+export const BATCH_EXTENSIONS = [...PLAN_FILE_EXTENSIONS, '.pdf'];
+export const BATCH_MAX_FILES = 100;
 const RECOGNITION_TIMEOUT_MS = 30 * 60 * 1000;
 const PLAN_FILE_TIMEOUT_MS = 2 * 60 * 1000;
 
@@ -82,6 +90,7 @@ export interface RecognizedPlan {
     semesters: Array<{ number: number; controlForm: string; hours: Record<string, number>; cells: unknown }>;
   }>;
   warnings: string[];
+  stats?: { uncertain?: number };
 }
 
 /** Черновик для формы проверки: данные скана в формате запроса на создание учебного плана */
@@ -158,6 +167,19 @@ export function toDraft(plan: RecognizedPlan) {
   };
 }
 
+/** Черновик → тело запроса на создание плана (без служебных полей распознавания), как на странице проверки */
+export function draftToApplyPayload(draft: ReturnType<typeof toDraft>) {
+  return {
+    ...draft,
+    program: { ...draft.program, title: draft.program.title.trim() || undefined },
+    items: draft.items.map(({ issues: _issues, ...item }) => ({
+      ...item,
+      semesters: item.semesters.map(({ cells: _cells, ...s }) => s),
+    })),
+    group: undefined,
+  };
+}
+
 export interface ApplyScanResult {
   programId: string;
   groupId: string | null;
@@ -230,12 +252,15 @@ export class CurriculumScansService implements OnModuleInit {
   private readonly logger = new Logger(CurriculumScansService.name);
   /** Распознавание выполняется по одному файлу за раз (нагрузка на процессор) */
   private chain: Promise<void> = Promise.resolve();
+  /** Файлы .plx/.xml — тоже по одному, но в своей очереди: не ждут долгого распознавания сканов */
+  private planChain: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly engine: EngineService,
     private readonly audit: AuditService,
     private readonly settings: SettingsService,
+    private readonly cache: CacheService,
   ) {}
 
   async onModuleInit() {
@@ -263,11 +288,11 @@ export class CurriculumScansService implements OnModuleInit {
     };
   }
 
-  list(actor: AuthUser) {
+  list(actor: AuthUser, batchId?: string) {
     return this.prisma.curriculumScan.findMany({
-      where: { organizationId: actor.organizationId },
-      orderBy: { createdAt: 'desc' },
-      take: 20,
+      where: { organizationId: actor.organizationId, batchId: batchId || undefined },
+      orderBy: batchId ? [{ createdAt: 'asc' }, { id: 'asc' }] : { createdAt: 'desc' },
+      take: batchId ? BATCH_MAX_FILES : 50,
       select: {
         id: true,
         fileNames: true,
@@ -276,6 +301,8 @@ export class CurriculumScansService implements OnModuleInit {
         message: true,
         error: true,
         programId: true,
+        batchId: true,
+        autoApply: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -349,13 +376,79 @@ export class CurriculumScansService implements OnModuleInit {
       paths.push(path);
     }
     await this.audit.log(actor.id, 'UPLOAD', 'CurriculumScan', scan.id, null, { files: scan.fileNames });
-    if (planFile) {
-      // Чтение файла занимает доли секунды — без очереди распознавания
-      void this.process(scan.id, paths, dir, true);
-    } else {
-      this.chain = this.chain.then(() => this.process(scan.id, paths, dir, false));
-    }
+    this.enqueue(scan.id, paths, dir, planFile);
     return scan;
+  }
+
+  /** Очередь обработки: файлы планов и сканы — каждая по одному файлу за раз */
+  private enqueue(id: string, paths: string[], dir: string, planFile: boolean) {
+    if (planFile) {
+      // Чтение файла занимает доли секунды — отдельно от очереди распознавания
+      this.planChain = this.planChain.then(() => this.process(id, paths, dir, true));
+    } else {
+      this.chain = this.chain.then(() => this.process(id, paths, dir, false));
+    }
+  }
+
+  /**
+   * Пакетная загрузка: каждый файл .plx/.xml/PDF становится отдельной загрузкой с общим batchId
+   * и обрабатывается в фоне. При autoApply учебный план создаётся сразу, если в данных нет ошибок;
+   * иначе загрузка остаётся «на проверке» с причиной.
+   */
+  async uploadBatch(files: Express.Multer.File[], autoApply: boolean, actor: AuthUser) {
+    if (!files.length) throw new BadRequestException('Выберите файлы учебных планов');
+    if (files.length > BATCH_MAX_FILES) {
+      throw new BadRequestException(`За один раз можно загрузить не более ${BATCH_MAX_FILES} файлов`);
+    }
+    const names = files.map((f) => Buffer.from(f.originalname, 'latin1').toString('utf8'));
+    const bad = names.filter((n) => !BATCH_EXTENSIONS.includes(extname(n).toLowerCase()));
+    if (bad.length) {
+      throw new BadRequestException(
+        `Не поддерживается: ${bad.slice(0, 5).join(', ')}${bad.length > 5 ? ' и др.' : ''}. ` +
+          'В пакетной загрузке каждый файл — отдельный план: .plx, .xml или PDF. ' +
+          'Фотографии страниц одного плана загружайте по одному плану.',
+      );
+    }
+    const status = await this.status();
+    const hasPlanFiles = names.some(isPlanFile);
+    const hasScans = names.some((n) => !isPlanFile(n));
+    if (hasPlanFiles && !status.fileImportAvailable) {
+      throw new ServiceUnavailableException(
+        `Загрузка файлов учебного плана недоступна: ${status.fileImportError}`,
+      );
+    }
+    if (hasScans && !status.available) {
+      throw new ServiceUnavailableException(
+        `Распознавание сканов PDF недоступно: ${status.error}. Файлы .plx и .xml загружаются без распознавания.`,
+      );
+    }
+    const batchId = randomUUID();
+    const created: Array<{ id: string; fileName: string }> = [];
+    for (const [i, f] of files.entries()) {
+      const planFile = isPlanFile(names[i]);
+      const scan = await this.prisma.curriculumScan.create({
+        data: {
+          organizationId: actor.organizationId,
+          createdById: actor.id,
+          fileNames: [names[i]],
+          batchId,
+          autoApply,
+          message: planFile ? 'В очереди на чтение файла' : 'В очереди на распознавание',
+        },
+      });
+      const dir = join(tmpdir(), 'curriculum-scans', scan.id);
+      await mkdir(dir, { recursive: true });
+      const path = join(dir, `01${extname(names[i]).toLowerCase()}`);
+      await writeFile(path, f.buffer);
+      this.enqueue(scan.id, [path], dir, planFile);
+      created.push({ id: scan.id, fileName: names[i] });
+    }
+    await this.audit.log(actor.id, 'UPLOAD', 'CurriculumScan', batchId, null, {
+      batch: true,
+      autoApply,
+      files: names,
+    });
+    return { batchId, count: created.length, scans: created };
   }
 
   private async process(id: string, paths: string[], dir: string, planFile: boolean): Promise<void> {
@@ -377,7 +470,7 @@ export class CurriculumScansService implements OnModuleInit {
             .catch(() => undefined);
         },
       });
-      await this.prisma.curriculumScan.update({
+      const scan = await this.prisma.curriculumScan.update({
         where: { id },
         data: {
           status: CurriculumScanStatus.READY,
@@ -388,6 +481,7 @@ export class CurriculumScansService implements OnModuleInit {
           resultJson: result,
         },
       });
+      if (scan.autoApply) await this.autoApply(id, planFile);
     } catch (e) {
       const message = (e as Error).message;
       this.logger.warn(`Скан ${id}: ошибка ${planFile ? 'чтения файла' : 'распознавания'}: ${message}`);
@@ -403,7 +497,126 @@ export class CurriculumScansService implements OnModuleInit {
         .catch(() => undefined);
     } finally {
       await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+      await this.notifyBatchDone(id).catch(() => undefined);
     }
+  }
+
+  /** Почему план нельзя создать без проверки (пусто — можно создавать) */
+  async autoApplyBlockers(
+    plan: RecognizedPlan,
+    dto: ApplyScanDto,
+    organizationId: string,
+    planFile: boolean,
+  ): Promise<string[]> {
+    const reasons: string[] = [];
+    const invalid = await validateDto(dto, { whitelist: true });
+    reasons.push(...flatten(invalid));
+    reasons.push(...this.validate(dto));
+    if (!dto.items.some((i) => i.include !== false && i.kind !== 'GROUP')) {
+      reasons.push('Не найдено ни одной дисциплины');
+    }
+    if (!planFile) {
+      // Скан: сомнительные цифры распознавания проверяет человек
+      const uncertain = plan.stats?.uncertain ?? 0;
+      const withIssues = plan.items.filter((i) => i.issues?.length).length;
+      if (uncertain > 0 || withIssues > 0) {
+        reasons.push(
+          `Скан распознан с сомнениями (${uncertain || withIssues} мест) — проверьте цифры вручную`,
+        );
+      }
+    }
+    const title =
+      dto.program.title?.trim() ||
+      `${dto.specialty.code} ${dto.specialty.name?.trim() ?? ''}, набор ${dto.program.admissionYear}`;
+    const duplicate = await this.prisma.educationalProgram.findFirst({
+      where: { organizationId, title },
+      select: { id: true },
+    });
+    if (duplicate) reasons.push(`Учебный план «${title}» уже есть — повторно не создаётся`);
+    return [...new Set(reasons)];
+  }
+
+  /** Создание учебного плана сразу после чтения файла (пакетная загрузка) */
+  private async autoApply(id: string, planFile: boolean) {
+    const scan = await this.prisma.curriculumScan.findUnique({ where: { id } });
+    if (!scan?.resultJson) return;
+    const plan = scan.resultJson as unknown as RecognizedPlan;
+    const dto = plainToInstance(ApplyScanDto, draftToApplyPayload(toDraft(plan)));
+    const blockers = await this.autoApplyBlockers(plan, dto, scan.organizationId, planFile);
+    if (blockers.length) {
+      await this.prisma.curriculumScan.update({
+        where: { id },
+        data: { message: `Нужна проверка: ${blockers[0]}`, error: blockers.join('\n') },
+      });
+      return;
+    }
+    const actor = await this.actorOf(scan.createdById, scan.organizationId);
+    try {
+      await this.apply(id, dto, actor);
+      // Создано не из HTTP-запроса — сбросить кэш ответов явно
+      await this.cache.invalidate();
+      const warnings = plan.warnings?.length ?? 0;
+      await this.prisma.curriculumScan.update({
+        where: { id },
+        data: {
+          message: warnings
+            ? `Учебный план создан, замечаний при чтении: ${warnings}`
+            : 'Учебный план создан',
+          error: null,
+        },
+      });
+    } catch (e) {
+      const err = e as Error & { getResponse?: () => unknown };
+      const body = err.getResponse?.() as { errors?: string[] } | undefined;
+      const reasons = body?.errors?.length ? body.errors : [err.message];
+      this.logger.warn(`Скан ${id}: план не создан автоматически: ${reasons.join('; ')}`);
+      await this.prisma.curriculumScan.update({
+        where: { id },
+        data: { message: `Нужна проверка: ${reasons[0]}`, error: reasons.join('\n') },
+      });
+    }
+  }
+
+  private async actorOf(userId: string | null, organizationId: string): Promise<AuthUser> {
+    const user = userId
+      ? await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: { id: true, email: true, fullName: true, role: true, teacherId: true, studentGroupId: true },
+        })
+      : null;
+    if (!user) throw new NotFoundException('Пользователь, загрузивший файл, не найден');
+    return { ...user, organizationId };
+  }
+
+  /** Последний файл пакета обработан — уведомление тому, кто загружал */
+  private async notifyBatchDone(id: string) {
+    const scan = await this.prisma.curriculumScan.findUnique({
+      where: { id },
+      select: { batchId: true, createdById: true },
+    });
+    if (!scan?.batchId || !scan.createdById) return;
+    const all = await this.prisma.curriculumScan.findMany({
+      where: { batchId: scan.batchId },
+      select: { status: true },
+    });
+    if (all.some((s) => s.status === CurriculumScanStatus.PROCESSING)) return;
+    const applied = all.filter((s) => s.status === CurriculumScanStatus.APPLIED).length;
+    const ready = all.filter((s) => s.status === CurriculumScanStatus.READY).length;
+    const failed = all.filter((s) => s.status === CurriculumScanStatus.FAILED).length;
+    const parts = [
+      applied ? `создано планов: ${applied}` : '',
+      ready ? `ждут проверки: ${ready}` : '',
+      failed ? `с ошибкой: ${failed}` : '',
+    ].filter(Boolean);
+    await this.prisma.notification.create({
+      data: {
+        userId: scan.createdById,
+        type: 'GENERAL',
+        title: 'Загрузка учебных планов завершена',
+        message: `Файлов: ${all.length}; ${parts.join(', ')}. Подробности — «Импорт учебного плана».`,
+      },
+    });
+    await this.cache.invalidate();
   }
 
   /** Проверка согласованности данных перед созданием учебного плана */
