@@ -325,8 +325,10 @@ export default function SchedulePage() {
       programId: period?.semester.program?.id,
     },
   );
-  const blocked = useMemo(() => {
+  // closed — праздники и каникулы: туда нельзя даже экзамены; в дни аттестации экзамены переносить можно
+  const { blocked, closed } = useMemo(() => {
     const map: Record<string, string> = {};
+    const closedDays = new Set<string>();
     const group = allGroups.find((g) => g.id === params.get("groupId"));
     for (const e of events.data ?? []) {
       if (!e.blocksSchedule || e.teacherId) continue;
@@ -341,10 +343,13 @@ export default function SchedulePage() {
         d <= e.endDate.slice(0, 10);
         d = addDays(d, 1)
       ) {
-        if (d >= range.from && d <= range.to) map[d] = e.title;
+        if (d < range.from || d > range.to) continue;
+        map[d] = e.title;
+        if (e.eventType === "HOLIDAY" || e.eventType === "VACATION")
+          closedDays.add(d);
       }
     }
-    return map;
+    return { blocked: map, closed: closedDays };
   }, [events.data, allGroups, params, view, range.from, range.to]);
 
   const invalidate = () => {
@@ -442,11 +447,17 @@ export default function SchedulePage() {
         title: g.code,
         subtitle: `${g.studentCount} чел.`,
         blocked: blocked[day] ?? null,
+        assessmentsAllowed: !!blocked[day] && !closed.has(day),
         match: (l: Lesson) => l.studentGroupId === g.id,
       }));
     }
-    return weekColumns(week, workingDays, view === "group" ? blocked : {});
-  }, [view, periodGroups, day, week, blocked, settings.data]);
+    return weekColumns(
+      week,
+      workingDays,
+      view === "group" ? blocked : {},
+      closed,
+    );
+  }, [view, periodGroups, day, week, blocked, closed, settings.data]);
 
   const groupOptions = allGroups.map((g) => ({
     value: g.id,

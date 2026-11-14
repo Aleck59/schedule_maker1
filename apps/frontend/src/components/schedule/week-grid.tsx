@@ -27,6 +27,8 @@ export interface GridColumn {
   subtitle?: ReactNode;
   /** Причина блокировки (праздник, каникулы) */
   blocked?: string | null;
+  /** День закрыт для пар, но экзамены и зачёты в него переносить можно (промежуточная аттестация, практика) */
+  assessmentsAllowed?: boolean;
   /** Фильтр занятий колонки */
   match: (lesson: Lesson) => boolean;
 }
@@ -77,6 +79,7 @@ function DropCell({
   id,
   data,
   blocked,
+  acceptsDrop,
   children,
   onEmptyClick,
   isToday,
@@ -84,11 +87,13 @@ function DropCell({
   id: string;
   data: { date: string; lessonNumber: number; columnKey: string };
   blocked?: string | null;
+  /** Закрытый день всё же принимает перетаскиваемую карточку (экзамен в дни аттестации) */
+  acceptsDrop?: boolean;
   children: ReactNode;
   onEmptyClick?: () => void;
   isToday: boolean;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id, data, disabled: !!blocked });
+  const { setNodeRef, isOver } = useDroppable({ id, data, disabled: !!blocked && !acceptsDrop });
   return (
     <div
       ref={setNodeRef}
@@ -206,6 +211,7 @@ export function ScheduleGrid({
                       id={`${col.key}#${n}`}
                       data={{ date: col.date, lessonNumber: n, columnKey: col.key }}
                       blocked={col.blocked}
+                      acceptsDrop={!!active?.assessment && !!col.assessmentsAllowed}
                       isToday={col.date === now}
                       onEmptyClick={editable && onCellClick ? () => onCellClick(col.date, n, col) : undefined}
                     >
@@ -248,6 +254,8 @@ export function weekColumns(
   weekStartDate: string,
   workingDays: number[],
   blocked: Record<string, string> = {},
+  /** Дни праздников и каникул: туда нельзя даже экзамены */
+  closed: Set<string> = new Set(),
 ): GridColumn[] {
   return Array.from({ length: 7 }, (_, i) => addDays(weekStartDate, i))
     .filter((d) => workingDays.includes(isoWeekday(d)))
@@ -257,6 +265,7 @@ export function weekColumns(
       title: weekdayName(isoWeekday(d)),
       subtitle: formatDateShort(d),
       blocked: blocked[d] ?? null,
+      assessmentsAllowed: !!blocked[d] && !closed.has(d),
       match: () => true,
     }));
 }

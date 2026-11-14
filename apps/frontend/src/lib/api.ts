@@ -95,7 +95,9 @@ async function toError(res: Response): Promise<ApiError> {
     /* ответ без тела */
   }
   const fallback =
-    res.status === 0 || res.status >= 500
+    res.status === 413
+      ? 'Файл слишком большой для загрузки на сервер'
+      : res.status === 0 || res.status >= 500
       ? 'Сервер недоступен или произошла внутренняя ошибка. Повторите попытку позже'
       : 'Не удалось выполнить запрос';
   return new ApiError(res.status, body.message || fallback, body.errors ?? [], body.details);
@@ -153,7 +155,45 @@ async function request<T>(method: string, path: string, body?: unknown, options:
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+/**
+ * Отправка файла с ходом загрузки (fetch не сообщает, сколько байт ушло): XMLHttpRequest
+ * с тем же токеном и обновлением токена при 401.
+ */
+function uploadWithProgress<T>(path: string, form: FormData, onProgress?: (fraction: number) => void, signal?: AbortSignal, retry = true): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', buildUrl(path));
+    const token = tokenStore.access;
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
+    };
+    xhr.onerror = () => reject(new ApiError(0, 'Нет соединения с сервером. Проверьте подключение к сети'));
+    xhr.onabort = () => reject(new DOMException('Загрузка отменена', 'AbortError'));
+    xhr.onload = async () => {
+      if (xhr.status === 401 && retry) {
+        const ok = await refreshTokens();
+        if (ok) return uploadWithProgress<T>(path, form, onProgress, signal, false).then(resolve, reject);
+        tokenStore.clear();
+        logoutListeners.forEach((l) => l());
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve((xhr.responseText ? JSON.parse(xhr.responseText) : undefined) as T);
+        } catch {
+          resolve(undefined as T);
+        }
+        return;
+      }
+      reject(await toError(new Response(xhr.responseText || null, { status: xhr.status })));
+    };
+    signal?.addEventListener('abort', () => xhr.abort());
+    xhr.send(form);
+  });
+}
+
 export const api = {
+  uploadWithProgress,
   get: <T>(path: string, query?: RequestOptions['query'], options: RequestOptions = {}) =>
     request<T>('GET', path, undefined, { ...options, query }),
   post: <T>(path: string, body?: unknown, options?: RequestOptions) => request<T>('POST', path, body ?? {}, options),

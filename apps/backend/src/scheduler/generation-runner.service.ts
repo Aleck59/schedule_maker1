@@ -44,19 +44,26 @@ export class GenerationRunnerService {
       const required = built.problem.demands.reduce((a, d) => a + d.lessonsRequired, 0);
       await this.update(jobId, {
         progress: 15,
-        message: `Генерация: ${required} пар, ${built.groupIds.length} групп(ы), ${built.problem.days.length} учебных дней`,
+        message: built.initial
+          ? `Улучшение текущего расписания: ${built.initialLessons ?? 0} занятий за основу, ${required} пар нужно`
+          : `Генерация: ${required} пар, ${built.groupIds.length} групп(ы), ${built.problem.days.length} учебных дней`,
       });
 
       let lastUpdate = 0;
-      const result = await this.solver.solve(built.problem, params.solver ?? 'auto', (fraction, message) => {
-        const now = Date.now();
-        if (now - lastUpdate < 1000) return;
-        lastUpdate = now;
-        void this.update(jobId, {
-          progress: Math.round(15 + fraction * 70),
-          message: `Генерация: ${message}`,
-        }).catch(() => undefined);
-      });
+      const result = await this.solver.solve(
+        built.problem,
+        params.solver ?? 'auto',
+        (fraction, message) => {
+          const now = Date.now();
+          if (now - lastUpdate < 1000) return;
+          lastUpdate = now;
+          void this.update(jobId, {
+            progress: Math.round(15 + fraction * 70),
+            message: `Генерация: ${message}`,
+          }).catch(() => undefined);
+        },
+        built.initial?.length ? built.initial : undefined,
+      );
 
       await this.update(jobId, {
         status: GenerationJobStatus.VALIDATING,

@@ -5,48 +5,140 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useApi } from '@/lib/query';
 import { cn } from '@/lib/utils';
+import { useBatchUpload, type LocalBatchFile } from './batch-upload';
 import type { CurriculumScan } from './types';
+
+type ItemKey = 'queue' | 'upload' | 'work' | 'done' | 'review' | 'fail';
 
 /** Состояние одного файла пакетной загрузки */
 export function batchItemState(s: CurriculumScan) {
   if (s.status === 'PROCESSING') {
     return s.progress > 0
-      ? { key: 'work', label: 'Обрабатывается', variant: 'info' as const }
-      : { key: 'queue', label: 'В очереди', variant: 'muted' as const };
+      ? { key: 'work' as const, label: 'Обрабатывается', variant: 'info' as const }
+      : { key: 'queue' as const, label: 'В очереди', variant: 'muted' as const };
   }
-  if (s.status === 'APPLIED') return { key: 'done', label: 'План создан', variant: 'success' as const };
-  if (s.status === 'FAILED') return { key: 'fail', label: 'Ошибка', variant: 'destructive' as const };
-  return { key: 'review', label: 'Нужна проверка', variant: 'warning' as const };
+  if (s.status === 'APPLIED') return { key: 'done' as const, label: 'План создан', variant: 'success' as const };
+  if (s.status === 'FAILED') return { key: 'fail' as const, label: 'Ошибка', variant: 'destructive' as const };
+  return { key: 'review' as const, label: 'Нужна проверка', variant: 'warning' as const };
 }
 
-const fileName = (s: CurriculumScan) => s.fileNames[0] ?? '—';
+/** Карточка плана в пакете: что показать и насколько заполнена полоса хода */
+export interface BatchCard {
+  id: string;
+  name: string;
+  key: ItemKey;
+  label: string;
+  variant: 'info' | 'muted' | 'success' | 'destructive' | 'warning';
+  /** 0…100: первая половина — отправка файла, вторая — обработка на сервере */
+  percent: number;
+  details: string | null;
+  scanId?: string;
+  programId?: string | null;
+}
 
-/** Ход пакетной загрузки: сводка и таблица по каждому файлу, обновляется сама */
+const fileSize = (bytes: number) =>
+  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} КБ` : `${(bytes / 1024 / 1024).toFixed(1)} МБ`;
+
+/** Файлы пакета: отправленные — по данным сервера, остальные — по состоянию в браузере */
+export function batchCards(scans: CurriculumScan[], local: LocalBatchFile[]): BatchCard[] {
+  const byId = new Map(scans.map((s) => [s.id, s]));
+  const fromScan = (s: CurriculumScan, name?: string): BatchCard => {
+    const st = batchItemState(s);
+    const percent =
+      st.key === 'work' ? 50 + Math.round(Math.min(0.99, s.progress) * 50) : st.key === 'queue' ? 50 : 100;
+    const details =
+      st.key === 'fail'
+        ? s.error
+        : st.key === 'review'
+          ? (s.message ?? '').replace(/^Нужна проверка: /, '')
+          : st.key === 'queue'
+            ? 'Ждёт своей очереди на сервере'
+            : s.message;
+    return { id: s.id, name: name ?? s.fileNames[0] ?? '—', ...st, percent, details, scanId: s.id, programId: s.programId };
+  };
+  if (!local.length) return scans.map((s) => fromScan(s));
+  const used = new Set<string>();
+  const cards = local.map((f): BatchCard => {
+    const scan = f.scanId ? byId.get(f.scanId) : undefined;
+    if (scan) {
+      used.add(scan.id);
+      return fromScan(scan, f.name);
+    }
+    if (f.phase === 'error') {
+      return { id: f.key, name: f.name, key: 'fail', label: 'Не отправлен', variant: 'destructive', percent: 100, details: f.error ?? null };
+    }
+    if (f.phase === 'sent') {
+      // Файл уже на сервере, список загрузок ещё не обновился
+      return { id: f.key, name: f.name, key: 'work', label: 'Обрабатывается', variant: 'info', percent: 50, details: 'Файл отправлен, идёт обработка' };
+    }
+    if (f.phase === 'uploading') {
+      return {
+        id: f.key,
+        name: f.name,
+        key: 'upload',
+        label: 'Отправка',
+        variant: 'info',
+        percent: Math.round(f.uploaded * 50),
+        details: `Отправлено ${Math.round(f.uploaded * 100)}% из ${fileSize(f.size)}`,
+      };
+    }
+    return { id: f.key, name: f.name, key: 'queue', label: 'В очереди', variant: 'muted', percent: 0, details: 'Отправится после предыдущего плана' };
+  });
+  // Файлы пакета, загруженные раньше (например, с другой вкладки)
+  return [...cards, ...scans.filter((s) => !used.has(s.id)).map((s) => fromScan(s))];
+}
+
+const CARD_TONE: Record<ItemKey, string> = {
+  queue: 'bg-card',
+  upload: 'bg-card border-primary/40',
+  work: 'bg-card border-primary/40',
+  done: 'border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/40',
+  review: 'border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30',
+  fail: 'border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30',
+};
+const BAR_TONE: Partial<Record<ItemKey, string>> = {
+  done: 'bg-emerald-500',
+  review: 'bg-amber-500',
+  fail: 'bg-red-500',
+};
+
+/** Ход пакетной загрузки: сводка и карточка с полосой хода у каждого плана */
 export function BatchProgress({
   batchId,
   onOpen,
   onClose,
 }: {
-  batchId: string;
+  batchId: string | null;
   onOpen: (id: string) => void;
   onClose: () => void;
 }) {
-  const list = useApi<CurriculumScan[]>(['scans', 'batch', batchId], '/curriculum-scans', { batchId }, {
-    refetchInterval: (q) => (q.state.data?.some((s) => s.status === 'PROCESSING') ? 1500 : false),
+  const live = useBatchUpload();
+  // Загрузка идёт из этой вкладки: файлы ещё не на сервере видны из состояния браузера
+  const own = live.files.length > 0 && (!batchId || live.batchId === batchId);
+  const uploading = own && live.running;
+  // Опрос идёт, пока что-то обрабатывается или отправленный файл ещё не появился в списке
+  const awaited = own ? live.files.filter((f) => f.scanId).map((f) => f.scanId!) : [];
+  const list = useApi<CurriculumScan[]>(['scans', 'batch', batchId], batchId ? '/curriculum-scans' : null, { batchId: batchId ?? undefined }, {
+    refetchInterval: (q) =>
+      uploading ||
+      q.state.data?.some((s) => s.status === 'PROCESSING') ||
+      awaited.some((id) => !q.state.data?.some((s) => s.id === id))
+        ? 1000
+        : false,
   });
-  const items = list.data ?? [];
-  const total = items.length;
-  const count = (key: string) => items.filter((s) => batchItemState(s).key === key).length;
-  const done = items.filter((s) => s.status !== 'PROCESSING').length;
-  const running = done < total;
+  const cards = batchCards(list.data ?? [], own ? live.files : []);
+  const total = cards.length;
+  const count = (...keys: ItemKey[]) => cards.filter((c) => keys.includes(c.key)).length;
+  const done = count('done', 'review', 'fail');
+  const running = uploading || done < total;
+  const percent = total ? Math.round(cards.reduce((sum, c) => sum + c.percent, 0) / total) : 0;
   const summary = [
-    { key: 'done', label: 'Создано', icon: CircleCheck, cls: 'text-emerald-600' },
-    { key: 'review', label: 'На проверку', icon: ListChecks, cls: 'text-amber-600' },
-    { key: 'fail', label: 'Ошибки', icon: TriangleAlert, cls: 'text-destructive' },
-    { key: 'queue', label: 'В очереди', icon: Clock, cls: 'text-muted-foreground' },
+    { keys: ['done'] as ItemKey[], label: 'Создано', icon: CircleCheck, cls: 'text-emerald-600' },
+    { keys: ['review'] as ItemKey[], label: 'На проверку', icon: ListChecks, cls: 'text-amber-600' },
+    { keys: ['fail'] as ItemKey[], label: 'Ошибки', icon: TriangleAlert, cls: 'text-destructive' },
+    { keys: ['queue', 'upload', 'work'] as ItemKey[], label: 'В очереди', icon: Clock, cls: 'text-muted-foreground' },
   ];
 
   return (
@@ -55,16 +147,18 @@ export function BatchProgress({
         <div className="space-y-1.5">
           <CardTitle className="flex items-center gap-2">
             {running ? <Spinner /> : <CircleCheck className="size-5 text-emerald-600" />}
-            {running ? `Обработка планов: ${done} из ${total}` : `Готово: обработано ${total} файлов`}
+            {running ? `Загрузка планов: ${done} из ${total}` : `Готово: обработано ${total} файлов`}
           </CardTitle>
           <CardDescription>
-            {running
-              ? 'Файлы обрабатываются в фоне по очереди. Можно закрыть страницу — по окончании придёт уведомление, а результат останется в «Загруженные ранее».'
-              : 'Планы без ошибок созданы. Файлы «Нужна проверка» откройте и подтвердите вручную — причина указана в строке.'}
+            {uploading
+              ? 'Планы загружаются по одному: следующий файл отправляется, когда предыдущий прочитан и создан. Не закрывайте вкладку, пока идёт отправка — по другим страницам приложения переходить можно.'
+              : running
+                ? 'Файлы обрабатываются на сервере по очереди. По окончании придёт уведомление, а результат останется в «Загруженные ранее».'
+                : 'Планы без ошибок созданы. Файлы «Нужна проверка» откройте и подтвердите вручную — причина указана на карточке.'}
           </CardDescription>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={onClose} disabled={uploading}>
             <FileUp /> Загрузить ещё
           </Button>
           <Button variant="ghost" size="icon" aria-label="Закрыть" onClick={onClose}>
@@ -73,100 +167,63 @@ export function BatchProgress({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Progress value={total ? Math.round((done / total) * 100) : 0} />
+        <Progress value={percent} />
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {summary.map(({ key, label, icon: Icon, cls }) => (
-            <div key={key} className="bg-muted/40 flex items-center gap-2 rounded-lg border px-3 py-2">
+          {summary.map(({ keys, label, icon: Icon, cls }) => (
+            <div key={label} className="bg-muted/40 flex items-center gap-2 rounded-lg border px-3 py-2">
               <Icon className={cn('size-5 shrink-0', cls)} />
               <div>
-                <div className="text-xl leading-none font-semibold tabular-nums">
-                  {key === 'queue' ? count('queue') + count('work') : count(key)}
-                </div>
+                <div className="text-xl leading-none font-semibold tabular-nums">{count(...keys)}</div>
                 <div className="text-muted-foreground text-xs">{label}</div>
               </div>
             </div>
           ))}
         </div>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Файл</TableHead>
-              <TableHead className="hidden md:table-cell">Состояние</TableHead>
-              <TableHead className="hidden md:table-cell">Подробности</TableHead>
-              <TableHead />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {items.map((s) => {
-              const st = batchItemState(s);
-              const badge = (
-                <Badge variant={st.variant} className="gap-1.5">
-                  {st.key === 'work' && <Spinner />}
-                  {st.label}
+        <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          {cards.map((c) => (
+            <li
+              key={c.id}
+              data-state={c.key}
+              className={cn('flex min-w-0 flex-col gap-2 rounded-xl border p-3 transition-colors duration-500', CARD_TONE[c.key])}
+            >
+              <div className="flex min-w-0 items-start gap-2">
+                {c.key === 'done' ? (
+                  <CircleCheck className="mt-0.5 size-4 shrink-0 text-emerald-600" />
+                ) : (
+                  <FileText className="text-muted-foreground mt-0.5 size-4 shrink-0" />
+                )}
+                <span className="min-w-0 flex-1 text-sm font-medium break-words" title={c.name}>
+                  {c.name}
+                </span>
+                <Badge variant={c.variant} className="shrink-0 gap-1.5">
+                  {(c.key === 'work' || c.key === 'upload') && <Spinner />}
+                  {c.label}
                 </Badge>
-              );
-              const details =
-                st.key === 'work'
-                  ? s.message
-                  : st.key === 'fail'
-                    ? s.error
-                    : st.key === 'review'
-                      ? (s.message ?? '').replace(/^Нужна проверка: /, '')
-                      : st.key === 'done'
-                        ? s.message
-                        : 'Ждёт своей очереди';
-              return (
-                <TableRow key={s.id}>
-                  <TableCell className="max-w-[13rem] whitespace-normal md:max-w-xs">
-                    <div className="flex items-center gap-2">
-                      <FileText className="text-muted-foreground size-4 shrink-0" />
-                      <span className="truncate" title={fileName(s)}>
-                        {fileName(s)}
-                      </span>
-                    </div>
-                    {/* Телефон: состояние и причина под именем файла */}
-                    <div className="mt-1.5 space-y-1 md:hidden">
-                      {badge}
-                      {st.key !== 'queue' && <div className="text-muted-foreground line-clamp-3 text-xs">{details}</div>}
-                    </div>
-                  </TableCell>
-                  <TableCell className="hidden md:table-cell">{badge}</TableCell>
-                  <TableCell className="text-muted-foreground hidden max-w-md text-sm md:table-cell">
-                    {st.key === 'work' ? (
-                      <div className="flex items-center gap-2">
-                        <Progress value={Math.round(s.progress * 100)} className="h-1.5 w-24" />
-                        <span className="truncate">{s.message}</span>
-                      </div>
-                    ) : st.key === 'review' || st.key === 'fail' ? (
-                      <span className="line-clamp-2" title={s.error ?? s.message ?? ''}>
-                        {st.key === 'fail' ? s.error : (s.message ?? '').replace(/^Нужна проверка: /, '')}
-                      </span>
-                    ) : st.key === 'done' ? (
-                      s.message
-                    ) : (
-                      'Ждёт своей очереди'
-                    )}
-                  </TableCell>
-                  <TableCell className="pl-0 text-right whitespace-nowrap md:pl-2">
-                    {st.key === 'done' && s.programId && (
-                      <Button variant="outline" size="sm" asChild>
-                        <Link to={`/programs/${s.programId}`}>
-                          <span className="md:hidden">План</span>
-                          <span className="hidden md:inline">Учебный план</span>
-                        </Link>
-                      </Button>
-                    )}
-                    {st.key === 'review' && (
-                      <Button size="sm" onClick={() => onOpen(s.id)}>
-                        Проверить
-                      </Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+              </div>
+              <Progress
+                value={c.percent}
+                className={cn('h-1.5', c.key === 'queue' && 'bg-muted')}
+                indicatorClassName={BAR_TONE[c.key]}
+                aria-label={`${c.name}: ${c.label}`}
+              />
+              <div className="flex min-h-7 items-center justify-between gap-2">
+                <span className="text-muted-foreground line-clamp-2 text-xs" title={c.details ?? ''}>
+                  {c.details}
+                </span>
+                {c.key === 'done' && c.programId && (
+                  <Button variant="outline" size="sm" className="h-7 shrink-0 bg-white/70 dark:bg-transparent" asChild>
+                    <Link to={`/programs/${c.programId}`}>Учебный план</Link>
+                  </Button>
+                )}
+                {c.key === 'review' && c.scanId && (
+                  <Button size="sm" className="h-7 shrink-0" onClick={() => onOpen(c.scanId!)}>
+                    Проверить
+                  </Button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
       </CardContent>
     </Card>
   );

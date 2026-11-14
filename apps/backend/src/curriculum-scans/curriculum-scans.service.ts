@@ -302,6 +302,7 @@ export class CurriculumScansService implements OnModuleInit {
         error: true,
         programId: true,
         batchId: true,
+        batchTotal: true,
         autoApply: true,
         createdAt: true,
         updatedAt: true,
@@ -395,7 +396,12 @@ export class CurriculumScansService implements OnModuleInit {
    * и обрабатывается в фоне. При autoApply учебный план создаётся сразу, если в данных нет ошибок;
    * иначе загрузка остаётся «на проверке» с причиной.
    */
-  async uploadBatch(files: Express.Multer.File[], autoApply: boolean, actor: AuthUser) {
+  async uploadBatch(
+    files: Express.Multer.File[],
+    autoApply: boolean,
+    actor: AuthUser,
+    opts: { batchId?: string; batchTotal?: number } = {},
+  ) {
     if (!files.length) throw new BadRequestException('Выберите файлы учебных планов');
     if (files.length > BATCH_MAX_FILES) {
       throw new BadRequestException(`За один раз можно загрузить не более ${BATCH_MAX_FILES} файлов`);
@@ -422,7 +428,22 @@ export class CurriculumScansService implements OnModuleInit {
         `Распознавание сканов PDF недоступно: ${status.error}. Файлы .plx и .xml загружаются без распознавания.`,
       );
     }
-    const batchId = randomUUID();
+    // Файлы пакета можно отправлять по одному: следующий файл дозагружается в начатый пакет
+    let batchId = opts.batchId;
+    if (batchId) {
+      const existing = await this.prisma.curriculumScan.findMany({
+        where: { batchId },
+        select: { organizationId: true, createdById: true },
+      });
+      if (existing.some((s) => s.organizationId !== actor.organizationId || s.createdById !== actor.id)) {
+        throw new BadRequestException('Пакет загрузки не найден');
+      }
+      if (existing.length + files.length > BATCH_MAX_FILES) {
+        throw new BadRequestException(`В одном пакете — не более ${BATCH_MAX_FILES} файлов`);
+      }
+    } else {
+      batchId = randomUUID();
+    }
     const created: Array<{ id: string; fileName: string }> = [];
     for (const [i, f] of files.entries()) {
       const planFile = isPlanFile(names[i]);
@@ -432,6 +453,7 @@ export class CurriculumScansService implements OnModuleInit {
           createdById: actor.id,
           fileNames: [names[i]],
           batchId,
+          batchTotal: opts.batchTotal ?? null,
           autoApply,
           message: planFile ? 'В очереди на чтение файла' : 'В очереди на распознавание',
         },
@@ -470,18 +492,30 @@ export class CurriculumScansService implements OnModuleInit {
             .catch(() => undefined);
         },
       });
-      const scan = await this.prisma.curriculumScan.update({
+      const pending = await this.prisma.curriculumScan.findUnique({
         where: { id },
-        data: {
-          status: CurriculumScanStatus.READY,
-          progress: 1,
-          message: planFile
-            ? 'Файл прочитан — проверьте данные'
-            : 'Распознавание завершено — проверьте данные',
-          resultJson: result,
-        },
+        select: { autoApply: true },
       });
-      if (scan.autoApply) await this.autoApply(id, planFile);
+      // Пакет со «Сразу создавать планы»: файл остаётся «в обработке», пока создаётся план, —
+      // иначе на экране он мелькает как «Нужна проверка», а следующий файл уходит раньше времени
+      await this.prisma.curriculumScan.update({
+        where: { id },
+        data: pending?.autoApply
+          ? {
+              progress: 0.9,
+              message: 'Создание учебного плана',
+              resultJson: result,
+            }
+          : {
+              status: CurriculumScanStatus.READY,
+              progress: 1,
+              message: planFile
+                ? 'Файл прочитан — проверьте данные'
+                : 'Распознавание завершено — проверьте данные',
+              resultJson: result,
+            },
+      });
+      if (pending?.autoApply) await this.autoApply(id, planFile);
     } catch (e) {
       const message = (e as Error).message;
       this.logger.warn(`Скан ${id}: ошибка ${planFile ? 'чтения файла' : 'распознавания'}: ${message}`);
@@ -540,25 +574,33 @@ export class CurriculumScansService implements OnModuleInit {
   private async autoApply(id: string, planFile: boolean) {
     const scan = await this.prisma.curriculumScan.findUnique({ where: { id } });
     if (!scan?.resultJson) return;
-    const plan = scan.resultJson as unknown as RecognizedPlan;
-    const dto = plainToInstance(ApplyScanDto, draftToApplyPayload(toDraft(plan)));
-    const blockers = await this.autoApplyBlockers(plan, dto, scan.organizationId, planFile);
-    if (blockers.length) {
-      await this.prisma.curriculumScan.update({
+    const needsReview = (reasons: string[]) =>
+      this.prisma.curriculumScan.update({
         where: { id },
-        data: { message: `Нужна проверка: ${blockers[0]}`, error: blockers.join('\n') },
+        data: {
+          status: CurriculumScanStatus.READY,
+          progress: 1,
+          message: `Нужна проверка: ${reasons[0]}`,
+          error: reasons.join('\n'),
+        },
       });
-      return;
-    }
-    const actor = await this.actorOf(scan.createdById, scan.organizationId);
     try {
-      await this.apply(id, dto, actor);
+      const plan = scan.resultJson as unknown as RecognizedPlan;
+      const dto = plainToInstance(ApplyScanDto, draftToApplyPayload(toDraft(plan)));
+      const blockers = await this.autoApplyBlockers(plan, dto, scan.organizationId, planFile);
+      if (blockers.length) {
+        await needsReview(blockers);
+        return;
+      }
+      const actor = await this.actorOf(scan.createdById, scan.organizationId);
+      await this.apply(id, dto, actor, { auto: true });
       // Создано не из HTTP-запроса — сбросить кэш ответов явно
       await this.cache.invalidate();
       const warnings = plan.warnings?.length ?? 0;
       await this.prisma.curriculumScan.update({
         where: { id },
         data: {
+          progress: 1,
           message: warnings
             ? `Учебный план создан, замечаний при чтении: ${warnings}`
             : 'Учебный план создан',
@@ -570,10 +612,7 @@ export class CurriculumScansService implements OnModuleInit {
       const body = err.getResponse?.() as { errors?: string[] } | undefined;
       const reasons = body?.errors?.length ? body.errors : [err.message];
       this.logger.warn(`Скан ${id}: план не создан автоматически: ${reasons.join('; ')}`);
-      await this.prisma.curriculumScan.update({
-        where: { id },
-        data: { message: `Нужна проверка: ${reasons[0]}`, error: reasons.join('\n') },
-      });
+      await needsReview(reasons);
     }
   }
 
@@ -604,9 +643,14 @@ export class CurriculumScansService implements OnModuleInit {
     if (!scan?.batchId || !scan.createdById) return;
     const all = await this.prisma.curriculumScan.findMany({
       where: { batchId: scan.batchId },
-      select: { status: true },
+      select: { status: true, batchTotal: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
     if (all.some((s) => s.status === CurriculumScanStatus.PROCESSING)) return;
+    // Файлы отправляются по одному: ждём, пока загрузится и обработается последний
+    // (число берётся из последнего файла — браузер уменьшает его, если файл не удалось отправить)
+    const expected = all[all.length - 1]?.batchTotal ?? 0;
+    if (all.length < expected) return;
     const applied = all.filter((s) => s.status === CurriculumScanStatus.APPLIED).length;
     const ready = all.filter((s) => s.status === CurriculumScanStatus.READY).length;
     const failed = all.filter((s) => s.status === CurriculumScanStatus.FAILED).length;
@@ -655,12 +699,18 @@ export class CurriculumScansService implements OnModuleInit {
     return errors;
   }
 
-  async apply(id: string, dto: ApplyScanDto, actor: AuthUser): Promise<ApplyScanResult> {
+  async apply(
+    id: string,
+    dto: ApplyScanDto,
+    actor: AuthUser,
+    opts: { auto?: boolean } = {},
+  ): Promise<ApplyScanResult> {
     const scan = await this.get(id, actor);
     if (scan.status === CurriculumScanStatus.APPLIED) {
       throw new ConflictException('Данные этого скана уже внесены в систему');
     }
-    if (scan.status === CurriculumScanStatus.PROCESSING) {
+    // Автосоздание из пакета идёт, пока файл ещё «в обработке»
+    if (scan.status === CurriculumScanStatus.PROCESSING && !opts.auto) {
       throw new ConflictException('Дождитесь окончания распознавания');
     }
     const errors = this.validate(dto);

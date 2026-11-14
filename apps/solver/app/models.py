@@ -133,6 +133,8 @@ class Placement(CamelModel):
     date: str
     lesson_number: int
     room_id: str | None = None
+    # Постоянное расписание: пара через неделю — числитель (ODD) или знаменатель (EVEN)
+    parity: Literal["ODD", "EVEN"] | None = None
 
 
 class Problem(CamelModel):
@@ -154,16 +156,21 @@ class Problem(CamelModel):
     online_room_id: str | None = None
     # Стартовое решение (например, эвристическое): решатель начинает поиск с него
     hints: list[Placement] = Field(default_factory=list)
+    # Только типовая неделя (постоянное расписание): без развёртки по датам, даты — «T<день недели>»,
+    # дробный темп даёт пары через неделю (числитель/знаменатель)
+    template_only: bool = False
 
 
 class Unplaced(CamelModel):
     demand_id: str
-    count: int
+    # В типовой неделе может быть 0,5 (не поставлена пара через неделю)
+    count: int | float
 
 
 class Stats(CamelModel):
-    required_lessons: int
-    placed_lessons: int
+    # В типовой неделе пара через неделю считается половиной
+    required_lessons: int | float
+    placed_lessons: int | float
     duration_ms: int
     weeks: int
     objective: float | None = None

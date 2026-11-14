@@ -830,9 +830,20 @@ export interface AllGroupsPlanRow {
   reason: string | null;
 }
 
+/** Учебный план без активных групп: составлять расписание не для кого */
+export interface AllGroupsPlanProgram {
+  programId: string;
+  programTitle: string;
+  specialty: string;
+  educationLevel: EducationLevel;
+  studyForm: StudyForm;
+  reason: string;
+}
+
 export interface AllGroupsPlan {
   date: string;
   groups: AllGroupsPlanRow[];
+  programsWithoutGroups?: AllGroupsPlanProgram[];
   summary: {
     groups: number;
     included: number;

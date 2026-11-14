@@ -5,6 +5,7 @@ import {
   LessonStatus,
   NotificationType,
   Prisma,
+  ProgramStatus,
   SchedulePeriodStatus,
 } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
@@ -178,9 +179,42 @@ export class GenerationService {
       };
     });
     const included = rows.filter((r) => r.included);
+    // Учебные планы без активных групп (например, загруженные пакетом — группы при этом не создаются):
+    // составлять не для кого, но план не должен молча пропадать из списка
+    const withGroups = new Set(groups.map((g) => g.educationalProgramId));
+    const programsWithoutGroups = (
+      await this.prisma.educationalProgram.findMany({
+        where: {
+          organizationId: actor.organizationId,
+          status: { not: ProgramStatus.ARCHIVED },
+          id: dto.programIds?.length ? { in: dto.programIds } : undefined,
+          specialty: dto.educationLevels?.length
+            ? { educationLevel: { in: dto.educationLevels } }
+            : undefined,
+          semesters: { some: { endDate: { gte: parseDate(date) } } },
+        },
+        select: {
+          id: true,
+          title: true,
+          studyForm: true,
+          specialty: { select: { code: true, name: true, educationLevel: true } },
+        },
+        orderBy: { title: 'asc' },
+      })
+    )
+      .filter((p) => !withGroups.has(p.id))
+      .map((p) => ({
+        programId: p.id,
+        programTitle: p.title,
+        specialty: `${p.specialty.code} ${p.specialty.name}`,
+        educationLevel: p.specialty.educationLevel,
+        studyForm: p.studyForm,
+        reason: 'В учебном плане нет активных групп — добавьте группу, чтобы составить для неё расписание',
+      }));
     return {
       date,
       groups: rows,
+      programsWithoutGroups,
       summary: {
         groups: rows.length,
         included: included.length,

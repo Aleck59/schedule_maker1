@@ -34,12 +34,12 @@ describe('Постоянное расписание (типовая неделя
     expect(new Set([...weekly, `${halves[0].date}#${halves[0].lessonNumber}`]).size).toBe(weekly.length + 1);
   });
 
-  it('при нехватке аудиторий ставит пару без аудитории (расстановка по максимуму)', () => {
+  it('при нехватке аудиторий ставит пару без аудитории и без расстановки по максимуму', () => {
     const days = makeDays('2025-09-01', 1);
     const problem = baseProblem({ days, mode: 'WEEKLY_TEMPLATE', lessonsPerDay: 1, workingDays: [1] });
     problem.groups.forEach((g) => (g.allowedDates = [days[0].date]));
     problem.teachers.forEach((t) => (t.unavailable = []));
-    problem.settings.maximizePlacement = true;
+    problem.settings.maximizePlacement = false;
     problem.demands = [
       demand('a', ['g1'], 't1', 1, ['r_gen'], { size: 20, semesterItemId: 'a' }),
       demand('b', ['g2'], 't2', 1, ['r_gen'], { size: 20, semesterItemId: 'b' }),
@@ -47,5 +47,18 @@ describe('Постоянное расписание (типовая неделя
     const result = solveHeuristic(problem, { templateOnly: true });
     expect(result.placements).toHaveLength(2);
     expect(result.placements.filter((p) => p.roomId === null)).toHaveLength(1);
+  });
+
+  it('без расстановки по максимуму не нарушает лимит дисциплины в день ради пары без аудитории', () => {
+    const days = makeDays('2025-09-01', 1);
+    const problem = baseProblem({ days, mode: 'WEEKLY_TEMPLATE', lessonsPerDay: 4, workingDays: [1] });
+    problem.groups.forEach((g) => (g.allowedDates = [days[0].date]));
+    problem.teachers.forEach((t) => (t.unavailable = []));
+    problem.settings.maximizePlacement = false;
+    problem.settings.maxSameDisciplinePerDay = 2;
+    problem.demands = [demand('a', ['g2'], 't2', 4, ['r_gen'], { size: 20, semesterItemId: 'a' })];
+    const result = solveHeuristic(problem, { templateOnly: true });
+    expect(result.placements).toHaveLength(2);
+    expect(result.unplaced).toEqual([{ demandId: 'a', count: 2 }]);
   });
 });

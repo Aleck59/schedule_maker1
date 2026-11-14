@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from ortools.sat.python import cp_model
 
 from .models import Demand, Placement, Problem, Room, SolveResult, Stats, Teacher, Unplaced
-from .pacing import cumulative_target_by_days, effective_rate, pacing_phases
+from .pacing import cumulative_target_by_days, effective_rate, pacing_phases, weekly_slots
 
 # Ход решения: доля выполненной работы (0…1) и сообщение
 Progress = Callable[[float, str], None]
@@ -85,6 +85,8 @@ def room_preference_cost(d: Demand, room: Room, w: dict[str, float], fallback: s
 COST_SCALE = 10
 #: Вознаграждение за поставленную пару (много больше любого штрафа)
 PLACE_REWARD = 1000
+#: Постоянное расписание: штраф за пару без аудитории (меньше вознаграждения за пару)
+NO_ROOM_PENALTY = 300
 #: Порог размера недельной модели «занятие × слот × аудитория»: выше него аудитории не входят в модель —
 #: решатель выбирает слоты с ограничением вместимости аудиторного фонда, аудитории назначаются после решения
 ROOM_VARIABLES_LIMIT = int(os.getenv("SOLVER_ROOM_VARIABLES_LIMIT", "60000"))
@@ -412,12 +414,31 @@ class CpSatScheduler:
     # ------------------------------------------------------------------ модель недели
 
     def _solve_week(
-        self, st: State, days: list[DayRef], targets: dict[DemandState, int], time_limit: float
+        self,
+        st: State,
+        days: list[DayRef],
+        targets: dict[DemandState, int],
+        time_limit: float,
+        halves: set[DemandState] | None = None,
     ) -> int:
+        """Модель одной недели. halves — пары «через неделю» (типовая неделя постоянного расписания):
+        в одном слоте у группы, преподавателя или аудитории помещаются две такие пары (числитель и знаменатель)."""
         active = [ds for ds, t in targets.items() if t > 0]
         if not active:
             return 0
+        halves = halves or set()
         model = cp_model.CpModel()
+        half_vars: set[int] = set()
+
+        def at_most_one_slot(vars_: list) -> None:
+            """Слот занят не более чем одной парой; пары через неделю занимают половину слота."""
+            if len(vars_) <= 1:
+                return
+            if half_vars and any(v.index in half_vars for v in vars_):
+                model.add(sum((1 if v.index in half_vars else 2) * v for v in vars_) <= 2)
+            else:
+                model.add(sum(vars_) <= 1)
+
         w = self.weights
         s = self.settings
         x: dict[tuple[int, str, int, str], cp_model.IntVar] = {}
@@ -428,12 +449,17 @@ class CpSatScheduler:
             sum(1 for day in days if day.key in ds.allowed) * self.L * max(1, len(ds.d.room_ids))
             for ds in active
         )
-        aggregate = estimate > ROOM_VARIABLES_LIMIT
+        # Постоянное расписание: аудитория не обязательна — пара ставится и без неё (со штрафом),
+        # аудитории назначаются после решения
+        rooms_optional = self.p.template_only
+        aggregate = rooms_optional or estimate > ROOM_VARIABLES_LIMIT
         candidates: dict[tuple[int, str, int], list[str]] = {}
 
         for i, ds in enumerate(active):
             # Заочники (ярус 0) и очно-заочные (1) — вперёд очных: их пары ценнее в спорных слотах
             reward = PLACE_REWARD * (10 + ds.d.priority + 10 * (2 - ds.d.form_tier))
+            if ds in halves:
+                reward //= 2
             m = ds.d.matching_rooms
             fallback = set(ds.d.room_ids[m:]) if m is not None else set()
             for day in days:
@@ -447,9 +473,13 @@ class CpSatScheduler:
                         free = [
                             r for r in self._rooms_for(ds, day, lesson) if self._room_ok(st, r, day, lesson)
                         ]
-                        if not free:
+                        if not free and not rooms_optional:
                             continue
                         var = model.new_bool_var(f"y_{i}_{day.key}_{lesson}")
+                        if not free:
+                            base_cost += NO_ROOM_PENALTY / (2 if ds in halves else 1)
+                        if ds in halves:
+                            half_vars.add(var.index)
                         if (ds.d.id, day.key, lesson) in self.hints:
                             model.add_hint(var, 1)
                         y[(i, day.key, lesson)].append(var)
@@ -460,6 +490,8 @@ class CpSatScheduler:
                         if not self._room_ok(st, room_id, day, lesson):
                             continue
                         var = model.new_bool_var(f"x_{i}_{day.key}_{lesson}_{room_id[:8]}")
+                        if ds in halves:
+                            half_vars.add(var.index)
                         if self.hints.get((ds.d.id, day.key, lesson), "") == room_id:
                             model.add_hint(var, 1)
                         x[(i, day.key, lesson, room_id)] = var
@@ -488,8 +520,7 @@ class CpSatScheduler:
                 for p in st.perspectives(g, ds.d.subgroup_number):
                     persp_slot[(g, p, dk, lesson)].extend(vars_)
         for vars_ in persp_slot.values():
-            if len(vars_) > 1:
-                model.add(sum(vars_) <= 1)
+            at_most_one_slot(vars_)
 
         # Максимум пар группы в неделю: новые занятые слоты группы (подгруппы параллельно — один слот)
         week_no = days[0].week
@@ -521,8 +552,7 @@ class CpSatScheduler:
             teacher_day[(t, dk)].extend(vars_)
             teacher_week[t].extend(vars_)
         for vars_ in teacher_slot.values():
-            if len(vars_) > 1:
-                model.add(sum(vars_) <= 1)
+            at_most_one_slot(vars_)
         for (t, dk), vars_ in teacher_day.items():
             limit = self.teachers[t].daily_limit(dk) - len(st.teacher_day.get((t, dk), set()))
             self._cap(model, objective, vars_, limit, f"tdo_{t[:6]}_{dk}")
@@ -539,10 +569,11 @@ class CpSatScheduler:
             if not self.rooms[room_id].unlimited:
                 room_slot[(room_id, dk, lesson)].append(var)
         for vars_ in room_slot.values():
-            if len(vars_) > 1:
-                model.add(sum(vars_) <= 1)
+            at_most_one_slot(vars_)
         if aggregate:
-            self._room_capacity_constraints(model, y, candidates)
+            self._room_capacity_constraints(
+                model, y, candidates, objective if rooms_optional else None, half_vars
+            )
 
         # Не более N пар одной дисциплины в день (параллельные подгруппы — одна пара)
         disc_lesson: dict[tuple[str, str, int], list[cp_model.IntVar]] = defaultdict(list)
@@ -689,9 +720,12 @@ class CpSatScheduler:
         model: cp_model.CpModel,
         y: dict[tuple[int, str, int], list[cp_model.IntVar]],
         candidates: dict[tuple[int, str, int], list[str]],
+        soft: list | None = None,
+        half_vars: set[int] | None = None,
     ) -> None:
         """Занятий в слоте не больше, чем подходящих свободных аудиторий: для каждого набора аудиторий S
-        число занятий, которым подходят только аудитории из S, не больше |S| (условие Холла)."""
+        число занятий, которым подходят только аудитории из S, не больше |S| (условие Холла).
+        soft — аудитория не обязательна: превышение штрафуется (пара останется без аудитории)."""
         by_slot: dict[tuple[str, int], list[tuple[frozenset[str], cp_model.IntVar]]] = defaultdict(list)
         for (i, dk, lesson), vars_ in y.items():
             rooms = candidates[(i, dk, lesson)]
@@ -701,9 +735,18 @@ class CpSatScheduler:
         for entries in by_slot.values():
             sets = {rooms for rooms, _ in entries}
             for room_set in sets:
+                if not room_set:
+                    continue
                 inside = [var for rooms, var in entries if rooms <= room_set]
-                if len(inside) > len(room_set):
+                if len(inside) <= len(room_set):
+                    continue
+                if soft is None:
                     model.add(sum(inside) <= len(room_set))
+                    continue
+                over = model.new_int_var(0, len(inside), f"nr_{len(soft)}")
+                model.add(over >= sum(inside) - len(room_set))
+                weight = 0.5 if half_vars and all(v.index in half_vars for v in inside) else 1.0
+                soft.append((-int(NO_ROOM_PENALTY * COST_SCALE * weight), over))
 
     def _commit_with_rooms(
         self,
@@ -730,6 +773,10 @@ class CpSatScheduler:
             for i in demands:
                 if i in chosen:
                     self._commit(st, active[i], day_by_key[dk], lesson, chosen[i])
+                    placed += 1
+                elif self.p.template_only:
+                    # Постоянное расписание: свободной аудитории нет — пара без аудитории
+                    self._commit(st, active[i], day_by_key[dk], lesson, None)
                     placed += 1
         return placed
 
@@ -789,6 +836,8 @@ class CpSatScheduler:
     def solve(self) -> SolveResult:
         self.placements: list[Placement] = []
         states = self._demand_states()
+        if self.p.template_only:
+            return self._template_only(states)
         st = self._new_state()
         self._apply_occupied(st)
         budget = max(5.0, self.p.time_limit_seconds)
@@ -987,6 +1036,195 @@ class CpSatScheduler:
                         continue
                     self._commit(st, ds, day, lesson, room)
                     need -= 1
+
+    # ------------------------------------------------------------------ постоянное расписание
+
+    def _template_only(self, states: list[DemandState]) -> SolveResult:
+        """Постоянное расписание: одна типовая неделя без развёртки по датам. Дробный темп даёт пару
+        через неделю; две такие пары делят слот (числитель / знаменатель). Ограничения те же, что
+        в рабочем расписании: накладки, пары группы «с–по» и в день, лимит в неделю, частота дисциплины,
+        поздние пары, окна; недоступность и лимиты преподавателей задача не содержит."""
+        template_days = [DayRef(f"T{wd}", wd, -1) for wd in self.p.working_days]
+        st = self._new_state()
+        targets: dict[DemandState, int] = {}
+        halves: set[DemandState] = set()
+        skipped = 0
+        for ds in states:
+            # Практика и консультации проводятся по датам — в типовую неделю не входят
+            if ds.d.allowed_dates is not None or not ds.days_by_week:
+                skipped += 1
+                continue
+            weekdays = {self.day_ref[k].weekday for k in ds.allowed if k in self.day_ref}
+            allowed = {f"T{wd}" for wd in weekdays}
+            weekly, biweekly = weekly_slots(ds.rate, ds.d.lessons_required)
+
+            def copy(src: DemandState = ds, allowed_days: set[str] = allowed) -> DemandState:
+                return DemandState(
+                    d=src.d,
+                    teacher=src.teacher,
+                    allowed=allowed_days,
+                    days_by_week=src.days_by_week,
+                    total_days=src.total_days,
+                    rate=src.rate,
+                )
+
+            if weekly > 0:
+                targets[copy()] = weekly
+            if biweekly:
+                half = copy()
+                targets[half] = 1
+                halves.add(half)
+        budget = max(5.0, self.p.time_limit_seconds)
+        self.on_progress(0.1, f"Типовая неделя: {len(targets)} дисциплин")
+        self._solve_week(st, template_days, targets, budget * (0.7 if self.maximize else 0.9), halves)
+        if self.maximize:
+            rest = {ds: t - ds.placed for ds, t in targets.items() if ds.placed < t}
+            if rest:
+                before = sum(len(ds.template_slots) for ds in targets)
+                self.relaxed = True
+                self.on_progress(0.75, f"Расстановка по максимуму: {len(rest)} дисциплин")
+                self._solve_week(st, template_days, rest, max(1.0, budget * 0.25), halves)
+                self.relaxed = False
+                added = sum(len(ds.template_slots) for ds in targets) - before
+                self.log.append(
+                    f"Расстановка по максимуму: дополнительно поставлено {added} пар сверх частоты "
+                    "дисциплины в день и запрета поздних пар"
+                )
+
+        parity = self._assign_parity([ds for ds in targets if ds in halves])
+        placements: list[Placement] = []
+        dropped = 0
+        for ds in targets:
+            for weekday, lesson, room_id in ds.template_slots:
+                p = parity.get((id(ds), weekday, lesson)) if ds in halves else None
+                if ds in halves and p is None:
+                    ds.placed -= 1
+                    dropped += 1
+                    continue
+                placements.append(
+                    Placement(
+                        demand_id=ds.d.id, date=f"T{weekday}", lesson_number=lesson, room_id=room_id, parity=p
+                    )
+                )
+        if dropped:
+            self.log.append(f"Числитель/знаменатель: {dropped} пар не удалось развести по неделям")
+        shared = self._share_rooms(placements)
+        if shared:
+            self.log.append(f"Числитель/знаменатель: {shared} пар через неделю делят аудиторию")
+        without_room = sum(1 for p in placements if not p.room_id)
+        if without_room:
+            self.log.append(
+                f"Аудиторий не хватает на всю сетку: {without_room} пар без аудитории — назначьте вручную"
+            )
+        paired = sum(1 for p in placements if p.parity == "EVEN")
+        if paired:
+            self.log.append(f"Числитель/знаменатель: {paired} слотов с парами через неделю")
+
+        weight = {id(ds): 0.5 if ds in halves else 1.0 for ds in targets}
+        unplaced_by: dict[str, float] = defaultdict(float)
+        for ds, t in targets.items():
+            if ds.placed < t:
+                unplaced_by[ds.d.id] += (t - ds.placed) * weight[id(ds)]
+        required = sum(t * weight[id(ds)] for ds, t in targets.items())
+        placed = sum(0.5 if p.parity else 1.0 for p in placements)
+        self.log.append(
+            f"Типовая неделя (CP-SAT): {placed:g} пар из {required:g}"
+            + (f"; практика и консультации по датам ({skipped}) в сетку не входят" if skipped else "")
+        )
+        placements.sort(key=lambda p: (p.date, p.lesson_number))
+        if required > 0 and not placements:
+            status = "EMPTY"
+        elif unplaced_by:
+            status = "PARTIAL"
+        elif self.statuses and all(s == cp_model.OPTIMAL for s in self.statuses):
+            status = "OPTIMAL"
+        else:
+            status = "FEASIBLE"
+        return SolveResult(
+            status=status,
+            placements=placements,
+            # Счёт в парах недели; пара через неделю — половина (backend округляет вверх)
+            unplaced=[Unplaced(demand_id=k, count=v) for k, v in unplaced_by.items()],
+            stats=Stats(
+                required_lessons=required,
+                placed_lessons=placed,
+                duration_ms=int((time.monotonic() - self.started) * 1000),
+                weeks=len(self.weeks),
+                objective=self.objective,
+            ),
+            log=self.log,
+        )
+
+    def _share_rooms(self, placements: list[Placement]) -> int:
+        """Пара через неделю без аудитории занимает аудиторию, где в этом слоте идёт пара через неделю
+        по другой неделе (числитель и знаменатель в одной аудитории)."""
+        demands = {d.id: d for d in self.p.demands}
+        usage: dict[tuple[str, int, str], list[str]] = defaultdict(list)
+        for p in placements:
+            if p.room_id:
+                usage[(p.date, p.lesson_number, p.room_id)].append(p.parity or "ANY")
+        shared = 0
+        for p in placements:
+            if p.room_id or not p.parity:
+                continue
+            other = "EVEN" if p.parity == "ODD" else "ODD"
+            for room_id in demands[p.demand_id].room_ids:
+                room = self.rooms.get(room_id)
+                if room is None or (
+                    p.date.startswith("T")
+                    and (int(p.date[1:]), p.lesson_number) in self.room_unavail.get(room_id, set())
+                ):
+                    continue
+                if usage.get((p.date, p.lesson_number, room_id)) == [other]:
+                    p.room_id = room_id
+                    usage[(p.date, p.lesson_number, room_id)].append(p.parity)
+                    shared += 1
+                    break
+        return shared
+
+    def _assign_parity(self, halves: list[DemandState]) -> dict[tuple[int, int, int], str]:
+        """Пары через неделю в одном слоте с общей группой, преподавателем или аудиторией получают разные
+        недели: раскраска в два цвета (числитель — ODD, знаменатель — EVEN). Пара, которую развести
+        не удалось, в результат не попадает."""
+        by_slot: dict[tuple[int, int], list[tuple[DemandState, str | None]]] = defaultdict(list)
+        for ds in halves:
+            for weekday, lesson, room_id in ds.template_slots:
+                by_slot[(weekday, lesson)].append((ds, room_id))
+
+        def clash(a: tuple[DemandState, str | None], b: tuple[DemandState, str | None]) -> bool:
+            da, db = a[0].d, b[0].d
+            if da.teacher_id == db.teacher_id:
+                return True
+            if a[1] and a[1] == b[1] and not self.rooms[a[1]].unlimited:
+                return True
+            if set(da.group_ids) & set(db.group_ids):
+                sa, sb = da.subgroup_number, db.subgroup_number
+                return sa is None or sb is None or sa == sb
+            return False
+
+        result: dict[tuple[int, int, int], str] = {}
+        for (weekday, lesson), items in by_slot.items():
+            color: dict[int, str] = {}
+            for start in range(len(items)):
+                if start in color:
+                    continue
+                color[start] = "ODD"
+                queue = [start]
+                while queue:
+                    i = queue.pop()
+                    for j in range(len(items)):
+                        if j == i or j in color or not clash(items[i], items[j]):
+                            continue
+                        color[j] = "EVEN" if color[i] == "ODD" else "ODD"
+                        queue.append(j)
+            accepted: list[int] = []
+            for i, (ds, _room) in enumerate(items):
+                # Конфликт раскраски (нечётный цикл): пара не ставится
+                if any(color[j] == color[i] and clash(items[i], items[j]) for j in accepted):
+                    continue
+                accepted.append(i)
+                result[(id(ds), weekday, lesson)] = color[i]
+        return result
 
 
 def solve(problem: Problem, on_progress: Progress | None = None) -> SolveResult:
