@@ -4,6 +4,7 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -67,8 +68,9 @@ export class UpdatePermanentScheduleDto {
 
 export class GeneratePermanentDto {
   @ApiPropertyOptional({
-    default: true,
-    description: 'Ставить пары сверх лимитов группы и дисциплины в день',
+    default: false,
+    description:
+      'Расстановка по максимуму: оставшиеся пары ставятся сверх частоты дисциплины в день и запрета поздних пар',
   })
   @IsOptional()
   @IsBoolean()
@@ -79,7 +81,12 @@ export class GeneratePermanentDto {
   @IsBoolean()
   avoidWindows?: boolean;
 
-  @ApiPropertyOptional({ default: true, description: 'Разрешить поздние пары' })
+  @ApiPropertyOptional({ enum: ['auto', 'cp-sat', 'heuristic'], default: 'auto' })
+  @IsOptional()
+  @IsIn(['auto', 'cp-sat', 'heuristic'], { message: 'Недопустимый тип решателя' })
+  solver?: 'auto' | 'cp-sat' | 'heuristic';
+
+  @ApiPropertyOptional({ default: false, description: 'Разрешить поздние пары' })
   @IsOptional()
   @IsBoolean()
   allowLateLessons?: boolean;

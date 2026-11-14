@@ -57,6 +57,15 @@ export class GenerateScheduleDto {
   @IsBoolean()
   replaceExisting?: boolean;
 
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'Улучшить текущее расписание: составленные ранее занятия остаются на местах, исправляются накладки и нарушения, добавляются недостающие пары',
+  })
+  @IsOptional()
+  @IsBoolean()
+  improveExisting?: boolean;
+
   @ApiPropertyOptional({ example: 60 })
   @IsOptional()
   @IsInt()

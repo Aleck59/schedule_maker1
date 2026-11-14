@@ -27,6 +27,7 @@ import {
   SolverDay,
   SolverDemand,
   SolverOccupied,
+  SolverPlacement,
   SolverProblem,
   SolverRoom,
   SolverTeacher,
@@ -54,6 +55,13 @@ export interface BuiltProblem {
   warnings: string[];
   /** Преподаватели с отсутствием в интервале, у которого не включена отработка после выхода */
   absentWithoutMakeup: string[];
+  /**
+   * Составление на основе текущего расписания: ранее составленные занятия интервала как стартовое решение
+   * (генератор оставляет их на местах, убирает нарушения и накладки, добавляет недостающие пары)
+   */
+  initial?: SolverPlacement[];
+  /** Сколько текущих занятий взято за основу */
+  initialLessons?: number;
 }
 
 interface RoomLite {
@@ -76,7 +84,8 @@ export class ProblemBuilderService {
   /**
    * Задача для постоянного расписания (типовая неделя для руководства): весь объём нагрузки
    * семестров без учёта уже составленного рабочего расписания, недоступности, пожеланий и лимитов
-   * преподавателей. «Периодами» служат сами семестры.
+   * преподавателей и недоступности аудиторий. Остальные ограничения — как в рабочем расписании.
+   * «Периодами» служат сами семестры.
    */
   buildPermanent(
     organizationId: string,
@@ -222,7 +231,9 @@ export class ProblemBuilderService {
           },
           include: { conducted: { select: { id: true } } },
         });
-    const replaceExisting = params.replaceExisting !== false;
+    const improve = !permanent && params.improveExisting === true;
+    // Улучшение текущего расписания всегда заменяет составленные ранее занятия (они становятся стартовым решением)
+    const replaceExisting = improve || params.replaceExisting !== false;
     const replaceable = new Set(
       existingInRange
         .filter(
@@ -237,6 +248,15 @@ export class ProblemBuilderService {
         )
         .map((l) => l.id),
     );
+    // Текущие занятия интервала по потокам (для составления на основе текущего расписания)
+    const currentInWindow = new Map<string, number>();
+    if (improve) {
+      for (const l of existingInRange) {
+        if (!replaceable.has(l.id)) continue;
+        const key = streamKeyOf(l.studentGroupId, l.semesterCurriculumItemId, l.lessonType, l.subgroupNumber);
+        currentInWindow.set(key, (currentInWindow.get(key) ?? 0) + 1);
+      }
+    }
     const semesterLessons = permanent
       ? []
       : await this.prisma.scheduleLesson.findMany({
@@ -291,7 +311,10 @@ export class ProblemBuilderService {
       building: r.building,
       capacity: r.capacity,
       type: r.classroomType,
-      unavailable: r.availability.map((a) => [a.weekday, a.lessonNumber] as [number, number]),
+      // Постоянное расписание не учитывает недоступность аудиторий (только накладки)
+      unavailable: permanent
+        ? []
+        : r.availability.map((a) => [a.weekday, a.lessonNumber] as [number, number]),
       unlimited: r.classroomType === ClassroomType.ONLINE,
       tagged: roomTags(r).length > 0,
     }));
@@ -459,7 +482,9 @@ export class ProblemBuilderService {
               consultationFrom: consultationBorder.get(s.groupId) ?? null,
             });
       // Округление вверх с допуском: 1,2 пары → 1, 1,3 → 2; хвост меньше четверти пары ждёт следующего интервала
-      const share = fraction === null ? null : Math.ceil(lessonsRequired * fraction - 0.25);
+      let share = fraction === null ? null : Math.ceil(lessonsRequired * fraction - 0.25);
+      // Улучшение текущего расписания: уже стоящие в интервале пары не урезаются долей интервала
+      if (share !== null && improve) share = Math.max(share, currentInWindow.get(s.key) ?? 0);
       if (share !== null && share < lessonsRequired) {
         if (share <= 0) continue;
         lessonsRequired = share;
@@ -725,7 +750,7 @@ export class ProblemBuilderService {
       }));
 
     const maxGroupLessonsPerDay = params.maxGroupLessonsPerDay ?? settings.maxGroupLessonsPerDay;
-    const weekLimits = permanent ? null : this.weeklyLimits(settings, groupsDb);
+    const weekLimits = this.weeklyLimits(settings, groupsDb);
     const problem: SolverProblem = {
       version: 1,
       mode: params.mode,
@@ -762,6 +787,25 @@ export class ProblemBuilderService {
       onlineRoomId,
     };
 
+    const initial = improve
+      ? this.initialPlacements(
+          existingInRange.filter((l) => replaceable.has(l.id)),
+          demands,
+          demandMeta,
+          lessonsPerDay,
+        )
+      : undefined;
+    if (improve) {
+      if (replaceable.size === 0)
+        warnings.push(
+          'В интервале нет составленных генератором занятий (ручные и закреплённые не меняются) — расписание составлено заново',
+        );
+      else
+        warnings.push(
+          `За основу взято текущее расписание: ${replaceable.size} занятий; ручные, закреплённые и проведённые не меняются`,
+        );
+    }
+
     for (const g of problem.groups) {
       if (g.allowedDates.length === 0) {
         warnings.push(`Группа ${g.code}: в интервале ${from} — ${to} нет доступных учебных дней`);
@@ -783,7 +827,59 @@ export class ProblemBuilderService {
       replaceLessonIds: [...replaceable],
       warnings,
       absentWithoutMakeup: [...new Set(absences.map((a) => a.teacherId!))].filter((id) => !relief.has(id)),
+      ...(initial ? { initial, initialLessons: replaceable.size } : {}),
     };
+  }
+
+  /**
+   * Текущие занятия → стартовое решение генератора. Занятие относится к спросу по ключу потока
+   * (группа, дисциплина, вид, подгруппа); пара потока (объединённые группы) — к совместному спросу,
+   * если в этом слоте стоят все его группы, иначе — к спросу своей группы.
+   */
+  private initialPlacements(
+    lessons: Array<{
+      date: Date;
+      lessonNumber: number;
+      studentGroupId: string;
+      semesterCurriculumItemId: string;
+      lessonType: string;
+      subgroupNumber: number | null;
+      classroomId: string | null;
+    }>,
+    demands: SolverDemand[],
+    demandMeta: Record<string, DemandMeta>,
+    lessonsPerDay: number,
+  ): SolverPlacement[] {
+    const byStream = new Map<string, SolverDemand[]>();
+    for (const d of demands) {
+      for (const s of demandMeta[d.id]?.streams ?? []) {
+        const list = byStream.get(s.streamKey) ?? [];
+        list.push(d);
+        byStream.set(s.streamKey, list);
+      }
+    }
+    const keyOf = (l: (typeof lessons)[number]) =>
+      streamKeyOf(l.studentGroupId, l.semesterCurriculumItemId, l.lessonType as LessonType, l.subgroupNumber);
+    const present = new Set(lessons.map((l) => `${toDateStr(l.date)}#${l.lessonNumber}#${keyOf(l)}`));
+    const seen = new Set<string>();
+    const result: SolverPlacement[] = [];
+    for (const l of lessons) {
+      if (l.lessonNumber > lessonsPerDay) continue;
+      const date = toDateStr(l.date);
+      const candidates = byStream.get(keyOf(l)) ?? [];
+      const joint = candidates.find(
+        (d) =>
+          d.groupIds.length > 1 &&
+          demandMeta[d.id].streams.every((s) => present.has(`${date}#${l.lessonNumber}#${s.streamKey}`)),
+      );
+      const demand = joint ?? candidates.find((d) => d.groupIds.length === 1);
+      if (!demand) continue;
+      const slot = `${demand.id}#${date}#${l.lessonNumber}`;
+      if (seen.has(slot)) continue;
+      seen.add(slot);
+      result.push({ demandId: demand.id, date, lessonNumber: l.lessonNumber, roomId: l.classroomId });
+    }
+    return result.sort((a, b) => a.date.localeCompare(b.date) || a.lessonNumber - b.lessonNumber);
   }
 
   /** Лимиты пар групп в неделю по формам обучения */

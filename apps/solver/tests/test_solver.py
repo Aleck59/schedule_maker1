@@ -579,3 +579,49 @@ def test_group_weekly_limit_respects_occupied_lessons():
     problem = Problem.model_validate(raw)
     result = solve(problem)
     assert result.stats.placed_lessons == 1
+
+
+def test_template_only_builds_one_week_with_biweekly_pairs():
+    """Постоянное расписание: одна типовая неделя, пары через неделю делят слот (числитель/знаменатель)."""
+    raw = base_problem(mode="WEEKLY_TEMPLATE", templateOnly=True)
+    raw["groups"][1]["maxLessonsPerWeek"] = 6
+    raw["demands"] = [
+        # 4 недели: 8 пар — 2 в неделю, 2 пары — через неделю (0,5), 6 пар — 1,5 в неделю
+        demand("a", ["g2"], "t2", 8, ["r_gen"], size=20),
+        demand("b", ["g2"], "t3", 2, ["r_gen", "r_lec"], size=20),
+        demand("c", ["g2"], "t2", 6, ["r_gen", "r_lec"], size=20),
+        demand("d", ["g1"], "t1", 4, ["r_lec"], size=25),
+    ]
+    problem = Problem.model_validate(raw)
+    result = solve(problem)
+    assert all(p.date.startswith("T") for p in result.placements)
+    by = Counter(p.demand_id for p in result.placements)
+    assert by["a"] == 2 and by["b"] == 1 and by["c"] == 2 and by["d"] == 1
+    assert result.stats.placed_lessons == result.stats.required_lessons == 5
+    assert not result.unplaced
+    # Пары через неделю у одной группы в одном слоте — числитель и знаменатель
+    slots = defaultdict(list)
+    for p in result.placements:
+        d = next(x for x in problem.demands if x.id == p.demand_id)
+        for g in d.group_ids:
+            slots[(g, p.date, p.lesson_number)].append(p.parity)
+    for parities in slots.values():
+        if len(parities) > 1:
+            assert sorted(parities) == ["EVEN", "ODD"]
+    # Лимит пар группы в неделю (по форме обучения) соблюдается и в типовой неделе
+    assert len([k for k in slots if k[0] == "g2"]) <= 6
+    # Иванова недоступна в субботу — но в постоянном расписании недоступность не передаётся backend'ом;
+    # здесь она задана, значит учитывается решателем
+    assert all(p.date != "T6" for p in result.placements if p.demand_id == "d")
+
+
+def test_template_only_respects_group_daily_lessons_and_discipline_limit():
+    raw = base_problem(mode="WEEKLY_TEMPLATE", templateOnly=True, lessonsPerDay=4)
+    raw["groups"][1]["allowedLessons"] = [3, 4]
+    raw["demands"] = [demand("a", ["g2"], "t2", 16, ["r_gen"], size=20)]
+    problem = Problem.model_validate(raw)
+    result = solve(problem)
+    assert {p.lesson_number for p in result.placements} <= {3, 4}
+    per_day = Counter(p.date for p in result.placements)
+    assert max(per_day.values()) <= problem.settings.max_same_discipline_per_day
+    assert len(result.placements) == 4

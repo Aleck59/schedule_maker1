@@ -150,6 +150,11 @@ export interface SolverProblem {
   onlineRoomId?: string | null;
   /** Стартовое решение для CP-SAT (например, эвристическое) */
   hints?: SolverPlacement[];
+  /**
+   * Только типовая неделя (постоянное расписание): даты размещений — «T<день недели>»,
+   * дробный темп даёт пары через неделю (числитель/знаменатель)
+   */
+  templateOnly?: boolean;
 }
 
 export interface SolverPlacement {

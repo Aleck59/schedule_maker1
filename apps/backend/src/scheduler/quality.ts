@@ -72,7 +72,10 @@ export function qualityOf(problem: SolverProblem, result: SolverResult): Quality
   const w = { ...DEFAULT_WEIGHTS, ...problem.weights };
   const groupWindows = windows(byGroupDay);
   const teacherWindows = windows(byTeacherDay);
-  const placed = result.placements.length;
+  // Типовая неделя: пара через неделю (числитель/знаменатель) — половина
+  const placed = result.placements.reduce((a, p) => a + (p.parity ? 0.5 : 1), 0);
+  // Постоянное расписание: пара без аудитории (аудиторий не хватило) хуже пары с аудиторией
+  const withoutRoom = result.placements.filter((p) => !p.roomId).length;
   return {
     placed,
     groupWindows,
@@ -84,7 +87,8 @@ export function qualityOf(problem: SolverProblem, result: SolverResult): Quality
       groupWindows * w.groupWindows -
       teacherWindows * w.teacherWindows -
       lateLessons * w.lateLessons -
-      overloadedDays * w.groupDailyOverload,
+      overloadedDays * w.groupDailyOverload -
+      withoutRoom * 300,
   };
 }
 
