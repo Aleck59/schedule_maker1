@@ -99,6 +99,11 @@ export interface SolverDemand {
    */
   allowedDates: string[] | null;
   isDifficult: boolean;
+  /**
+   * Очередь форм обучения (настройка «приоритет заочников»): 0 — заочная, 1 — очно-заочная,
+   * 2 — очная. Пары младшего яруса ставятся первыми, остальные — по оставшимся слотам. Не задано — 2.
+   */
+  formTier?: number;
 }
 
 export interface SolverOccupied {

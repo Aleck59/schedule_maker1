@@ -261,7 +261,7 @@ export default function FullWeekSchedulePage() {
     [periods.data],
   );
   const canDrag = (l: Lesson) =>
-    canEdit && !l.assessment && !archived.has(l.schedulePeriodId) && (l.status === 'PLANNED' || l.status === 'REPLACED');
+    canEdit && !(l.schedulePeriodId && archived.has(l.schedulePeriodId)) && (l.status === 'PLANNED' || l.status === 'REPLACED');
 
   const move = useLessonMove();
   const invalidate = () => {

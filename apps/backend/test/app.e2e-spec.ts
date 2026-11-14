@@ -4,6 +4,7 @@ import { join } from 'path';
 import request from 'supertest';
 import { createApp } from '../src/main';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { AutoConductService } from '../src/schedule/auto-conduct.service';
 import { pdfPageCount } from '../src/report-forms/form-writers';
 
 /**
@@ -1853,5 +1854,36 @@ describe('Расписание СПО (e2e)', () => {
     await http.delete('/api/slow-loads').set(auth('admin')).expect(200);
     const after = await http.get('/api/slow-loads').set(auth('admin')).expect(200);
     expect(after.body.total).toBe(0);
+  });
+
+  it('автозачёт: засчитывает закончившиеся пары и неопубликованного (составленного) расписания', async () => {
+    const prisma = app.get(PrismaService);
+    const lesson = await prisma.scheduleLesson.findFirst({
+      where: {
+        status: 'PLANNED',
+        conducted: null,
+        schedulePeriod: { status: { in: ['DRAFT', 'GENERATED'] } },
+      },
+      include: { schedulePeriod: true },
+      orderBy: [{ date: 'asc' }, { lessonNumber: 'asc' }],
+    });
+    expect(lesson).toBeTruthy();
+    const day = lesson!.date.toISOString().slice(0, 10);
+    // «Сейчас» — конец этого дня: отмечаются только пары до этой даты включительно
+    const marked = await app
+      .get(AutoConductService)
+      .run(lesson!.schedulePeriod.organizationId, new Date(`${day}T20:59:00.000Z`));
+    expect(marked).toBeGreaterThan(0);
+    const after = await prisma.scheduleLesson.findUnique({
+      where: { id: lesson!.id },
+      include: { conducted: true },
+    });
+    expect(after!.status).toBe('CONDUCTED');
+    expect(after!.conducted?.actualHours).toBe(lesson!.academicHours);
+    // Повторный проход ничего не дублирует
+    const again = await app
+      .get(AutoConductService)
+      .run(lesson!.schedulePeriod.organizationId, new Date(`${day}T20:59:00.000Z`));
+    expect(again).toBe(0);
   });
 });

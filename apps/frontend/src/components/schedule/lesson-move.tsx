@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { api } from '@/lib/api';
 import { formatDate, isoWeekday } from '@/lib/format';
+import { ASSESSMENT_MARK } from '@/lib/labels';
 import { useApiMutation } from '@/lib/query';
 import type { Lesson, ValidationIssue } from '@/lib/types';
 import { issuesFromError, IssuesList } from './issues-list';
@@ -62,6 +63,30 @@ export function useLessonMove(onMoved?: () => void) {
     },
   );
 
+  // Экзамен или зачёт: переносится как пара, проверки — как в редакторе экзаменов
+  const assessmentMove = useApiMutation(
+    (vars: MoveVars) =>
+      api.patch<{ warnings?: string[] }>(`/assessment-events/${vars.lesson.assessment!.id}`, {
+        date: vars.date,
+        lessonNumber: vars.lessonNumber,
+      }),
+    {
+      onSuccess: (r, vars) => {
+        toast.success(`${ASSESSMENT_MARK[vars.lesson.assessment!.controlForm] ?? 'Мероприятие'} — перенесено`);
+        for (const w of r.warnings ?? []) toast.warning(w);
+        refresh();
+        void qc.invalidateQueries({ queryKey: ['assessment'] });
+        void qc.invalidateQueries({ queryKey: ['assessment-board'] });
+        void qc.invalidateQueries({ queryKey: ['assessments'] });
+        onMoved?.();
+      },
+      onError: () => {
+        refresh();
+        return false;
+      },
+    },
+  );
+
   const move = (vars: MoveVars) => {
     // Ставим карточку на новое место сразу, не дожидаясь ответа сервера; пары потока переезжают вместе
     const src = vars.lesson;
@@ -72,7 +97,8 @@ export function useLessonMove(onMoved?: () => void) {
         ? (old as Lesson[]).map((l) => (moves(l) ? { ...l, date: vars.date, lessonNumber: vars.lessonNumber, weekday: isoWeekday(vars.date) } : l))
         : old,
     );
-    mutation.mutate(vars);
+    if (src.assessment) assessmentMove.mutate(vars);
+    else mutation.mutate(vars);
   };
 
   const panel = pending ? (
@@ -101,5 +127,5 @@ export function useLessonMove(onMoved?: () => void) {
     </Card>
   ) : null;
 
-  return { move, panel, isPending: mutation.isPending };
+  return { move, panel, isPending: mutation.isPending || assessmentMove.isPending };
 }

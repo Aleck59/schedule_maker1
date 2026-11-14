@@ -187,8 +187,9 @@ function RulesForm({ settings, editable }: { settings: Settings; editable: boole
             <span>
               Засчитывать проведённые пары автоматически
               <span className="text-muted-foreground block text-xs">
-                Пара опубликованного расписания, по которой после её окончания ничего не отмечено (не отменена, не перенесена),
-                считается проведённой, и часы засчитываются. Отметку можно изменить вручную.
+                Пара расписания (кроме архивного), по которой после её окончания ничего не отмечено (не отменена, не перенесена),
+                считается проведённой, и часы засчитываются. Уже прошедшие пары засчитываются сразу после включения. Отметку
+                можно изменить вручную.
               </span>
             </span>
             <Switch checked={draft.autoMarkConducted} disabled={!editable} onCheckedChange={(v) => setDraft({ ...draft, autoMarkConducted: v })} />
@@ -264,10 +265,10 @@ function WeeklyLimitsCard({
         <div className="space-y-3 rounded-lg border p-3">
           <label className="flex items-start justify-between gap-3 text-sm">
             <span>
-              Уменьшать пары очников, когда у заочников занятия
+              Приоритет заочников, когда у них занятия
               <span className="text-muted-foreground block text-xs">
-                В недели, когда у заочных групп есть пары (уже стоят в расписании или заочники составляются вместе с очниками),
-                очным группам ставится не больше указанного числа пар — преподаватели и аудитории остаются для заочников.
+                При составлении пары ставятся сначала заочным группам, затем очно-заочным, затем очным — по оставшимся свободным
+                слотам преподавателей и аудиторий. Работает, когда группы разных форм обучения составляются вместе.
               </span>
             </span>
             <Switch
@@ -276,22 +277,6 @@ function WeeklyLimitsCard({
               onCheckedChange={(v) => setDraft({ ...draft, reduceFullTimeOnExtramural: v })}
             />
           </label>
-          {draft.reduceFullTimeOnExtramural && (
-            <Field
-              label="Очным группам в такие недели, пар"
-              hint={draft.fullTimeWeeklyOnExtramural == null ? 'Укажите число пар' : hours(draft.fullTimeWeeklyOnExtramural)}
-              className="max-w-xs"
-            >
-              <Input
-                type="number"
-                min={0}
-                max={70}
-                value={draft.fullTimeWeeklyOnExtramural == null ? '' : String(draft.fullTimeWeeklyOnExtramural)}
-                disabled={!editable}
-                onChange={(e) => setDraft({ ...draft, fullTimeWeeklyOnExtramural: optionalNumber(e.target.value) })}
-              />
-            </Field>
-          )}
         </div>
       </CardContent>
     </Card>

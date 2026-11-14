@@ -122,9 +122,8 @@ export interface Settings {
   maxWeeklyLessonsFullTime: number | null;
   maxWeeklyLessonsPartTime: number | null;
   maxWeeklyLessonsExtramural: number | null;
-  /** Когда у заочников занятия — очным группам не более fullTimeWeeklyOnExtramural пар в неделю */
+  /** Приоритет заочников: при составлении сначала заочные, затем очно-заочные, затем очные группы */
   reduceFullTimeOnExtramural: boolean;
-  fullTimeWeeklyOnExtramural: number | null;
   maxTeacherWindowsPerWeek: number;
   maxExamsPerWeek: number;
   maxBuildingChangesPerDay: number;

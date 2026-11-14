@@ -59,6 +59,7 @@ export function forgetEffectiveSettings(organizationId: string): void {
 @Injectable()
 export class SettingsService {
   private readonly workingDaysListeners: Array<(organizationId: string) => Promise<void>> = [];
+  private readonly autoConductListeners: Array<(organizationId: string) => Promise<unknown>> = [];
 
   constructor(
     private readonly prisma: PrismaService,
@@ -148,6 +149,11 @@ export class SettingsService {
     this.workingDaysListeners.push(listener);
   }
 
+  /** Включён автозачёт пар — закончившиеся пары засчитываются сразу, не дожидаясь фонового прохода */
+  onAutoConductEnabled(listener: (organizationId: string) => Promise<unknown>) {
+    this.autoConductListeners.push(listener);
+  }
+
   async update(organizationId: string, dto: UpdateSettingsDto, actor: AuthUser) {
     const before = await this.getEffective(organizationId);
     if (dto.lateLessonNumber && dto.lessonsPerDay && dto.lateLessonNumber > dto.lessonsPerDay + 1) {
@@ -172,6 +178,9 @@ export class SettingsService {
     await this.audit.log(actor.id, 'UPDATE', 'OrganizationSettings', updated.id, before, updated);
     if (before.workingDays.join() !== updated.workingDays.join()) {
       for (const listener of this.workingDaysListeners) await listener(organizationId);
+    }
+    if (!before.autoMarkConducted && updated.autoMarkConducted) {
+      for (const listener of this.autoConductListeners) await listener(organizationId);
     }
     return this.getAll(organizationId);
   }

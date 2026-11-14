@@ -39,6 +39,26 @@ export function streamKeyOf(
  * Планирование: календарный контекст и потоки спроса (сколько пар каждого вида
  * нужно поставить каждой группе/подгруппе по каждой дисциплине).
  */
+/** Преподаватель консультаций дисциплины без отдельной нагрузки на них */
+export function consultationTeacher<
+  T extends { teacherId: string | null; lessonType: LessonType | null; subgroupNumber: number | null },
+>(assignments: T[]): T | null {
+  const withTeacher = assignments.filter((a) => a.teacherId);
+  const order = [LessonType.LECTURE, LessonType.PRACTICAL, LessonType.LABORATORY];
+  return (
+    [...withTeacher].sort(
+      (a, b) =>
+        (a.subgroupNumber === null ? 0 : 1) - (b.subgroupNumber === null ? 0 : 1) ||
+        rank(order, a.lessonType) - rank(order, b.lessonType),
+    )[0] ?? null
+  );
+}
+
+function rank(order: LessonType[], type: LessonType | null): number {
+  const i = type ? order.indexOf(type) : -1;
+  return i === -1 ? order.length : i;
+}
+
 @Injectable()
 export class PlanningService {
   constructor(
@@ -192,6 +212,10 @@ export class PlanningService {
           const general = assignments.filter((a) => a.lessonType === null);
           const used: Array<AssignmentWithTeacher | null> =
             specific.length > 0 ? specific : general.length > 0 ? general : [null];
+          // Консультацию без отдельной нагрузки проводит преподаватель дисциплины (лектор, иначе
+          // ведущий практику) — для всей группы и на все часы консультаций по плану
+          const consultant =
+            type === LessonType.CONSULTATION && used[0] === null ? consultationTeacher(assignments) : null;
           for (const a of used) {
             const subgroup = a?.subgroupNumber ?? null;
             const sg = subgroup ? group.subgroups.find((s) => s.number === subgroup) : undefined;
@@ -222,8 +246,8 @@ export class PlanningService {
               controlForm: item.controlForm,
               lessonType: type,
               assignmentId: a?.id ?? null,
-              teacherId: a?.teacherId ?? null,
-              teacherName: a?.teacher?.fullName ?? null,
+              teacherId: a?.teacherId ?? consultant?.teacherId ?? null,
+              teacherName: a?.teacher?.fullName ?? consultant?.teacher?.fullName ?? null,
               plannedHours: planned,
               plannedLessons: split.lessons,
               partialHours: split.partialHours,
