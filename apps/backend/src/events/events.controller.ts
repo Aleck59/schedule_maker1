@@ -18,7 +18,9 @@ export class EventsController {
   @Get()
   @Roles(...VIEW_ROLES)
   @ApiQuery({ name: 'days', required: false, description: 'На сколько дней вперёд (7–366, по умолчанию 60)' })
-  @ApiOperation({ summary: 'Лента событий: экзамены и зачёты, выпуск групп, периоды графика, праздники, напоминания' })
+  @ApiOperation({
+    summary: 'Лента событий: экзамены и зачёты, выпуск групп, периоды графика, праздники, напоминания',
+  })
   list(@CurrentUser() user: AuthUser, @Query('days') days?: string) {
     const n = Number(days);
     return this.events.list(user, Number.isFinite(n) && n > 0 ? Math.round(n) : 60);
@@ -33,7 +35,9 @@ export class EventsController {
 
   @Post('groups/archive')
   @Roles(...EDITOR_ROLES)
-  @ApiOperation({ summary: 'Архивировать группы (неактивны), план — в архив, если все его группы выпустились' })
+  @ApiOperation({
+    summary: 'Архивировать группы (неактивны), план — в архив, если все его группы выпустились',
+  })
   archive(@Body() dto: GroupIdsDto, @CurrentUser() user: AuthUser) {
     return this.events.archiveGroups(dto.groupIds, user);
   }
@@ -74,7 +78,11 @@ export class EventsController {
 
   @Patch('reminders/:id')
   @Roles(...EDITOR_ROLES)
-  updateReminder(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateReminderDto, @CurrentUser() user: AuthUser) {
+  updateReminder(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateReminderDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.events.updateReminder(id, dto, user);
   }
 

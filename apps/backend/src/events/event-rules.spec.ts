@@ -1,4 +1,13 @@
-import { academicYearEnd, academicYearStart, groupStage, idsHash, isDismissed, nextYearly, sortEvents, TimelineEvent } from './event-rules';
+import {
+  academicYearEnd,
+  academicYearStart,
+  groupStage,
+  idsHash,
+  isDismissed,
+  nextYearly,
+  sortEvents,
+  TimelineEvent,
+} from './event-rules';
 
 const sem = (number: number, start: string, end: string) => ({
   id: `s${number}`,
@@ -9,7 +18,11 @@ const sem = (number: number, start: string, end: string) => ({
 });
 
 describe('event-rules', () => {
-  const semesters = [sem(1, '2025-09-01', '2025-12-31'), sem(2, '2026-01-12', '2026-06-30'), sem(3, '2026-09-01', '2026-12-31')];
+  const semesters = [
+    sem(1, '2025-09-01', '2025-12-31'),
+    sem(2, '2026-01-12', '2026-06-30'),
+    sem(3, '2026-09-01', '2026-12-31'),
+  ];
 
   it('определяет выпуск, текущий семестр и каникулы', () => {
     expect(groupStage(semesters, '2027-01-10')).toEqual({ kind: 'graduated', lastEnd: '2026-12-31' });
@@ -60,7 +73,10 @@ describe('event-rules', () => {
       title: key,
       needsAction,
     });
-    const sorted = sortEvents([e('later', '2026-12-01'), e('today', '2026-11-14'), e('overdue', '2026-11-01', true)], '2026-11-14');
+    const sorted = sortEvents(
+      [e('later', '2026-12-01'), e('today', '2026-11-14'), e('overdue', '2026-11-01', true)],
+      '2026-11-14',
+    );
     expect(sorted.map((x) => x.key)).toEqual(['overdue', 'today', 'later']);
   });
 });

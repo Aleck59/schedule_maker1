@@ -581,7 +581,14 @@ export class CurriculumScansService implements OnModuleInit {
     const user = userId
       ? await this.prisma.user.findUnique({
           where: { id: userId },
-          select: { id: true, email: true, fullName: true, role: true, teacherId: true, studentGroupId: true },
+          select: {
+            id: true,
+            email: true,
+            fullName: true,
+            role: true,
+            teacherId: true,
+            studentGroupId: true,
+          },
         })
       : null;
     if (!user) throw new NotFoundException('Пользователь, загрузивший файл, не найден');

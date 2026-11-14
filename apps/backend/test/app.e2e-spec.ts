@@ -1091,7 +1091,11 @@ describe('Расписание СПО (e2e)', () => {
     const batchId = batch.body.batchId as string;
     let rows: Array<{ fileNames: string[]; status: string; message: string; programId: string | null }> = [];
     for (let i = 0; i < 150; i++) {
-      const res = await http.get('/api/curriculum-scans').query({ batchId }).set(auth('dispatcher')).expect(200);
+      const res = await http
+        .get('/api/curriculum-scans')
+        .query({ batchId })
+        .set(auth('dispatcher'))
+        .expect(200);
       rows = res.body;
       if (rows.every((r) => r.status !== 'PROCESSING')) break;
       await new Promise((r) => setTimeout(r, 200));

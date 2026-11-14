@@ -36,7 +36,10 @@ export class CurriculumScansController {
   @Get()
   @Roles(...EDITOR_ROLES)
   @ApiOperation({ summary: 'Последние загрузки; с batchId — все файлы одной пакетной загрузки' })
-  list(@CurrentUser() user: AuthUser, @Query('batchId', new ParseUUIDPipe({ optional: true })) batchId?: string) {
+  list(
+    @CurrentUser() user: AuthUser,
+    @Query('batchId', new ParseUUIDPipe({ optional: true })) batchId?: string,
+  ) {
     return this.scans.list(user, batchId);
   }
 
