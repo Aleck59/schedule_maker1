@@ -184,11 +184,11 @@ function SearchSelect({
               onKeyDown={onKeyDown}
               placeholder="Поиск…"
               aria-label="Поиск по списку"
-              className="placeholder:text-muted-foreground focus-visible:ring-ring/40 h-8 w-full rounded-md bg-muted/50 pr-2 pl-8 text-sm outline-none focus-visible:ring-2"
+              className="placeholder:text-muted-foreground focus-visible:ring-ring/40 h-8 w-full rounded-md bg-muted/50 pr-2 pl-8 text-base sm:text-sm outline-none focus-visible:ring-2"
             />
           </div>
         </div>
-        <div ref={listRef} role="listbox" className="min-h-0 flex-1 overflow-y-auto p-1">
+        <div ref={listRef} role="listbox" className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1">
           {filtered.length === 0 && <div className="text-muted-foreground px-2 py-6 text-center text-sm">Ничего не найдено</div>}
           {filtered.map((o, i) => {
             const isSelected = o.value === current;

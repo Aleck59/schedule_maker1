@@ -709,7 +709,7 @@ export default function SchedulePage() {
       <Card className="py-3">
         <CardContent className="flex flex-wrap items-center gap-2 px-3">
           <Tabs value={view} onValueChange={(v) => setParam({ view: v })}>
-            <TabsList className="h-auto flex-wrap">
+            <TabsList className="h-auto flex-wrap [&>button]:flex-none">
               <TabsTrigger value="group">Группа</TabsTrigger>
               {user?.role !== "STUDENT" && (
                 <TabsTrigger value="teacher">Преподаватель</TabsTrigger>
@@ -755,7 +755,7 @@ export default function SchedulePage() {
                     ? setParam({ day: addDays(day, -1) })
                     : setParam({ week: addDays(week, -7) })
                 }
-                aria-label="Назад"
+                aria-label={view === "day" ? "Предыдущий день" : "Предыдущая неделя"}
               >
                 <ChevronLeft />
               </Button>
@@ -778,7 +778,7 @@ export default function SchedulePage() {
                     ? setParam({ day: addDays(day, 1) })
                     : setParam({ week: addDays(week, 7) })
                 }
-                aria-label="Вперёд"
+                aria-label={view === "day" ? "Следующий день" : "Следующая неделя"}
               >
                 <ChevronRight />
               </Button>
@@ -792,10 +792,10 @@ export default function SchedulePage() {
               </Button>
             </div>
           )}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto">
             {editable && (
               <Button
-                aria-label="Добавить занятие"
+                className="w-full sm:w-auto"
                 onClick={() => {
                   setCreateInitial({
                     groupId: params.get("groupId") ?? undefined,
@@ -804,8 +804,7 @@ export default function SchedulePage() {
                   setCreateOpen(true);
                 }}
               >
-                <CalendarPlus />{" "}
-                <span className="hidden sm:inline">Добавить занятие</span>
+                <CalendarPlus /> Добавить занятие
               </Button>
             )}
           </div>

@@ -44,11 +44,33 @@ export function useBranding(): Branding {
   return q.data ?? { appName: DEFAULT_APP_NAME, appLogo: null, organizationName: null };
 }
 
+/** Название открытой страницы для заголовка вкладки («Расписание — Расписание СПО и ВО») */
+let pageTitle: string | null = null;
+let currentAppName = DEFAULT_APP_NAME;
+
+function applyTitle() {
+  document.title = pageTitle ? `${pageTitle} — ${currentAppName}` : currentAppName;
+}
+
+/** Страница сообщает своё название: оно попадает во вкладку, историю браузера и читается экранным диктором */
+export function usePageTitle(title: string | null | undefined) {
+  useEffect(() => {
+    if (!title) return;
+    pageTitle = title;
+    applyTitle();
+    return () => {
+      if (pageTitle === title) pageTitle = null;
+      applyTitle();
+    };
+  }, [title]);
+}
+
 /** Заголовок вкладки и значок сайта по настройкам */
 export function BrandingHead() {
   const { appName, appLogo } = useBranding();
   useEffect(() => {
-    document.title = appName;
+    currentAppName = appName;
+    applyTitle();
   }, [appName]);
   useEffect(() => {
     let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');

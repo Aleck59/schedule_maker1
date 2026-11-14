@@ -134,7 +134,7 @@ export default function TeachersPage() {
               aria-pressed={view === value}
               onClick={() => setView(value)}
               className={cn(
-                'inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-sm transition-all duration-200',
+                'inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-sm transition-[color,background-color,box-shadow] duration-200',
                 view === value ? 'bg-card text-foreground font-medium shadow-xs' : 'text-muted-foreground hover:text-foreground',
               )}
             >

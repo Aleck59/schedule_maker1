@@ -127,7 +127,9 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
-    font-feature-settings: 'tnum' 1, 'cv11' 1;
+    /* Табличные цифры — только там, где числа меняются или стоят в колонках (таблицы, счётчики, время),
+       а не во всём тексте: иначе «А-204» и «ИСП-25-1» выглядят разрежёнными */
+    font-feature-settings: 'cv11' 1;
     min-height: 100vh;
   }
   /* Мягкие цветные пятна на фоне — лёгкость без отвлечения */
@@ -312,10 +314,17 @@
     box-shadow 0.25s ease,
     border-color 0.25s ease;
 }
-.lift:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lift);
-  border-color: color-mix(in oklab, var(--primary) 25%, var(--border));
+/* Только для мыши: на сенсорном экране :hover «залипает» после касания */
+@media (hover: hover) {
+  .lift:hover {
+    box-shadow: var(--shadow-lift);
+    border-color: color-mix(in oklab, var(--primary) 25%, var(--border));
+  }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .lift:hover {
+    transform: translateY(-2px);
+  }
 }
 
 /* Пункт меню: полоска слева выезжает у активного раздела */
@@ -334,11 +343,10 @@
 .nav-item.active::before {
   transform: translateY(-50%) scaleY(1);
 }
-.nav-item svg {
-  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
-}
-.nav-item:hover svg {
-  transform: scale(1.12);
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .nav-item:hover svg {
+    transform: scale(1.12);
+  }
 }
 /* Цветные иконки меню при наведении и у активного пункта */
 .nav-item svg {
@@ -346,13 +354,19 @@
     transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
     color 0.2s ease;
 }
-.nav-item:hover svg,
 .nav-item.active svg {
   color: var(--nav-color, currentColor);
 }
-.dark .nav-item:hover svg,
 .dark .nav-item.active svg {
   color: color-mix(in oklch, var(--nav-color, currentColor) 70%, white);
+}
+@media (hover: hover) {
+  .nav-item:hover svg {
+    color: var(--nav-color, currentColor);
+  }
+  .dark .nav-item:hover svg {
+    color: color-mix(in oklch, var(--nav-color, currentColor) 70%, white);
+  }
 }
 
 /* Градиент фирменного знака */
@@ -375,6 +389,30 @@
     animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
   }
+  /* Без движения, но и без резкой подмены: новая страница проявляется прозрачностью */
+  .page-enter {
+    animation: sm-fade-in 150ms ease-out both !important;
+  }
+}
+
+/* Переход между светлой и тёмной темой без «размазанных» переходов цвета */
+.theme-switching,
+.theme-switching *,
+.theme-switching *::before,
+.theme-switching *::after {
+  transition: none !important;
+}
+
+/* Ссылка «Перейти к содержимому» — видна только при переходе с клавиатуры */
+.skip-link {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 60;
+  transform: translateY(-200%);
+}
+.skip-link:focus-visible {
+  transform: none;
 }
 
 /* Изменение ширины колонок таблиц перетаскиванием границы заголовка */
@@ -496,4 +534,13 @@ table[data-resized] > tbody > tr > td [class*='min-w-'] {
   transition:
     color 0.2s ease,
     transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Числовые колонки таблиц (выровненные вправо или по центру) — табличные цифры, чтобы разряды стояли друг под другом.
+   Текстовые колонки (группы, аудитории, ФИО) остаются с обычными пропорциональными цифрами. */
+table td.text-right,
+table th.text-right,
+table td.text-center,
+table th.text-center {
+  font-variant-numeric: tabular-nums;
 }

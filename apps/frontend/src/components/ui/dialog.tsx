@@ -41,7 +41,7 @@ function DialogContent({
         data-slot="dialog-content"
         aria-describedby={undefined}
         className={cn(
-          'bg-card data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-[0.97] data-[state=open]:slide-in-from-bottom-2 fixed top-[50%] left-[50%] z-50 grid grid-cols-[minmax(0,1fr)] max-h-[92vh] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-x-hidden overflow-y-auto rounded-2xl border p-6 shadow-lift duration-200 sm:max-w-lg',
+          'bg-card data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-[0.97] data-[state=open]:slide-in-from-bottom-2 fixed top-[50%] left-[50%] z-50 grid grid-cols-[minmax(0,1fr)] max-h-[92vh] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-x-hidden overflow-y-auto overscroll-contain rounded-2xl border p-6 shadow-lift duration-200 sm:max-w-lg',
           className,
         )}
         {...props}
@@ -73,7 +73,7 @@ function DialogFooter({ className, ...props }: React.ComponentProps<'div'>) {
 }
 
 function DialogTitle({ className, ...props }: React.ComponentProps<typeof DialogPrimitive.Title>) {
-  return <DialogPrimitive.Title data-slot="dialog-title" className={cn('text-lg leading-none font-semibold', className)} {...props} />;
+  return <DialogPrimitive.Title data-slot="dialog-title" className={cn('text-lg leading-snug font-semibold', className)} {...props} />;
 }
 
 function DialogDescription({ className, ...props }: React.ComponentProps<typeof DialogPrimitive.Description>) {

@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
+import { usePageTitle } from '@/lib/branding';
 
 export function PageHeader({ title, description, actions }: { title: ReactNode; description?: ReactNode; actions?: ReactNode }) {
+  usePageTitle(typeof title === 'string' ? title : null);
   return (
     <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
       <div className="min-w-0">
