@@ -82,6 +82,9 @@ const DEFAULT_WEIGHTS: Record<string, number> = {
   groupWeekOverload: 12,
 };
 
+/** Ярус очереди форм обучения: 0 — заочники, 1 — очно-заочные, 2 — очные (по умолчанию) */
+const tierOf = (ds: { d: SolverDemand }): number => ds.d.formTier ?? 2;
+
 /** Сколько пар сверх равномерной нормы группы в неделю допускается до ограничителя */
 const GROUP_WEEK_SLACK = 2;
 /** Отставание дисциплины догоняется не быстрее чем на столько пар в неделю сверх темпа */
@@ -760,30 +763,37 @@ export function solveHeuristic(problem: SolverProblem, options: HeuristicOptions
     }
     active.sort(
       (a, b) =>
+        tierOf(a) - tierOf(b) ||
         (freedom.get(a) ?? 0) / (targets.get(a) ?? 1) - (freedom.get(b) ?? 0) / (targets.get(b) ?? 1) ||
         b.d.priority - a.d.priority ||
         b.d.size - a.d.size,
     );
     const remaining = new Map(active.map((ds) => [ds, targets.get(ds) ?? 0]));
     let repairs = 0;
-    let progress = true;
-    while (progress) {
-      progress = false;
-      for (const ds of active) {
-        const left = remaining.get(ds) ?? 0;
-        if (left <= 0) continue;
-        const cand = bestCandidate(st, ds, days);
-        if (cand) {
-          st.apply({ demand: ds, day: cand.day, lesson: cand.lesson, roomId: cand.roomId, fixed: false });
-          ds.placed++;
-          remaining.set(ds, left - 1);
-          progress = true;
-        } else if (repairs < repairLimit && repair(st, ds, days)) {
-          repairs++;
-          remaining.set(ds, left - 1);
-          progress = true;
-        } else {
-          remaining.set(ds, 0);
+    // Очередь форм обучения: заочники ставятся полностью, затем очно-заочные, затем очные —
+    // по оставшимся свободным слотам (без очереди все в одном ярусе)
+    const tiers = [...new Set(active.map(tierOf))];
+    for (const tier of tiers) {
+      const inTier = active.filter((ds) => tierOf(ds) === tier);
+      let progress = true;
+      while (progress) {
+        progress = false;
+        for (const ds of inTier) {
+          const left = remaining.get(ds) ?? 0;
+          if (left <= 0) continue;
+          const cand = bestCandidate(st, ds, days);
+          if (cand) {
+            st.apply({ demand: ds, day: cand.day, lesson: cand.lesson, roomId: cand.roomId, fixed: false });
+            ds.placed++;
+            remaining.set(ds, left - 1);
+            progress = true;
+          } else if (repairs < repairLimit && repair(st, ds, days)) {
+            repairs++;
+            remaining.set(ds, left - 1);
+            progress = true;
+          } else {
+            remaining.set(ds, 0);
+          }
         }
       }
     }

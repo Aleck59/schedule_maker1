@@ -11,8 +11,8 @@ import {
   UserRoundCog,
   Wand2,
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
 import { AssessmentInfoDialog } from './assessment-info-dialog';
+import { InfoRow, lessonOptions, RefLink } from './lesson-parts';
 import { toast } from 'sonner';
 import { Confirm } from '@/components/common/confirm';
 import { Field } from '@/components/common/field';
@@ -45,28 +45,6 @@ import { issuesFromError, IssuesList } from './issues-list';
 
 type Panel = 'none' | 'mark' | 'move' | 'cancel' | 'substitute' | 'edit' | 'copy' | 'history';
 
-function InfoRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="grid grid-cols-[140px_1fr] gap-2 py-1 text-sm">
-      <div className="text-muted-foreground">{label}</div>
-      <div className="min-w-0">{children}</div>
-    </div>
-  );
-}
-
-/** Ссылка на исходник (группа, дисциплина, преподаватель, аудитория). Без доступа — обычный текст. */
-function RefLink({ to, children }: { to: string | null; children: ReactNode }) {
-  if (!to) return <>{children}</>;
-  return (
-    <Link
-      to={to}
-      className="text-blue-600 underline-offset-2 hover:text-blue-700 hover:underline dark:text-blue-400 dark:hover:text-blue-300"
-    >
-      {children}
-    </Link>
-  );
-}
-
 /** Блок конфликтов с возможностью сохранить несмотря на них */
 function ConflictBlock({
   issues,
@@ -96,16 +74,14 @@ function ConflictBlock({
   );
 }
 
-function lessonOptions(count: number) {
-  return Array.from({ length: count }, (_, i) => ({ value: String(i + 1), label: `${i + 1} пара` }));
-}
-
 /** Окно пары; для экзамена или зачёта в сетке (id вида assessment-<id>) — карточка мероприятия */
 export function LessonDialog(props: {
   lessonId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onChanged?: () => void;
+  /** Сразу открыть панель переноса или изменения (из контекстного меню) */
+  initialPanel?: 'move' | 'edit';
 }) {
   if (props.lessonId?.startsWith(ASSESSMENT_PREFIX)) {
     return (
@@ -113,6 +89,8 @@ export function LessonDialog(props: {
         assessmentId={props.lessonId.slice(ASSESSMENT_PREFIX.length)}
         open={props.open}
         onOpenChange={props.onOpenChange}
+        onChanged={props.onChanged}
+        initialPanel={props.initialPanel}
       />
     );
   }
@@ -126,11 +104,13 @@ function LessonDetailsDialog({
   open,
   onOpenChange,
   onChanged,
+  initialPanel,
 }: {
   lessonId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onChanged?: () => void;
+  initialPanel?: 'move' | 'edit';
 }) {
   const { user, canEdit } = useAuth();
   const [panel, setPanel] = useState<Panel>('none');
@@ -139,8 +119,8 @@ function LessonDetailsDialog({
   });
   const lesson = lessonQuery.data;
   useEffect(() => {
-    if (open) setPanel('none');
-  }, [open, lessonId]);
+    if (open) setPanel(initialPanel ?? 'none');
+  }, [open, lessonId, initialPanel]);
 
   const refresh = () => {
     void lessonQuery.refetch();

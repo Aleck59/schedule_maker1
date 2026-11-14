@@ -625,12 +625,19 @@ export class CalendarService {
             : undefined,
       },
       include: {
-        group: { select: { id: true, code: true, educationalProgramId: true } },
+        group: { select: { id: true, code: true, educationalProgramId: true, studentCount: true } },
         semesterItem: {
-          select: { semesterId: true, curriculumItem: { select: { code: true, name: true } } },
+          select: {
+            semesterId: true,
+            curriculumItem: {
+              select: { id: true, code: true, name: true, educationalProgramId: true },
+            },
+          },
         },
         teacher: { select: { id: true, fullName: true } },
-        classroom: { select: { id: true, code: true, name: true } },
+        classroom: {
+          select: { id: true, code: true, name: true, classroomType: true, capacity: true },
+        },
       },
     });
     if (!event) throw new NotFoundException('Мероприятие не найдено');

@@ -288,7 +288,8 @@ model OrganizationSettings {
   maxWeeklyLessonsFullTime   Int?
   maxWeeklyLessonsPartTime   Int?
   maxWeeklyLessonsExtramural Int?
-  /// В неделю, когда у заочных групп есть занятия, очным группам — не более fullTimeWeeklyOnExtramural пар
+  /// Приоритет заочников: при составлении пары ставятся сначала заочным, затем очно-заочным, затем очным группам
+  /// (fullTimeWeeklyOnExtramural с 1.6.8 не используется)
   reduceFullTimeOnExtramural Boolean  @default(false)
   fullTimeWeeklyOnExtramural Int?
   maxTeacherWindowsPerWeek   Int      @default(4)

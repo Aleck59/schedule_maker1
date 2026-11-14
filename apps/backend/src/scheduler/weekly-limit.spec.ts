@@ -2,7 +2,7 @@ import { diagnoseDemand } from './diagnostics';
 import { solveHeuristic } from './heuristic-solver';
 import { assertHardConstraints, baseProblem, demand, makeDays } from './__tests__/helpers';
 import { SolverProblem, SolverResult } from './solver.types';
-import { fullTimeLimitOnExtramural, weeklyLessonLimit } from '../common/utils/weekly-limits';
+import { formTierOf, weeklyLessonLimit } from '../common/utils/weekly-limits';
 
 /** Занятых слотов группы по неделям (параллельные подгруппы — одна пара) */
 function groupWeekSlots(problem: SolverProblem, result: SolverResult, groupId: string): Map<number, number> {
@@ -83,25 +83,48 @@ describe('Максимум пар группы в неделю', () => {
     expect(reasons[0].code).toBe('GROUP_WEEKLY_LIMIT');
   });
 
-  it('лимит по форме обучения и снижение для очников', () => {
+  it('лимит по форме обучения', () => {
     const settings = {
       maxWeeklyLessonsFullTime: 18,
       maxWeeklyLessonsPartTime: 8,
       maxWeeklyLessonsExtramural: null,
-      reduceFullTimeOnExtramural: false,
-      fullTimeWeeklyOnExtramural: 14,
     };
     expect(weeklyLessonLimit(settings, 'FULL_TIME')).toBe(18);
     expect(weeklyLessonLimit(settings, 'PART_TIME')).toBe(8);
     expect(weeklyLessonLimit(settings, 'EXTRAMURAL')).toBeNull();
-    expect(fullTimeLimitOnExtramural(settings)).toBeNull();
-    expect(fullTimeLimitOnExtramural({ ...settings, reduceFullTimeOnExtramural: true })).toBe(14);
-    expect(
-      fullTimeLimitOnExtramural({
-        ...settings,
-        reduceFullTimeOnExtramural: true,
-        fullTimeWeeklyOnExtramural: 20,
-      }),
-    ).toBe(18);
+  });
+});
+
+describe('Приоритет заочников', () => {
+  /** Один преподаватель у заочной и очной группы, на неделю у него 6 пар — на всех не хватит */
+  const contested = (tiers: boolean) => {
+    const days = makeDays('2025-09-01', 1);
+    const problem = baseProblem({ days });
+    problem.groups.forEach((g) => (g.allowedDates = days.map((d) => d.date)));
+    problem.teachers[1].maxWeeklyLessons = 6;
+    problem.demands = [
+      demand('full', ['g2'], 't2', 6, ['r_lec'], { semesterItemId: 'full', size: 20 }),
+      demand('ozo', ['g1'], 't2', 2, ['r_gen'], { semesterItemId: 'ozo', size: 20 }),
+      demand('extra', ['g1'], 't2', 4, ['r_gen'], { semesterItemId: 'extra', size: 20 }),
+    ];
+    if (tiers) {
+      problem.demands[0].formTier = formTierOf('FULL_TIME');
+      problem.demands[1].formTier = formTierOf('PART_TIME');
+      problem.demands[2].formTier = formTierOf('EXTRAMURAL');
+    }
+    const result = solveHeuristic(problem);
+    assertHardConstraints(problem, result);
+    const placed = (id: string) => result.placements.filter((p) => p.demandId === id).length;
+    return { full: placed('full'), ozo: placed('ozo'), extra: placed('extra') };
+  };
+
+  it('сначала заочники, затем очно-заочные, очным — что осталось', () => {
+    expect(contested(true)).toEqual({ extra: 4, ozo: 2, full: 0 });
+  });
+
+  it('без очереди слоты делятся между всеми', () => {
+    const r = contested(false);
+    expect(r.full).toBeGreaterThan(0);
+    expect(r.extra + r.ozo).toBeLessThan(6);
   });
 });

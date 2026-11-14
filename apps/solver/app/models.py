@@ -102,6 +102,8 @@ class Demand(CamelModel):
     # Если заданы — заменяют даты обычных занятий группы (практика, консультации)
     allowed_dates: list[str] | None = None
     is_difficult: bool = False
+    # Очередь форм обучения (приоритет заочников): 0 — заочная, 1 — очно-заочная, 2 — очная
+    form_tier: int = 2
 
 
 class Occupied(CamelModel):
